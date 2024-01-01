@@ -1,0 +1,47 @@
+// Load the service account credentials
+var CLIENT_ID = '.apps.googleusercontent.com' // Your Google Client ID
+var CLIENT_SECRET = 'XXXXX-XXXXX-XXXXXXXXXXXXXX' // Your Google Client Secret
+var CUSTOMER_ID = 'XXXXXXXXX' // Your Google Customer ID
+
+// Column indices in the spreadsheet
+OU_COLUMN_INDEX = 0; // Index of the Organizational Unit (OU) column
+PARENT_OU_COLUMN_INDEX = 1; // Index of the Parent OU column
+
+// Function to create a custom menu in Google Sheets
+function onOpen() {
+  SpreadsheetApp
+    .getActiveSpreadsheet()
+    .addMenu('Custom Script', [
+      { name: 'Add OUs', functionName: 'addOUs' }, // Adding 'Add OUs' option to the menu
+    ]);
+}
+
+// Function to add Organizational Units (OUs)
+function addOUs() {
+  // Open the spreadsheet and get the 'OU Settings' sheet
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('OU Settings');
+  var flag = []; // Array to keep track of OUs that failed to be created
+
+  // Loop over each row and perform actions
+  var values = sheet.getSheetValues(2, 1, sheet.getLastRow(), 2); // Fetch values starting from the second row
+  values.forEach( row => {
+    // Create an OU using the Admin SDK
+    var resource = {
+      name: row[OU_COLUMN_INDEX], // OU name from the first column
+      parentOrgUnitPath: row[PARENT_OU_COLUMN_INDEX] // Parent OU path from the second column
+    };
+
+    try {
+      var result = AdminDirectory.Orgunits.insert(resource, "my_customer") // Attempt to create the OU
+    } catch (e) {
+      flag.push(row[OU_COLUMN_INDEX]); // If there's an error, add OU to the flag list
+    }
+  });
+
+  // Check if any OUs failed to be created and alert the user
+  if (flag.length !== 0) { // Check if the flag list is not empty
+    var ui = SpreadsheetApp.getUi(); // Get the UI of the spreadsheet
+    var alertString = flag.join(); // Join all flagged OUs into a single string
+    ui.alert('An error occurred while creating the following OUs. Please check if they already exist.: ' + alertString); // Show an alert with the flagged OUs
+  }
+}

@@ -1,0 +1,187 @@
+// Load the service account credentials
+var CLIENT_ID = '.apps.googleusercontent.com' //
+var CLIENT_SECRET = 'XXXXX-XXXXX-XXXXXXXXXXXXXX'
+var CUSTOMER_ID = 'XXXXXXXXX' 
+
+
+OU_COLUMN_INDEX = 0;
+PARENT_OU_COLUMN_INDEX = 1;
+
+function onOpen() {
+  SpreadsheetApp
+    .getActiveSpreadsheet()
+    .addMenu('Custom Script', [
+      { name: 'Add Wifi Settings', functionName: 'addWifi' },
+
+    ]);
+}
+
+function addWifi() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = spreadsheet.getSheetByName('Wifi Settings');
+  
+  var data = sheet.getDataRange().getValues();
+  // resetOAuthService();
+  var service = getOAuthService();
+  if (!service.hasAccess()) {
+    var ui = SpreadsheetApp.getUi();
+    var alertString = service.getAuthorizationUrl();
+
+    Logger.log('Please authorize the script by visiting this URL: ' + alertString);
+
+    ui.alert('Auth Error: ' + alertString);
+
+    return;
+  }
+  
+  var options = {
+    method: 'post',
+    headers: {
+      Authorization: 'Bearer ' + service.getAccessToken(),
+      'Content-Type': 'application/json'
+    },
+    muteHttpExceptions: true
+  };
+  
+  for (var i = PARENT_OU_COLUMN_INDEX; i < data.length; i++) {
+    var row = data[i];
+    
+    var ouName = row[0];
+    var ouID = getOrgUnitId(ouName);
+    
+    var allowForChromeUsers = row[1];
+    var allowForChromeDevices = row[2];
+    var name = row[3];
+    var ssid = row[4];
+    var hiddenSsid = row[5];
+    var automaticallyConnect = row[6];
+    var authType = row[7];
+    var password = row[8];
+    var allowIpConfiguration = row[9];
+    var allowNameServersConfiguration = row[10];
+    var nameServerSelection = row[11];
+    var customNameServers = row[12];
+
+    if (nameServerSelection == "CUSTOM"){
+        nameServerSelection = "NAME_SERVERS_ENUM_CUSTOM"
+          var payload = {
+            "name": name,
+            "targetResource": "orgunits/" + ouID,
+            "settings": [
+              {
+                "policySchema": "chrome.networks.wifi.Details",
+                "value": {
+                  "details": {
+                    "ssid": ssid,
+                    "hiddenSsid": hiddenSsid,
+                    "automaticallyConnect": automaticallyConnect,
+                    "security": authType,
+                    "passphrase": password,
+                    "proxySettings": {
+                      "type": "Direct"
+                    },
+                    "allowIpConfiguration": allowIpConfiguration,
+                    "allowNameServersConfiguration": allowNameServersConfiguration,
+                    "nameServerSelection": nameServerSelection,
+                    "customNameServers": [customNameServers]
+                  }
+                }
+              },
+              {
+                "policySchema":"chrome.networks.wifi.AllowForChromeDevices",
+                "value":{"allowForChromeDevices":allowForChromeDevices}
+              },
+              {
+                "policySchema":"chrome.networks.wifi.AllowForChromeUsers",
+                "value":{"allowForChromeUsers":allowForChromeUsers}
+              }
+            ]
+          };
+    } else if (nameServerSelection == "AUTOMATIC"){
+        nameServerSelection = "NAME_SERVERS_ENUM_AUTOMATIC"
+          var payload = {
+            "name": name,
+            "targetResource": "orgunits/" + ouID,
+            "settings": [
+              {
+                "policySchema": "chrome.networks.wifi.Details",
+                "value": {
+                  "details": {
+                    "ssid": ssid,
+                    "hiddenSsid": hiddenSsid,
+                    "automaticallyConnect": automaticallyConnect,
+                    "security": authType,
+                    "passphrase": password,
+                    "proxySettings": {
+                      "type": "Direct"
+                    },
+                    "allowIpConfiguration": allowIpConfiguration,
+                    "allowNameServersConfiguration": allowNameServersConfiguration,
+                    "nameServerSelection": nameServerSelection
+                  }
+                }
+              },
+              {
+                "policySchema":"chrome.networks.wifi.AllowForChromeDevices",
+                "value":{"allowForChromeDevices":allowForChromeDevices}
+              },
+              {
+                "policySchema":"chrome.networks.wifi.AllowForChromeUsers",
+                "value":{"allowForChromeUsers":allowForChromeUsers}
+              }
+            ]
+          };
+    }
+    var url = 'https://chromepolicy.googleapis.com/v1/customers/' + CUSTOMER_ID + '/policies/networks:defineNetwork';
+
+    options.payload = JSON.stringify(payload);
+
+    var response = UrlFetchApp.fetch(url, options);
+    var result = JSON.parse(response.getContentText());
+    // Logger.log(response.getContentText());
+    if (response.getResponseCode() == 200) {
+      Logger.log('Successfully applied WiFi settings for OU: ' + ouName);
+    } else {
+      Logger.log('Failed to apply WiFi settings for OU: ' + ouName + '. Error: ' + result.error.message);
+    }
+  }
+}
+
+function getOAuthService() {
+  return OAuth2.createService('ChromePolicy')
+    .setAuthorizationBaseUrl('https://accounts.google.com/o/oauth2/auth')
+    .setTokenUrl('https://oauth2.googleapis.com/token')
+    .setClientId(CLIENT_ID)
+    .setClientSecret(CLIENT_SECRET)
+    .setCallbackFunction('authCallback')  // Set the callback function name
+    .setPropertyStore(PropertiesService.getUserProperties())
+    .setScope('https://www.googleapis.com/auth/chrome.management.policy');
+}
+
+// This is the function that will be called when the OAuth flow has completed.
+function authCallback(request) {
+  var service = getOAuthService();
+  var authorized = service.handleCallback(request);
+  if (authorized) {
+    return HtmlService.createHtmlOutput('Success!');
+  } else {
+    return HtmlService.createHtmlOutput('Denied.');
+  }
+}
+
+function getOrgUnitId(orgUnitName) {
+  var customerId = 'my_customer';  // 'my_customer' is an alias for the customer ID
+  var orgUnits = AdminDirectory.Orgunits.list(customerId, {type: 'all'}).organizationUnits;
+  for (var i = 0; i < orgUnits.length; i++) {
+    var orgUnit = orgUnits[i];
+    if (orgUnit.name == orgUnitName) {
+      return orgUnit.orgUnitId.slice(3);
+    }
+  }
+  throw new Error('OrgUnit not found: ' + orgUnitName);
+}
+
+function resetOAuthService() {
+  OAuth2.createService('ChromePolicy').reset();
+}
+
