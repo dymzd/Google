@@ -18,6 +18,10 @@ Facilitates the management of Organizational Units in Google Workspace, streamli
 This script, `MoveMultipleBrowsers.py`, enables administrators to move multiple Chrome browser devices across different Organizational Units (OUs) in Google Workspace efficiently. Ideal for managing large numbers of devices.
 - For more information, see the [Move Multiple Browsers Documentation](MoveMultipleBrowsers.md).
 
+### 4. Block Extensions Based On Risk Score
+Automates the assessment and blocking of Chrome extensions in Google Workspace based on risk scores from Crxcavator and Spin.ai. This script evaluates each extension's risk score and blocks those exceeding defined thresholds within a specified Organizational Unit, enhancing security and compliance in the digital workspace.
+- For more information, see the [Block Extensions Based On Risk Score Documentation](BlockExtensionBasedOnRiskScore.md).
+
 ## Usage
 These scripts are intended for use by administrators and IT professionals who manage Google Workspace or Google Admin Console environments. They are designed to be user-friendly and easily integrated into existing Google Workspace setups.
 
