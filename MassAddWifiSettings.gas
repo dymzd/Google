@@ -1,54 +1,54 @@
-// Load the service account credentials
-var CLIENT_ID = '.apps.googleusercontent.com' //
-var CLIENT_SECRET = 'XXXXX-XXXXX-XXXXXXXXXXXXXX'
-var CUSTOMER_ID = 'XXXXXXXXX' 
+// Load the service account credentials for OAuth authentication
+var CLIENT_ID = '.apps.googleusercontent.com'; // Replace with your Google Client ID
+var CLIENT_SECRET = 'XXXXX-XXXXX-XXXXXXXXXXXXXX'; // Replace with your Google Client Secret
+var CUSTOMER_ID = 'XXXXXXXXX'; // Replace with your Google Customer ID
 
+// Define column indices for data in the spreadsheet
+OU_COLUMN_INDEX = 0; // Column index for Organizational Unit (OU) name
+PARENT_OU_COLUMN_INDEX = 1; // Column index for Parent OU name (not used in this script)
 
-OU_COLUMN_INDEX = 0;
-PARENT_OU_COLUMN_INDEX = 1;
-
+// Function to create a custom menu in Google Sheets when the spreadsheet is opened
 function onOpen() {
   SpreadsheetApp
     .getActiveSpreadsheet()
     .addMenu('Custom Script', [
-      { name: 'Add Wifi Settings', functionName: 'addWifi' },
-
+      { name: 'Add Wifi Settings', functionName: 'addWifi' }, // Adds 'Add Wifi Settings' to the menu
     ]);
 }
 
+// Function to add WiFi settings to Organizational Units
 function addWifi() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = spreadsheet.getSheetByName('Wifi Settings');
-  
-  var data = sheet.getDataRange().getValues();
-  // resetOAuthService();
-  var service = getOAuthService();
+  var sheet = spreadsheet.getSheetByName('Wifi Settings'); // Access the sheet named 'Wifi Settings'
+  var data = sheet.getDataRange().getValues(); // Retrieve all data from the sheet
+  var service = getOAuthService(); // Initialize OAuth service for authentication
+
+  // Check if the script has OAuth access, handle authorization if not
   if (!service.hasAccess()) {
     var ui = SpreadsheetApp.getUi();
     var alertString = service.getAuthorizationUrl();
-
     Logger.log('Please authorize the script by visiting this URL: ' + alertString);
-
-    ui.alert('Auth Error: ' + alertString);
-
+    ui.alert('Auth Error: ' + alertString); // Show authorization error and URL to user
     return;
   }
   
+  // Define options for HTTP requests
   var options = {
     method: 'post',
     headers: {
-      Authorization: 'Bearer ' + service.getAccessToken(),
+      Authorization: 'Bearer ' + service.getAccessToken(), // OAuth token for authorization
       'Content-Type': 'application/json'
     },
     muteHttpExceptions: true
   };
   
+  // Loop through each row in the sheet and apply WiFi settings
   for (var i = PARENT_OU_COLUMN_INDEX; i < data.length; i++) {
     var row = data[i];
-    
+    // Extract data from each column
     var ouName = row[0];
     var ouID = getOrgUnitId(ouName);
-    
+
     var allowForChromeUsers = row[1];
     var allowForChromeDevices = row[2];
     var name = row[3];
@@ -62,83 +62,85 @@ function addWifi() {
     var nameServerSelection = row[11];
     var customNameServers = row[12];
 
+    // Construct payload based on the settings
+
     if (nameServerSelection == "CUSTOM"){
-        nameServerSelection = "NAME_SERVERS_ENUM_CUSTOM"
-          var payload = {
-            "name": name,
-            "targetResource": "orgunits/" + ouID,
-            "settings": [
-              {
-                "policySchema": "chrome.networks.wifi.Details",
-                "value": {
-                  "details": {
-                    "ssid": ssid,
-                    "hiddenSsid": hiddenSsid,
-                    "automaticallyConnect": automaticallyConnect,
-                    "security": authType,
-                    "passphrase": password,
-                    "proxySettings": {
-                      "type": "Direct"
-                    },
-                    "allowIpConfiguration": allowIpConfiguration,
-                    "allowNameServersConfiguration": allowNameServersConfiguration,
-                    "nameServerSelection": nameServerSelection,
-                    "customNameServers": [customNameServers]
-                  }
+      nameServerSelection = "NAME_SERVERS_ENUM_CUSTOM"
+        var payload = {
+          "name": name,
+          "targetResource": "orgunits/" + ouID,
+          "settings": [
+            {
+              "policySchema": "chrome.networks.wifi.Details",
+              "value": {
+                "details": {
+                  "ssid": ssid,
+                  "hiddenSsid": hiddenSsid,
+                  "automaticallyConnect": automaticallyConnect,
+                  "security": authType,
+                  "passphrase": password,
+                  "proxySettings": {
+                    "type": "Direct"
+                  },
+                  "allowIpConfiguration": allowIpConfiguration,
+                  "allowNameServersConfiguration": allowNameServersConfiguration,
+                  "nameServerSelection": nameServerSelection,
+                  "customNameServers": [customNameServers]
                 }
-              },
-              {
-                "policySchema":"chrome.networks.wifi.AllowForChromeDevices",
-                "value":{"allowForChromeDevices":allowForChromeDevices}
-              },
-              {
-                "policySchema":"chrome.networks.wifi.AllowForChromeUsers",
-                "value":{"allowForChromeUsers":allowForChromeUsers}
               }
-            ]
-          };
-    } else if (nameServerSelection == "AUTOMATIC"){
-        nameServerSelection = "NAME_SERVERS_ENUM_AUTOMATIC"
-          var payload = {
-            "name": name,
-            "targetResource": "orgunits/" + ouID,
-            "settings": [
-              {
-                "policySchema": "chrome.networks.wifi.Details",
-                "value": {
-                  "details": {
-                    "ssid": ssid,
-                    "hiddenSsid": hiddenSsid,
-                    "automaticallyConnect": automaticallyConnect,
-                    "security": authType,
-                    "passphrase": password,
-                    "proxySettings": {
-                      "type": "Direct"
-                    },
-                    "allowIpConfiguration": allowIpConfiguration,
-                    "allowNameServersConfiguration": allowNameServersConfiguration,
-                    "nameServerSelection": nameServerSelection
-                  }
+            },
+            {
+              "policySchema":"chrome.networks.wifi.AllowForChromeDevices",
+              "value":{"allowForChromeDevices":allowForChromeDevices}
+            },
+            {
+              "policySchema":"chrome.networks.wifi.AllowForChromeUsers",
+              "value":{"allowForChromeUsers":allowForChromeUsers}
+            }
+          ]
+        };
+  } else if (nameServerSelection == "AUTOMATIC"){
+      nameServerSelection = "NAME_SERVERS_ENUM_AUTOMATIC"
+        var payload = {
+          "name": name,
+          "targetResource": "orgunits/" + ouID,
+          "settings": [
+            {
+              "policySchema": "chrome.networks.wifi.Details",
+              "value": {
+                "details": {
+                  "ssid": ssid,
+                  "hiddenSsid": hiddenSsid,
+                  "automaticallyConnect": automaticallyConnect,
+                  "security": authType,
+                  "passphrase": password,
+                  "proxySettings": {
+                    "type": "Direct"
+                  },
+                  "allowIpConfiguration": allowIpConfiguration,
+                  "allowNameServersConfiguration": allowNameServersConfiguration,
+                  "nameServerSelection": nameServerSelection
                 }
-              },
-              {
-                "policySchema":"chrome.networks.wifi.AllowForChromeDevices",
-                "value":{"allowForChromeDevices":allowForChromeDevices}
-              },
-              {
-                "policySchema":"chrome.networks.wifi.AllowForChromeUsers",
-                "value":{"allowForChromeUsers":allowForChromeUsers}
               }
-            ]
-          };
-    }
+            },
+            {
+              "policySchema":"chrome.networks.wifi.AllowForChromeDevices",
+              "value":{"allowForChromeDevices":allowForChromeDevices}
+            },
+            {
+              "policySchema":"chrome.networks.wifi.AllowForChromeUsers",
+              "value":{"allowForChromeUsers":allowForChromeUsers}
+            }
+          ]
+        };
+  }
+    // API endpoint for setting WiFi policies
     var url = 'https://chromepolicy.googleapis.com/v1/customers/' + CUSTOMER_ID + '/policies/networks:defineNetwork';
+    options.payload = JSON.stringify(payload); // Convert payload to JSON string
+    var response = UrlFetchApp.fetch(url, options); // Send request to API
 
-    options.payload = JSON.stringify(payload);
-
-    var response = UrlFetchApp.fetch(url, options);
+    // Handle API response
     var result = JSON.parse(response.getContentText());
-    // Logger.log(response.getContentText());
     if (response.getResponseCode() == 200) {
       Logger.log('Successfully applied WiFi settings for OU: ' + ouName);
     } else {
@@ -147,41 +149,45 @@ function addWifi() {
   }
 }
 
+// Function to initialize and configure the OAuth2 service
 function getOAuthService() {
+  // Configure OAuth service with necessary URLs and credentials
   return OAuth2.createService('ChromePolicy')
     .setAuthorizationBaseUrl('https://accounts.google.com/o/oauth2/auth')
     .setTokenUrl('https://oauth2.googleapis.com/token')
     .setClientId(CLIENT_ID)
     .setClientSecret(CLIENT_SECRET)
-    .setCallbackFunction('authCallback')  // Set the callback function name
+    .setCallbackFunction('authCallback')  // Callback function after OAuth
     .setPropertyStore(PropertiesService.getUserProperties())
     .setScope('https://www.googleapis.com/auth/chrome.management.policy');
 }
 
-// This is the function that will be called when the OAuth flow has completed.
+// Callback function for OAuth2, called after user authorization
 function authCallback(request) {
   var service = getOAuthService();
   var authorized = service.handleCallback(request);
   if (authorized) {
-    return HtmlService.createHtmlOutput('Success!');
+    return HtmlService.createHtmlOutput('Success!'); // Display success message
   } else {
-    return HtmlService.createHtmlOutput('Denied.');
+    return HtmlService.createHtmlOutput('Denied.'); // Display denied message
   }
 }
 
+// Function to retrieve the Org Unit ID from its name
 function getOrgUnitId(orgUnitName) {
-  var customerId = 'my_customer';  // 'my_customer' is an alias for the customer ID
+  // Fetch all Org Units and find the one matching the provided name
+  var customerId = 'my_customer';  // Alias for the customer ID
   var orgUnits = AdminDirectory.Orgunits.list(customerId, {type: 'all'}).organizationUnits;
   for (var i = 0; i < orgUnits.length; i++) {
     var orgUnit = orgUnits[i];
     if (orgUnit.name == orgUnitName) {
-      return orgUnit.orgUnitId.slice(3);
+      return orgUnit.orgUnitId.slice(3); // Return the Org Unit ID
     }
   }
-  throw new Error('OrgUnit not found: ' + orgUnitName);
+  throw new Error('OrgUnit not found: ' + orgUnitName); // Error if Org Unit not found
 }
 
+// Function to reset the OAuth2 service, useful for re-authentication
 function resetOAuthService() {
   OAuth2.createService('ChromePolicy').reset();
 }
-
