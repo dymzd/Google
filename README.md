@@ -8,11 +8,15 @@ This repository contains a collection of scripts written in Google Apps Script a
 
 ### 1. WiFi Settings Management
 Automates the management of WiFi settings for Google Workspace Organizational Units using Google Sheets.
-- For detailed information and setup instructions, refer to [WiFi Settings Management Documentation](MassAddWifiSettings.md).
+- For detailed information and setup instructions, refer to [WiFi Settings Management Documentation](WiFi_Settings_Management_README.md).
 
 ### 2. Organizational Unit (OU) Settings Management
 Facilitates the management of Organizational Units in Google Workspace, streamlining the process of adding and modifying OUs.
-- See the [OU Settings Management Documentation](MassAddOUs.md) for more details.
+- See the [OU Settings Management Documentation](OU_Settings_Management_README.md) for more details.
+
+### 3. Move Multiple Browsers
+This script, `MoveMultipleBrowsers.py`, enables administrators to move multiple Chrome browser devices across different Organizational Units (OUs) in Google Workspace efficiently. Ideal for managing large numbers of devices.
+- For more information, see the [Move Multiple Browsers Documentation](MoveMultipleBrowsers.md).
 
 ## Usage
 These scripts are intended for use by administrators and IT professionals who manage Google Workspace or Google Admin Console environments. They are designed to be user-friendly and easily integrated into existing Google Workspace setups.
