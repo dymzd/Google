@@ -12,7 +12,7 @@ Automates the management of WiFi settings for Google Workspace Organizational Un
 
 ### 2. Organizational Unit (OU) Settings Management
 Facilitates the management of Organizational Units in Google Workspace, streamlining the process of adding and modifying OUs.
-- See the [OU Settings Management Documentation](Google_Sheets_OU_Management_README.md) for more details.
+- See the [OU Settings Management Documentation](MassAddOUs.md) for more details.
 
 ## Usage
 These scripts are intended for use by administrators and IT professionals who manage Google Workspace or Google Admin Console environments. They are designed to be user-friendly and easily integrated into existing Google Workspace setups.
