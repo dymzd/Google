@@ -2,7 +2,7 @@
 # Chrome Browser Cloud Management & Google Admin Console Scripts
 
 ## Introduction
-This repository contains a collection of scripts written in Google Apps Script and Python. These scripts are designed to enhance the functionalities and management of Google Workspace Services (GWS) and Google Admin Console, providing valuable tools for companies utilizing these services.
+This repository contains a collection of scripts written in Google Apps Script and Python. These scripts are designed to enhance the functionalities and management of Chrome Browser Cloud Management / Google Workspace Services (GWS) and Google Admin Console, providing valuable tools for companies utilizing these services.
 
 ## Scripts in this Repository
 
