@@ -45,6 +45,7 @@ This guide provides instructions on how to find the necessary configuration deta
   1. Copy the Unique ID from the [service account](https://console.cloud.google.com/iam-admin/serviceaccounts/) you created in the Google Cloud Console.
   2. Go to [Domain-wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) in the Admin Console.
   3. Paste the Unique ID and add the required OAuth scopes as per each script's requirements.
+- Make sure required APIs are enabled on [Google Cloud Console](https://console.cloud.google.com/).
 - Setting up Domain Wide Delegation is crucial for the service account to interact with Google Workspace on behalf of your domain.
 
 ---
