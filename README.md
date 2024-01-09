@@ -22,7 +22,7 @@ This script, `MoveMultipleBrowsers.py`, enables administrators to move multiple 
 Automates the assessment and blocking of Chrome extensions in Google Workspace based on risk scores from Crxcavator and Spin.ai. This script evaluates each extension's risk score and blocks those exceeding defined thresholds within a specified Organizational Unit, enhancing security and compliance in the digital workspace.
 - For more information, see the [Block Extensions Based On Risk Score Documentation](BlockExtensionBasedOnRiskScore.md).
 
-## 5. Configure Managed Bookmarks For Organizational Unit (OU)
+### 5. Configure Managed Bookmarks For Organizational Unit (OU)
 Automates the process of setting up managed bookmarks in Google Chrome for users within a specified Organizational Unit (OU) in Google Admin Console. It utilizes the Chrome Management Policy API to centrally manage and distribute bookmarks across the organization.
 - For more information, see the [Managed Bookmarks Documentation](ManagedBookmarks.md)
 
