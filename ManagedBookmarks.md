@@ -12,7 +12,7 @@ This Python script is designed to automate the process of setting up managed boo
 ## Configuration
 - `SERVICE_ACCOUNT_FILE`: The file path to your service account JSON key.
 - `CUSTOMER_ID`: Your Google Workspace customer ID. You can find the customer Id by navigating to the [Google Admin Console](https://admin.google.com/) > Account > Account Settings.
-- `ADMIN_USER_EMAIL`: The email address of a Google Admin Console admin user.
+- `ADMIN_USER_EMAIL`: The email address of a Google Workspace admin user.
 - `ORG_UNIT_ID`: The unique ID of the Organizational Unit where the bookmarks will be applied.
 
 ## Bookmark Format
@@ -30,4 +30,4 @@ This script modifies Chrome policy settings for the specified OU. Ensure you hav
 This script is provided as-is without official support. For assistance, consider using community forums or Google Workspace support channels.
 
 ## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is distributed under the terms of the [LICENSE] you choose. Please add a LICENSE file in your project repository.

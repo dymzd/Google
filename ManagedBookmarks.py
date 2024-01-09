@@ -3,13 +3,11 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 import json
 
-# Constants
+#/******* BEGIN: Customer to modify this section *******/
 SERVICE_ACCOUNT_FILE = '.json'  # Path to the service account JSON file
-SCOPES = ['https://www.googleapis.com/auth/chrome.management.policy']  # OAuth scopes for Chrome Management Policy
 CUSTOMER_ID = ''  # Your Google Workspace customer ID
 ADMIN_USER_EMAIL = ''  # Google Admin Console Admin email 
 ORG_UNIT_ID = ''  # The unique ID for the target Organizational Unit (OU)
-
 # List of bookmarks to add. This includes both individual links and folders with nested links
 BOOKMARKS = [
     {
@@ -38,6 +36,9 @@ BOOKMARKS = [
         }
     }
 ]
+#/******* END: Customer to modify this section *******/
+
+SCOPES = ['https://www.googleapis.com/auth/chrome.management.policy']  # OAuth scopes for Chrome Management Policy
 
 def add_managed_bookmarks(session, customer_id, org_unit_id, bookmarks):
     """
