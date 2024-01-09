@@ -30,4 +30,4 @@ This script modifies Chrome policy settings for the specified OU. Ensure you hav
 This script is provided as-is without official support. For assistance, consider using community forums or Google Workspace support channels.
 
 ## License
-This project is distributed under the terms of the [LICENSE] you choose. Please add a LICENSE file in your project repository.
+This project is licensed under the MIT License - see the LICENSE file for details.
