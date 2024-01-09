@@ -2,12 +2,19 @@ import google.auth
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-
 import requests
 import json
 
-# Constants
+#/******* BEGIN: Customer to modify this section *******/
 SERVICE_ACCOUNT_FILE = '.json'  # Path to the service account JSON file
+# Add the customer id here. You can find the customer Id by navigating to the Google Admin Console > Account > Account Settings
+CUSTOMER_ID = ''  # Your Google Workspace customer ID
+ADMIN_USER_EMAIL = 'admin@yourdomain.com'  # Admin email for user delegation
+TARGET_OU_ID = '' # The unique ID for the target Organizational Unit (OU)
+CRX_RISK_THRESHOLD = 550  # Threshold for Crxcavator risk score
+SPIN_RISK_THRESHOLD = 70  # Threshold for Spin risk score
+#/******* END: Customer to modify this section *******/
+
 SCOPES = [
     'https://www.googleapis.com/auth/admin.directory.device.chromeos',
     'https://www.googleapis.com/auth/chrome.management.reports.readonly',
@@ -15,11 +22,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/chrome.management.policy',
     'https://www.googleapis.com/auth/admin.directory.orgunit.readonly'
 ]  # OAuth scopes required for accessing the necessary APIs
-CUSTOMER_ID = ''  # Your Google Workspace customer ID
-CRX_RISK_THRESHOLD = 550  # Threshold for Crxcavator risk score
-SPIN_RISK_THRESHOLD = 70  # Threshold for Spin risk score
-ADMIN_USER_EMAIL = 'admin@yourdomain.com'  # Admin email for user delegation
-TARGET_OU_ID = '' # The unique ID for the target Organizational Unit (OU)
+
 
 def list_extensions(session, customer_id):
     """List all Chrome extensions for a given customer ID.
