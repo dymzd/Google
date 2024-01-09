@@ -1,7 +1,7 @@
 # BlockExtensionBasedOnRiskScore Script
 
 ## Overview
-This Python script, `BlockExtensionBasedOnRiskScore.py`, is designed to automate the process of identifying and blocking potentially risky Chrome extensions in a Google Workspace environment. It evaluates extensions based on risk scores obtained from Crxcavator and Spin.ai.
+This Python script, `BlockExtensionBasedOnRiskScore.py`, is designed to automate the process of identifying and blocking potentially risky Chrome extensions in a Chrome Browser Cloud Management environment. It evaluates extensions based on risk scores obtained from Crxcavator and Spin.ai.
 
 ## Requirements
 - Python 3.x
