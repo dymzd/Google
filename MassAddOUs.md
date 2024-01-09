@@ -1,7 +1,7 @@
 # Google Sheets OU Management Script
 
 ## Description
-This script is designed to automate the process of adding Organizational Units (OUs) to a Google Workspace domain using Google Sheets and Google Apps Script. It interacts with the Google Admin SDK to create new OUs based on the data provided in a Google Sheets document.
+This script is designed to automate the process of adding Organizational Units (OUs) to a Google Admin Console using Google Sheets and Google Apps Script. It interacts with the Google Admin SDK to create new OUs based on the data provided in a Google Sheets document.
 
 ## Setup
 1. Insert your Google service account credentials in the script.
