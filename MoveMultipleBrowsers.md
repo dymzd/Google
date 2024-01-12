@@ -13,7 +13,7 @@ This Python script, `MoveMultipleBrowsers.py`, is designed to facilitate the mov
 1. **Service Account Key**: Ensure you have a service account key JSON file from Google Cloud Console with necessary permissions.
 2. **Customer ID**: Obtain your Google Workspace customer ID from the Admin Console.
 3. **Destination OU Path**: Determine the OU path where the devices need to be moved.
-4. **Device CSV File**: Prepare a CSV file with device IDs. This can be downloaded from the Admin Console under Chrome Browser -> Managed Browser tab. Alternatively, select the OU in the Managed Browser section of the Chrome Browser tab and export it as a CSV.
+4. **Device CSV File**: Prepare a CSV file with device IDs. You can download this CSV from the Admin Console under Chrome Browser -> Managed Browser tab. In that section of Admin Console, you can select a specific OU and export it as a CSV file.
 
 ## Configuration
 Fill in the following fields in the script:
