@@ -145,20 +145,6 @@ def send_to_slack(features):
                         }
                     },
                     {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "いいね",
-                                    "emoji": True
-                                },
-                                "value": "click_me_123"
-                            }
-                        ]
-                    },
-                    {
                         "type": "divider"
                     }
                 ]
