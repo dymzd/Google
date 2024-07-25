@@ -6,7 +6,7 @@ import time
 
 # Constants
 URL = "https://support.google.com/chrome/a/answer/7679408?hl=ja"
-SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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"
+SLACK_WEBHOOK_URL = ""
 MAIN_CONTENT_XPATH = '//div[@class="cc"]//td/a/text()'
 RELEASE_NUMBER_XPATH = '//div[@class="cc"]/h2/text()'
 BROWSER_OS_CONSOLE_XPATH = '//div[@class="cc"]/div/h2/text()'
@@ -104,8 +104,12 @@ def send_to_slack(features):
         slack_message = '\n'.join(feature['details'])
         # print(message)
         print(slack_message)
+        releaseNum =  feature['releaseNum']
+        Sec = feature['whichSec']
         print(f'https://support.google.com{feature["url"]}')
         if feature['details'] != []:
+            if "今後の予定" in Sec:
+                releaseNum = ""
             slack_message = {
                 "blocks": [
                     {
@@ -123,7 +127,7 @@ def send_to_slack(features):
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"{feature['whichSec']} : {feature['releaseNum']}"
+                            "text": f"{Sec} : {releaseNum}"
                         },
                         "accessory": {
                             "type": "button",
