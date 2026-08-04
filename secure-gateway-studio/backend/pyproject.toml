@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "secure-gateway-studio"
+version = "0.1.0"
+description = "Local enterprise orchestrator for Chrome Secure Gateway deployments"
+requires-python = ">=3.12"
+dependencies = [
+  "cryptography>=45,<50",
+  "fastapi>=0.116,<1",
+  "google-auth>=2.40,<3",
+  "pydantic>=2.11,<3",
+  "requests>=2.32,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx2>=2,<3",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sgstudio"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
