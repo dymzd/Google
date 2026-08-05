@@ -212,6 +212,9 @@ class GoogleResourceExecutor:
             ("compute", "instance"): (
                 f"{compute}/zones/{spec.zone}/instances/{change.resource_name}"
             ),
+            ("compute", "instance_group"): (
+                f"{compute}/zones/{spec.zone}/instanceGroups/{change.resource_name}"
+            ),
             ("compute", "instance_template"): (
                 f"{compute}/global/instanceTemplates/{change.resource_name}"
             ),
@@ -230,6 +233,15 @@ class GoogleResourceExecutor:
             ),
             ("compute", "forwarding_rule"): (
                 f"{compute}/regions/{spec.region}/forwardingRules/{change.resource_name}"
+            ),
+            ("compute", "ssl_certificate"): (
+                f"{compute}/regions/{spec.region}/sslCertificates/{change.resource_name}"
+            ),
+            ("compute", "url_map"): (
+                f"{compute}/regions/{spec.region}/urlMaps/{change.resource_name}"
+            ),
+            ("compute", "target_https_proxy"): (
+                f"{compute}/regions/{spec.region}/targetHttpsProxies/{change.resource_name}"
             ),
             ("compute", "firewall_rule"): (
                 f"{compute}/global/firewalls/{change.resource_name}"
@@ -293,6 +305,7 @@ class GoogleResourceExecutor:
                 self._set_secret_iam, self._restore_secret_iam
             ),
             ("compute", "instance"): Mutation(self._create_instance, delete),
+            ("compute", "instance_group"): Mutation(self._create_instance_group, delete),
             ("compute", "instance_template"): Mutation(self._create_instance_template, delete),
             ("compute", "health_check"): Mutation(self._create_health_check, delete),
             ("compute", "instance_group_manager"): Mutation(
@@ -301,6 +314,11 @@ class GoogleResourceExecutor:
             ("compute", "autoscaler"): Mutation(self._create_autoscaler, delete),
             ("compute", "backend_service"): Mutation(self._create_backend_service, delete),
             ("compute", "forwarding_rule"): Mutation(self._create_forwarding_rule, delete),
+            ("compute", "ssl_certificate"): Mutation(self._create_ssl_certificate, delete),
+            ("compute", "url_map"): Mutation(self._create_url_map, delete),
+            ("compute", "target_https_proxy"): Mutation(
+                self._create_target_https_proxy, delete
+            ),
             ("compute", "offload_refresh"): Mutation(self._refresh_offload, self._no_rollback),
             ("compute", "firewall_rule"): Mutation(self._create_firewall, delete),
             ("dns", "private_zone"): Mutation(self._create_dns_zone, delete),
@@ -534,16 +552,20 @@ class GoogleResourceExecutor:
 
     def _create_subnetwork(self, change: ResourceChange, spec: DeploymentSpec) -> None:
         base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        proxy_only = change.resource_name.endswith("-proxy-subnet")
+        body: dict[str, Any] = {
+            "name": change.resource_name,
+            "ipCidrRange": spec.proxy_subnet_cidr if proxy_only else spec.subnet_cidr,
+            "network": f"{base}/global/networks/{self._network_name(spec)}",
+            "privateIpGoogleAccess": not proxy_only,
+            "stackType": "IPV4_ONLY",
+        }
+        if proxy_only:
+            body.update({"purpose": "REGIONAL_MANAGED_PROXY", "role": "ACTIVE"})
         self._create(
             change,
             url=f"{base}/regions/{spec.region}/subnetworks",
-            body={
-                "name": change.resource_name,
-                "ipCidrRange": spec.subnet_cidr,
-                "network": f"{base}/global/networks/{self._network_name(spec)}",
-                "privateIpGoogleAccess": True,
-                "stackType": "IPV4_ONLY",
-            },
+            body=body,
             fallback_host="compute.googleapis.com",
             delete_url=f"{base}/regions/{spec.region}/subnetworks/{change.resource_name}",
         )
@@ -1264,6 +1286,35 @@ PY
                 ) from cleanup_error
             raise
 
+    def _create_instance_group(self, change: ResourceChange, spec: DeploymentSpec) -> None:
+        base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        group_url = f"{base}/zones/{spec.zone}/instanceGroups/{change.resource_name}"
+        self._create(
+            change,
+            url=f"{base}/zones/{spec.zone}/instanceGroups",
+            body={
+                "name": change.resource_name,
+                "description": "Managed by Secure Gateway Studio",
+                "namedPorts": [{"name": "http", "port": 80}],
+                "network": f"{base}/global/networks/{self._network_name(spec)}",
+                "subnetwork": (
+                    f"{base}/regions/{spec.region}/subnetworks/{self._subnet_name(spec)}"
+                ),
+            },
+            fallback_host="compute.googleapis.com",
+            delete_url=group_url,
+        )
+        payload = self._request(
+            "POST",
+            f"{group_url}/addInstances",
+            body={
+                "instances": [
+                    {"instance": f"{base}/zones/{spec.zone}/instances/{spec.name}-backend"}
+                ]
+            },
+        )
+        self._wait(payload, fallback_host="compute.googleapis.com")
+
     @staticmethod
     def _guest_attribute_items(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
         query_value = payload.get("queryValue")
@@ -1404,13 +1455,22 @@ PY
 
     def _create_health_check(self, change: ResourceChange, spec: DeploymentSpec) -> None:
         base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            check_body: dict[str, Any] = {
+                "type": "HTTP",
+                "httpHealthCheck": {
+                    "portSpecification": "USE_SERVING_PORT",
+                    "requestPath": "/",
+                },
+            }
+        else:
+            check_body = {"type": "SSL", "sslHealthCheck": {"port": 443}}
         self._create(
             change,
             url=f"{base}/regions/{spec.region}/healthChecks",
             body={
                 "name": change.resource_name,
-                "type": "SSL",
-                "sslHealthCheck": {"port": 443},
+                **check_body,
                 "checkIntervalSec": 10,
                 "timeoutSec": 5,
                 "healthyThreshold": 2,
@@ -1418,6 +1478,102 @@ PY
             },
             fallback_host="compute.googleapis.com",
             delete_url=(f"{base}/regions/{spec.region}/healthChecks/{change.resource_name}"),
+        )
+
+    def _tls_material(self, spec: DeploymentSpec) -> tuple[str, str]:
+        if self._certificate is not None:
+            certificate = self._certificate.certificate_pem + b"".join(
+                self._certificate.certificate_chain_pem
+            )
+            return (
+                certificate.decode("ascii"),
+                self._certificate.private_key_pem.decode("ascii"),
+            )
+        version = (
+            "latest"
+            if spec.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED
+            else "active"
+        )
+        payload = self._request(
+            "GET",
+            (
+                "https://secretmanager.googleapis.com/v1/projects/"
+                f"{spec.project_id}/secrets/{self._tls_secret_name(spec)}/"
+                f"versions/{version}:access"
+            ),
+        )
+        encoded = payload.get("payload", {}).get("data")
+        if not isinstance(encoded, str):
+            raise ValueError("TLS secret response is missing payload data")
+        document = json.loads(base64.b64decode(encoded, validate=True))
+        certificate_pem = document.get("certificate_pem")
+        chain = document.get("certificate_chain_pem")
+        private_key_pem = document.get("private_key_pem")
+        if (
+            not isinstance(certificate_pem, str)
+            or not isinstance(private_key_pem, str)
+            or not isinstance(chain, list)
+            or not all(isinstance(item, str) for item in chain)
+        ):
+            raise ValueError("TLS secret payload does not match the required contract")
+        return certificate_pem + "".join(chain), private_key_pem
+
+    def _create_ssl_certificate(
+        self, change: ResourceChange, spec: DeploymentSpec
+    ) -> None:
+        base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        certificate, private_key = self._tls_material(spec)
+        self._create(
+            change,
+            url=f"{base}/regions/{spec.region}/sslCertificates",
+            body={
+                "name": change.resource_name,
+                "description": (
+                    "Managed by Secure Gateway Studio; certificate configuration "
+                    f"{certificate_configuration_hash(spec)}"
+                ),
+                "certificate": certificate,
+                "privateKey": private_key,
+            },
+            fallback_host="compute.googleapis.com",
+            delete_url=(
+                f"{base}/regions/{spec.region}/sslCertificates/{change.resource_name}"
+            ),
+        )
+
+    def _create_url_map(self, change: ResourceChange, spec: DeploymentSpec) -> None:
+        base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        self._create(
+            change,
+            url=f"{base}/regions/{spec.region}/urlMaps",
+            body={
+                "name": change.resource_name,
+                "defaultService": (
+                    f"{base}/regions/{spec.region}/backendServices/{spec.name}-ilb-bs"
+                ),
+            },
+            fallback_host="compute.googleapis.com",
+            delete_url=f"{base}/regions/{spec.region}/urlMaps/{change.resource_name}",
+        )
+
+    def _create_target_https_proxy(
+        self, change: ResourceChange, spec: DeploymentSpec
+    ) -> None:
+        base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        self._create(
+            change,
+            url=f"{base}/regions/{spec.region}/targetHttpsProxies",
+            body={
+                "name": change.resource_name,
+                "urlMap": f"{base}/regions/{spec.region}/urlMaps/{spec.name}-ilb-map",
+                "sslCertificates": [
+                    f"{base}/regions/{spec.region}/sslCertificates/{spec.name}-ilb-cert"
+                ],
+            },
+            fallback_host="compute.googleapis.com",
+            delete_url=(
+                f"{base}/regions/{spec.region}/targetHttpsProxies/{change.resource_name}"
+            ),
         )
 
     def _create_instance_group_manager(self, change: ResourceChange, spec: DeploymentSpec) -> None:
@@ -1559,49 +1715,70 @@ PY
 
     def _create_backend_service(self, change: ResourceChange, spec: DeploymentSpec) -> None:
         base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            protocol = "HTTP"
+            scheme = "INTERNAL_MANAGED"
+            health_check = f"{spec.name}-ilb-hc"
+            group = f"{base}/zones/{spec.zone}/instanceGroups/{spec.name}-backend-ig"
+            backends = [{"group": group, "balancingMode": "UTILIZATION"}]
+            port_name = "http"
+        else:
+            protocol = "TCP"
+            scheme = "INTERNAL"
+            health_check = f"{spec.name}-offload-hc"
+            group = f"{base}/regions/{spec.region}/instanceGroups/{spec.name}-offload-mig"
+            backends = [{"group": group}]
+            port_name = None
+        body: dict[str, Any] = {
+            "name": change.resource_name,
+            "protocol": protocol,
+            "loadBalancingScheme": scheme,
+            "timeoutSec": 10,
+            "healthChecks": [
+                f"{base}/regions/{spec.region}/healthChecks/{health_check}"
+            ],
+            "backends": backends,
+        }
+        if port_name is not None:
+            body["portName"] = port_name
         self._create(
             change,
             url=f"{base}/regions/{spec.region}/backendServices",
-            body={
-                "name": change.resource_name,
-                "protocol": "TCP",
-                "loadBalancingScheme": "INTERNAL",
-                "timeoutSec": 10,
-                "healthChecks": [
-                    f"{base}/regions/{spec.region}/healthChecks/{spec.name}-offload-hc"
-                ],
-                "backends": [
-                    {
-                        "group": (
-                            f"{base}/regions/{spec.region}/instanceGroups/{spec.name}-offload-mig"
-                        ),
-                    }
-                ],
-            },
+            body=body,
             fallback_host="compute.googleapis.com",
             delete_url=(f"{base}/regions/{spec.region}/backendServices/{change.resource_name}"),
         )
 
     def _create_forwarding_rule(self, change: ResourceChange, spec: DeploymentSpec) -> None:
         base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
+        internal_application_lb = spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+        body: dict[str, Any] = {
+            "name": change.resource_name,
+            "IPAddress": self._address(spec, "offload"),
+            "IPProtocol": "TCP",
+            "ports": ["443"],
+            "loadBalancingScheme": (
+                "INTERNAL_MANAGED" if internal_application_lb else "INTERNAL"
+            ),
+            "allowGlobalAccess": True,
+            "network": f"{base}/global/networks/{self._network_name(spec)}",
+            "subnetwork": (
+                f"{base}/regions/{spec.region}/subnetworks/{self._subnet_name(spec)}"
+            ),
+        }
+        if internal_application_lb:
+            body["target"] = (
+                f"{base}/regions/{spec.region}/targetHttpsProxies/{spec.name}-ilb-proxy"
+            )
+            body["networkTier"] = "PREMIUM"
+        else:
+            body["backendService"] = (
+                f"{base}/regions/{spec.region}/backendServices/{spec.name}-offload-bs"
+            )
         self._create(
             change,
             url=f"{base}/regions/{spec.region}/forwardingRules",
-            body={
-                "name": change.resource_name,
-                "IPAddress": self._address(spec, "offload"),
-                "IPProtocol": "TCP",
-                "ports": ["443"],
-                "loadBalancingScheme": "INTERNAL",
-                "allowGlobalAccess": True,
-                "network": f"{base}/global/networks/{self._network_name(spec)}",
-                "subnetwork": (
-                    f"{base}/regions/{spec.region}/subnetworks/{self._subnet_name(spec)}"
-                ),
-                "backendService": (
-                    f"{base}/regions/{spec.region}/backendServices/{spec.name}-offload-bs"
-                ),
-            },
+            body=body,
             fallback_host="compute.googleapis.com",
             delete_url=(f"{base}/regions/{spec.region}/forwardingRules/{change.resource_name}"),
         )
@@ -1609,8 +1786,18 @@ PY
 
     def _wait_for_healthy_backends(self, spec: DeploymentSpec) -> None:
         base = f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}"
-        url = f"{base}/regions/{spec.region}/backendServices/{spec.name}-offload-bs/getHealth"
-        group = f"{base}/regions/{spec.region}/instanceGroups/{spec.name}-offload-mig"
+        internal_application_lb = spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+        service_name = (
+            f"{spec.name}-ilb-bs"
+            if internal_application_lb
+            else f"{spec.name}-offload-bs"
+        )
+        url = f"{base}/regions/{spec.region}/backendServices/{service_name}/getHealth"
+        group = (
+            f"{base}/zones/{spec.zone}/instanceGroups/{spec.name}-backend-ig"
+            if internal_application_lb
+            else f"{base}/regions/{spec.region}/instanceGroups/{spec.name}-offload-mig"
+        )
         deadline = time.monotonic() + self._operation_timeout
         while time.monotonic() < deadline:
             payload = self._request("POST", url, body={"group": group})
@@ -1620,7 +1807,8 @@ PY
                 for status in statuses
                 if isinstance(status, dict) and status.get("healthState") == "HEALTHY"
             ]
-            if len(healthy) >= spec.offload_min_replicas:
+            required_healthy = 1 if internal_application_lb else spec.offload_min_replicas
+            if len(healthy) >= required_healthy:
                 return
             time.sleep(self._poll_interval)
         raise ProviderExecutionError("offload-backends-not-healthy")
@@ -1630,6 +1818,8 @@ PY
             f"https://compute.googleapis.com/compute/v1/projects/{spec.project_id}/"
             f"global/networks/{self._network_name(spec)}"
         )
+        internal_application_lb = spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+        target_role = "backend" if internal_application_lb else "offload"
         body: dict[str, Any] = {
             "name": change.resource_name,
             "network": network,
@@ -1637,11 +1827,17 @@ PY
             "priority": 1000,
             "allowed": [{"IPProtocol": "tcp", "ports": ["443"]}],
             "targetServiceAccounts": [
-                service_account_email(spec.name, spec.project_id, "offload")
+                service_account_email(spec.name, spec.project_id, target_role)
             ],
             "logConfig": {"enable": True, "metadata": "INCLUDE_ALL_METADATA"},
         }
-        if change.resource_name.endswith("gateway-ingress"):
+        if change.resource_name.endswith("ilb-proxy-ingress"):
+            body["allowed"][0]["ports"] = ["80"]
+            body["sourceRanges"] = [spec.proxy_subnet_cidr]
+        elif change.resource_name.endswith("ilb-health-ingress"):
+            body["allowed"][0]["ports"] = ["80"]
+            body["sourceRanges"] = ["35.191.0.0/16", "130.211.0.0/22"]
+        elif change.resource_name.endswith("gateway-ingress"):
             body["sourceRanges"] = [SECURE_GATEWAY_SOURCE_CIDR]
         elif change.resource_name.endswith("health-check-ingress"):
             body["sourceRanges"] = ["35.191.0.0/16", "130.211.0.0/22"]

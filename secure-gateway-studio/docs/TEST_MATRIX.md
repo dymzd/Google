@@ -14,10 +14,13 @@
 
 ## Required execution order
 
-The Nginx HTTP-offload architecture requires T01–T05. The independent direct
-HTTPS architecture has no backend or offload VM and therefore requires T05,
-T06, and one T07 case per selected Chrome platform; Production also requires
-T08 and both T09 denial cases.
+The Nginx HTTP-offload architecture requires T01–T05. The internal Application
+Load Balancer HTTPS-offload architecture requires automated T01, T04, and T05,
+an operator-confirmed T03 against the ILB endpoint, T06, and one T07 case per
+selected Chrome platform. The independent direct HTTPS architecture has no
+backend or offload VM and therefore requires T05, T06, and one T07 case per
+selected Chrome platform. Production also requires T08 and both T09 denial
+cases for every architecture.
 
 1. Export the prepared plan before approval.
 2. Apply only to the dedicated test OU.
@@ -34,7 +37,10 @@ T08 and both T09 denial cases.
 Backend tests cover:
 
 - strict production invariants and injection-resistant inputs;
-- dedicated/existing VPC planning and resource collision handling;
+- dedicated/existing VPC planning, proxy-only subnet validation, and resource
+  collision handling;
+- regional internal Application Load Balancer request bodies, certificate
+  attachment, dependency ordering, discovery, and teardown coverage;
 - billing, permissions, access-level, certificate, and immutable-image gates;
 - cross-platform local PoC root/leaf generation, public-root artifact export,
   download protection, and rollback cleanup;
@@ -58,6 +64,8 @@ Frontend tests cover:
 - the PoC-only Admin console trust handoff across managed Chrome platforms;
 - all four managed Chrome platforms;
 - bilingual seven-step Guide navigation and content;
+- Option A direct HTTPS and Option B ILB HTTPS offload as the primary choices,
+  with the Option C Nginx path preserved under Legacy / advanced settings;
 - server-backed identity validation, server-attributed evidence, and nonce
   bootstrap;
 - functional evidence navigation, integrity display, and the T01–T09

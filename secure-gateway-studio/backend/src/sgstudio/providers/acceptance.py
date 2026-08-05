@@ -37,6 +37,12 @@ class GoogleAcceptanceVerifier:
     def verify(self, spec: DeploymentSpec) -> list[AcceptanceFinding]:
         if spec.backend_kind is BackendKind.DIRECT_HTTPS:
             return [self._verify_application(spec)]
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            return [
+                self._verify_backend(spec),
+                self._verify_dns(spec),
+                self._verify_application(spec),
+            ]
         findings: list[AcceptanceFinding] = []
         if spec.backend_kind is BackendKind.MANAGED_SAMPLE:
             findings.append(self._verify_backend(spec))

@@ -182,5 +182,14 @@ class GcloudDeployerBootstrapper:
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()[-500:]
+            if (
+                "Reauthentication failed" in detail
+                or "cannot prompt during non-interactive execution" in detail
+            ):
+                detail = (
+                    "The active gcloud user credentials require reauthentication. "
+                    "Run `gcloud auth login`, complete browser sign-in, then retry "
+                    "automatic deployer setup."
+                )
             raise RuntimeError(detail or "gcloud command failed")
         return result.stdout

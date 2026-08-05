@@ -946,7 +946,52 @@ h1 {
 }
 
 .backend-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.legacy-options {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafb;
+}
+
+.legacy-options > summary {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-700);
+  cursor: pointer;
+}
+
+.legacy-options > summary::marker {
+  color: var(--ink-muted);
+}
+
+.legacy-options > summary > span {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.legacy-options > summary strong {
+  font-size: 13px;
+}
+
+.legacy-options > summary small {
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.legacy-backend-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 14px 14px;
+}
+
+.legacy-backend-grid .choice-card {
+  min-height: 92px;
 }
 
 .summary-selection {
@@ -3054,6 +3099,10 @@ h1 {
   }
 
   .backend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .legacy-backend-grid {
     grid-template-columns: 1fr;
   }
 

@@ -42,6 +42,10 @@ includedPermissions:
   - compute.instanceGroupManagers.delete
   - compute.instanceGroupManagers.get
   - compute.instanceGroupManagers.update
+  - compute.instanceGroups.create
+  - compute.instanceGroups.delete
+  - compute.instanceGroups.get
+  - compute.instanceGroups.update
   - compute.instanceGroups.use
   - compute.instanceTemplates.create
   - compute.instanceTemplates.delete
@@ -68,6 +72,17 @@ includedPermissions:
   - compute.regionBackendServices.use
   - compute.regionHealthChecks.useReadOnly
   - compute.regionOperations.get
+  - compute.regionSslCertificates.create
+  - compute.regionSslCertificates.delete
+  - compute.regionSslCertificates.get
+  - compute.regionTargetHttpsProxies.create
+  - compute.regionTargetHttpsProxies.delete
+  - compute.regionTargetHttpsProxies.get
+  - compute.regionTargetHttpsProxies.use
+  - compute.regionUrlMaps.create
+  - compute.regionUrlMaps.delete
+  - compute.regionUrlMaps.get
+  - compute.regionUrlMaps.use
   - compute.routers.create
   - compute.routers.delete
   - compute.routers.get

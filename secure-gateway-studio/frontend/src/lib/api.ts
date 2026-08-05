@@ -49,7 +49,12 @@ export interface DeploymentSpec {
   workspace_services_confirmed: boolean;
   endpoint_verification_confirmed: boolean;
   test_ou_confirmed: boolean;
-  backend_kind: "managed_sample" | "existing_http" | "direct_https";
+  backend_kind:
+    | "managed_sample"
+    | "existing_http"
+    | "direct_https"
+    | "internal_https_lb";
+  proxy_subnet_cidr: string;
   existing_backend_url: string | null;
   existing_backend_location: "gcp" | "aws" | "azure" | "on_prem" | null;
   existing_backend_connectivity_confirmed: boolean;
@@ -169,7 +174,11 @@ export interface DeploymentDetails {
   deployment_name: string;
   project_id: string;
   gateway_id: string;
-  backend_kind: "managed_sample" | "existing_http" | "direct_https";
+  backend_kind:
+    | "managed_sample"
+    | "existing_http"
+    | "direct_https"
+    | "internal_https_lb";
   application_hostname: string;
   application_port: number;
   resources: DeploymentResource[];

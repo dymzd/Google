@@ -1240,8 +1240,25 @@ class GoogleDiscoveryProvider:
                 ),
             )
 
-        for suffix in ("offload", "backend"):
-            if suffix == "backend" and spec.backend_kind is not BackendKind.MANAGED_SAMPLE:
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            yield ResourceProbe(
+                f"compute:subnetwork:{prefix}-proxy-subnet",
+                (
+                    f"https://compute.googleapis.com/compute/v1/projects/{project}/"
+                    f"regions/{region}/subnetworks/{prefix}-proxy-subnet"
+                ),
+            )
+
+        service_account_suffixes = (
+            ("backend",)
+            if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+            else ("offload", "backend")
+        )
+        for suffix in service_account_suffixes:
+            if suffix == "backend" and spec.backend_kind not in {
+                BackendKind.MANAGED_SAMPLE,
+                BackendKind.INTERNAL_HTTPS_LB,
+            }:
                 continue
             account_id = service_account_id(prefix, suffix)
             email = quote(f"{account_id}@{project}.iam.gserviceaccount.com", safe="")
@@ -1261,14 +1278,58 @@ class GoogleDiscoveryProvider:
             (f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{secret_name}"),
         )
         for suffix in ("offload", "backend"):
-            if suffix == "backend" and spec.backend_kind is not BackendKind.MANAGED_SAMPLE:
+            if suffix == "backend" and spec.backend_kind not in {
+                BackendKind.MANAGED_SAMPLE,
+                BackendKind.INTERNAL_HTTPS_LB,
+            }:
                 continue
             yield ResourceProbe(
                 f"compute:internal_address:{prefix}-{suffix}-ip",
                 f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{region}/"
                 f"addresses/{prefix}-{suffix}-ip",
             )
-        if spec.mode.value == "production":
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            for resource_type, collection, name in (
+                (
+                    "instance_group",
+                    f"zones/{zone}/instanceGroups",
+                    f"{prefix}-backend-ig",
+                ),
+                (
+                    "health_check",
+                    f"regions/{region}/healthChecks",
+                    f"{prefix}-ilb-hc",
+                ),
+                (
+                    "backend_service",
+                    f"regions/{region}/backendServices",
+                    f"{prefix}-ilb-bs",
+                ),
+                (
+                    "ssl_certificate",
+                    f"regions/{region}/sslCertificates",
+                    f"{prefix}-ilb-cert",
+                ),
+                ("url_map", f"regions/{region}/urlMaps", f"{prefix}-ilb-map"),
+                (
+                    "target_https_proxy",
+                    f"regions/{region}/targetHttpsProxies",
+                    f"{prefix}-ilb-proxy",
+                ),
+                (
+                    "forwarding_rule",
+                    f"regions/{region}/forwardingRules",
+                    f"{prefix}-ilb-fr",
+                ),
+            ):
+                yield ResourceProbe(
+                    f"compute:{resource_type}:{name}",
+                    (
+                        f"https://compute.googleapis.com/compute/v1/projects/{project}/"
+                        f"{collection}/{name}"
+                    ),
+                )
+        elif spec.mode.value == "production":
             for resource_type, collection, name in (
                 (
                     "instance_template",
@@ -1318,17 +1379,23 @@ class GoogleDiscoveryProvider:
                     f"zones/{zone}/instances/{prefix}-offload"
                 ),
             )
-        if spec.backend_kind is BackendKind.MANAGED_SAMPLE:
+        if spec.backend_kind in {
+            BackendKind.MANAGED_SAMPLE,
+            BackendKind.INTERNAL_HTTPS_LB,
+        }:
             yield ResourceProbe(
                 f"compute:instance:{prefix}-backend",
                 f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{zone}/"
                 f"instances/{prefix}-backend",
             )
-        firewall_suffixes = ["gateway-ingress"]
-        if spec.mode.value == "production":
-            firewall_suffixes.append("health-check-ingress")
-        if spec.backend_kind is BackendKind.MANAGED_SAMPLE:
-            firewall_suffixes.append("backend-ingress")
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            firewall_suffixes = ["ilb-proxy-ingress", "ilb-health-ingress"]
+        else:
+            firewall_suffixes = ["gateway-ingress"]
+            if spec.mode.value == "production":
+                firewall_suffixes.append("health-check-ingress")
+            if spec.backend_kind is BackendKind.MANAGED_SAMPLE:
+                firewall_suffixes.append("backend-ingress")
         for suffix in firewall_suffixes:
             yield ResourceProbe(
                 f"compute:firewall_rule:{prefix}-{suffix}",
@@ -1431,6 +1498,12 @@ class GoogleDiscoveryProvider:
             network = payload.get("network")
             if not isinstance(network, str) or not network.endswith(network_suffix):
                 return False
+            if resource_name.endswith("-proxy-subnet"):
+                return (
+                    payload.get("ipCidrRange") == spec.proxy_subnet_cidr
+                    and payload.get("purpose") == "REGIONAL_MANAGED_PROXY"
+                    and payload.get("role") == "ACTIVE"
+                )
             return (
                 spec.network_strategy is NetworkStrategy.EXISTING
                 or payload.get("ipCidrRange") == spec.subnet_cidr
@@ -1458,10 +1531,30 @@ class GoogleDiscoveryProvider:
             )
         if resource_type == "instance":
             return self._private_managed_vm(payload, spec)
+        if resource_type == "instance_group":
+            named_ports = payload.get("namedPorts")
+            network = payload.get("network")
+            subnetwork = payload.get("subnetwork")
+            return (
+                isinstance(network, str)
+                and network.endswith(f"/networks/{self._network_name(spec)}")
+                and isinstance(subnetwork, str)
+                and subnetwork.endswith(f"/subnetworks/{self._subnet_name(spec)}")
+                and isinstance(named_ports, list)
+                and any(
+                isinstance(port, dict)
+                and port.get("name") == "http"
+                and port.get("port") == 80
+                for port in named_ports
+                )
+            )
         if resource_type == "instance_template":
             properties = payload.get("properties")
             return isinstance(properties, dict) and self._private_managed_vm(properties, spec)
         if resource_type == "health_check":
+            if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+                http = payload.get("httpHealthCheck")
+                return payload.get("type") == "HTTP" and isinstance(http, dict)
             ssl = payload.get("sslHealthCheck")
             return payload.get("type") == "SSL" and isinstance(ssl, dict) and ssl.get("port") == 443
         if resource_type == "instance_group_manager":
@@ -1488,15 +1581,80 @@ class GoogleDiscoveryProvider:
                 and cpu.get("utilizationTarget") == spec.offload_cpu_target
             )
         if resource_type == "backend_service":
+            if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+                health_checks = payload.get("healthChecks")
+                backends = payload.get("backends")
+                return (
+                    payload.get("protocol") == "HTTP"
+                    and payload.get("loadBalancingScheme") == "INTERNAL_MANAGED"
+                    and payload.get("portName") == "http"
+                    and isinstance(health_checks, list)
+                    and any(
+                        isinstance(health_check, str)
+                        and health_check.endswith(
+                            f"/regions/{spec.region}/healthChecks/{spec.name}-ilb-hc"
+                        )
+                        for health_check in health_checks
+                    )
+                    and isinstance(backends, list)
+                    and any(
+                        isinstance(backend, dict)
+                        and isinstance(backend.get("group"), str)
+                        and backend["group"].endswith(
+                            f"/zones/{spec.zone}/instanceGroups/{spec.name}-backend-ig"
+                        )
+                        for backend in backends
+                    )
+                )
             return (
                 payload.get("protocol") == "TCP"
                 and payload.get("loadBalancingScheme") == "INTERNAL"
             )
         if resource_type == "forwarding_rule":
-            return (
+            compatible = (
                 payload.get("IPProtocol") == "TCP"
-                and payload.get("loadBalancingScheme") == "INTERNAL"
+                and payload.get("loadBalancingScheme")
+                == (
+                    "INTERNAL_MANAGED"
+                    if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+                    else "INTERNAL"
+                )
                 and "443" in {str(port) for port in payload.get("ports", [])}
+            )
+            if spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB:
+                return compatible
+            target = payload.get("target")
+            return (
+                compatible
+                and isinstance(target, str)
+                and target.endswith(
+                    f"/regions/{spec.region}/targetHttpsProxies/{spec.name}-ilb-proxy"
+                )
+            )
+        if resource_type == "ssl_certificate":
+            return payload.get("description") == (
+                "Managed by Secure Gateway Studio; certificate configuration "
+                f"{certificate_configuration_hash(spec)}"
+            )
+        if resource_type == "url_map":
+            default_service = payload.get("defaultService")
+            return isinstance(default_service, str) and default_service.endswith(
+                f"/regions/{spec.region}/backendServices/{spec.name}-ilb-bs"
+            )
+        if resource_type == "target_https_proxy":
+            url_map = payload.get("urlMap")
+            certificates = payload.get("sslCertificates")
+            return (
+                isinstance(url_map, str)
+                and url_map.endswith(f"/regions/{spec.region}/urlMaps/{spec.name}-ilb-map")
+                and isinstance(certificates, list)
+                and any(
+                    isinstance(certificate, str)
+                    and certificate.endswith(
+                        f"/regions/{spec.region}/sslCertificates/{spec.name}-ilb-cert"
+                    )
+                    for certificate in certificates
+                )
             )
         if resource_type == "firewall_rule":
             return self._compatible_firewall(resource_name, payload, spec)
@@ -1623,6 +1781,13 @@ class GoogleDiscoveryProvider:
             return ports == {"443"} and sources == {SECURE_GATEWAY_SOURCE_CIDR}
         if resource_name.endswith("health-check-ingress"):
             return ports == {"443"} and sources == {
+                "35.191.0.0/16",
+                "130.211.0.0/22",
+            }
+        if resource_name.endswith("ilb-proxy-ingress"):
+            return ports == {"80"} and sources == {spec.proxy_subnet_cidr}
+        if resource_name.endswith("ilb-health-ingress"):
+            return ports == {"80"} and sources == {
                 "35.191.0.0/16",
                 "130.211.0.0/22",
             }

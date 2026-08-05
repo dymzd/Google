@@ -69,8 +69,9 @@ class GoogleGatewayObservability:
                     logging_enabled=self.gateway_logging_enabled(spec),
                     setup_notice=(
                         "Nginx logs require an HTTP-offload VM and the Google Cloud "
-                        "Ops Agent. Direct HTTPS has no Nginx tier."
-                        if spec.backend_kind is BackendKind.DIRECT_HTTPS
+                        "Ops Agent. This architecture has no Nginx tier."
+                        if spec.backend_kind
+                        in {BackendKind.DIRECT_HTTPS, BackendKind.INTERNAL_HTTPS_LB}
                         else "The offload VM was not found or its instance ID is unavailable."
                     ),
                 )
@@ -137,7 +138,10 @@ class GoogleGatewayObservability:
         return True
 
     def _offload_instance_id(self, spec: DeploymentSpec) -> str | None:
-        if spec.backend_kind is BackendKind.DIRECT_HTTPS:
+        if spec.backend_kind in {
+            BackendKind.DIRECT_HTTPS,
+            BackendKind.INTERNAL_HTTPS_LB,
+        }:
             return None
         if spec.mode.value != "poc":
             return None
