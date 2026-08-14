@@ -227,9 +227,14 @@ export function IdentitiesStep({
     setBootstrapError("");
     setBootstrapResult(null);
     try {
-      setBootstrapResult(await onBootstrapCloud());
-    } catch {
-      setBootstrapError(copy.bootstrapFailed);
+      console.log("[SGS Steps] Executing bootstrap...");
+      const result = await onBootstrapCloud();
+      console.log("[SGS Steps] Bootstrap success:", result);
+      setBootstrapResult(result);
+      await onValidateCloud();
+    } catch (err) {
+      console.error("[SGS Steps] Bootstrap error:", err);
+      setBootstrapError(err instanceof Error && err.message ? `${copy.bootstrapFailed}: ${err.message}` : copy.bootstrapFailed);
     } finally {
       setBootstrapBusy(false);
     }
@@ -281,7 +286,7 @@ export function IdentitiesStep({
             <div className="bootstrap-result" role="status">
               <strong>{copy.bootstrapComplete}</strong>
               <small>{copy.bootstrapNext}</small>
-              <code>{bootstrapResult.adc_command}</code>
+              <code>{bootstrapResult.service_account_email}</code>
             </div>
           )}
           {bootstrapError && (

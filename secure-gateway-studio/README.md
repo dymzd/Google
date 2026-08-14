@@ -121,10 +121,18 @@ gcloud auth application-default login \
 gcloud auth application-default set-quota-project PROJECT_ID
 ```
 
-The backend requests only the Cloud Platform and Chrome Policy scopes. It does
-not call Admin Directory and does not require domain-wide delegation.
-Service-account JSON key ADC is rejected and key files must not be added to
-this repository.
+The backend requests the Cloud Platform, Chrome Policy, Chrome Management,
+Enterprise License Manager, and read-only Admin Directory scopes. Admin
+Directory is called for the organizational-unit and group pickers, using the
+impersonated service account's delegated authority; domain-wide delegation is
+not required. Service-account JSON key ADC is rejected and key files must not
+be added to this repository.
+
+`SGSTUDIO_ACCESS_POLICY_ID` must be set before first run. It is the numeric
+Access Context Manager policy ID, and both the access-level picker and the
+deployer bootstrap's Policy Reader binding depend on it; without it the
+access-level endpoint returns 428. Copy `.env.local.example` to `.env.local`
+and fill it in.
 
 ## Install and run
 

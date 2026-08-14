@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; }
+body {
+  margin: 0;
+  padding: 2rem;
+  font: 14px/1.6 system-ui, sans-serif;
+  max-width: 46rem;
+}
+h1 { font-size: 1.25rem; margin: 0 0 1.25rem; }
+.row { display: flex; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid rgb(128 128 128 / 0.25); }
+.key { flex: 0 0 14rem; opacity: 0.75; }
+.val { font-variant-numeric: tabular-nums; }
+.row.warn .val { color: #a86400; }
+.row.bad .val { color: #b3261e; }
+.note { margin-top: 1.5rem; opacity: 0.75; }

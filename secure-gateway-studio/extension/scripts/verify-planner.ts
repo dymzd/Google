@@ -1,0 +1,146 @@
+/**
+ * Planner parity against the Python reference.
+ *
+ * Compares the ported planner's whole output -- every change, every gate, the
+ * configuration hash, and the required API and permission sets -- against
+ * `backend/tests/fixtures/planner/golden.json`.
+ *
+ * Path A cases in the golden set are skipped and reported as such: Path A
+ * planning lands in Phase 4, and silently passing over it would make this
+ * check look more complete than it is.
+ *
+ * Run with:
+ *   node --experimental-strip-types extension/scripts/verify-planner.ts
+ */
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+import { canonicalJson } from "../src/domain/canonical.ts";
+import {
+  buildPlan,
+  configurationHash,
+  requiredApis,
+  requiredPermissions,
+  type DeploymentPlan,
+  type DiscoverySnapshot,
+} from "../src/domain/planner.ts";
+import { parseDeploymentSpec } from "../src/domain/spec.ts";
+
+/**
+ * Compare by canonical form.
+ *
+ * The golden file is written with sorted keys, while the ported objects carry
+ * insertion order. `JSON.stringify` would report every object as different on
+ * key order alone, which says nothing about whether the plans agree.
+ */
+function same(expected: unknown, produced: unknown): boolean {
+  return canonicalJson(expected) === canonicalJson(produced);
+}
+
+interface GoldenCase {
+  name: string;
+  spec: Record<string, unknown>;
+  snapshot: DiscoverySnapshot;
+  configuration_hash: string;
+  required_apis: string[];
+  required_permissions: string[];
+  plan: Omit<DeploymentPlan, "plan_version"> & { plan_version: 1 };
+}
+
+const goldenPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../backend/tests/fixtures/planner/golden.json",
+);
+
+const failures: string[] = [];
+let compared = 0;
+let skipped = 0;
+
+function note(name: string, label: string, expected: unknown, produced: unknown): void {
+  failures.push(
+    `${name}: ${label}\n    python    ${JSON.stringify(expected)}\n` +
+      `    extension ${JSON.stringify(produced)}`,
+  );
+}
+
+const golden = JSON.parse(readFileSync(goldenPath, "utf8")) as { cases: GoldenCase[] };
+
+for (const testCase of golden.cases) {
+  const spec = parseDeploymentSpec(testCase.spec);
+  compared += 1;
+
+  const hash = configurationHash(spec);
+  if (hash !== testCase.configuration_hash) {
+    note(testCase.name, "configuration_hash", testCase.configuration_hash, hash);
+    continue;
+  }
+
+  const apis = [...requiredApis(spec)].sort();
+  if (!same(testCase.required_apis, apis)) {
+    note(testCase.name, "required_apis", testCase.required_apis, apis);
+  }
+
+  const permissions = [...requiredPermissions(spec)].sort();
+  if (!same(testCase.required_permissions, permissions)) {
+    note(testCase.name, "required_permissions", testCase.required_permissions, permissions);
+  }
+
+  const plan = buildPlan(spec, testCase.snapshot);
+
+  if (plan.changes.length !== testCase.plan.changes.length) {
+    note(
+      testCase.name,
+      "change count",
+      testCase.plan.changes.map((change) => change.resource_name),
+      plan.changes.map((change) => change.resource_name),
+    );
+  } else {
+    for (const [index, expected] of testCase.plan.changes.entries()) {
+      const produced = plan.changes[index];
+      if (!same(expected, produced)) {
+        note(testCase.name, `change[${index}] ${expected.resource_name}`, expected, produced);
+      }
+    }
+  }
+
+  if (plan.gates.length !== testCase.plan.gates.length) {
+    note(
+      testCase.name,
+      "gate count",
+      testCase.plan.gates.map((gate) => gate.gate_id),
+      plan.gates.map((gate) => gate.gate_id),
+    );
+  } else {
+    for (const [index, expected] of testCase.plan.gates.entries()) {
+      const produced = plan.gates[index];
+      if (!same(expected, produced)) {
+        note(testCase.name, `gate[${index}] ${expected.gate_id}`, expected, produced);
+      }
+    }
+  }
+
+  if (plan.can_apply !== testCase.plan.can_apply) {
+    note(testCase.name, "can_apply", testCase.plan.can_apply, plan.can_apply);
+  }
+  if (plan.mode !== testCase.plan.mode) {
+    note(testCase.name, "mode", testCase.plan.mode, plan.mode);
+  }
+  if (plan.destructive_change_count !== testCase.plan.destructive_change_count) {
+    note(
+      testCase.name,
+      "destructive_change_count",
+      testCase.plan.destructive_change_count,
+      plan.destructive_change_count,
+    );
+  }
+}
+
+if (failures.length > 0) {
+  console.error(`FAIL ${failures.length} difference(s) across ${compared} Path B cases\n`);
+  for (const failure of failures) console.error(`  ${failure}`);
+  process.exit(1);
+}
+void skipped;
+console.log(`OK ${compared} plans (Path A and Path B) match the Python reference.`);

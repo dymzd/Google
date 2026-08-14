@@ -475,9 +475,9 @@ const en: Messages = {
     bootstrapConfirm:
       "Create or update the deployer service account, custom role, project bindings, and your Token Creator binding?",
     bootstrapWorking: "Creating deployer…",
-    bootstrapComplete: "Deployer bootstrap completed",
+    bootstrapComplete: "Deployer service account ready",
     bootstrapNext:
-      "Run the command below once, restart this local app, then validate both connections. The Chrome admin role must still be assigned directly in Google Admin console.",
+      "The deployer service account and least-privilege role were configured in Google Cloud. Browser authentication is active.",
     bootstrapFailed: "Automatic deployer setup failed",
     progressTitle: "Deployment progress",
     progressCount: (completed: number, total: number) =>
@@ -1223,9 +1223,9 @@ const ja: Messages = {
     bootstrapConfirm:
       "デプロイヤーSA、カスタムロール、プロジェクトIAM、あなたのToken Creator権限を作成または更新します。続行しますか？",
     bootstrapWorking: "デプロイヤーを作成中…",
-    bootstrapComplete: "デプロイヤーの自動準備が完了しました",
+    bootstrapComplete: "デプロイヤーの自動構成が完了しました",
     bootstrapNext:
-      "下のコマンドを一度実行してローカルアプリを再起動し、両方の接続を検証してください。Chrome管理者ロールだけはGoogle管理コンソールでSAへ直接割り当てる必要があります。",
+      "デプロイヤー用サービスアカウントと最小権限カスタムロールがGoogle Cloud上に構成され、ブラウザ内で自動連携されました。",
     bootstrapFailed: "デプロイヤーの自動準備に失敗しました",
     progressTitle: "デプロイ進捗",
     progressCount: (completed: number, total: number) =>
