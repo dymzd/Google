@@ -13,6 +13,7 @@ from sgstudio.api.main import (
 )
 from sgstudio.domain.models import (
     AccessPrincipal,
+    BackendKind,
     CertificateStrategy,
     ConnectionValidation,
     DeploymentMode,
@@ -406,6 +407,51 @@ def test_profile_managed_only_access_level_is_compatible() -> None:
         "accesscontextmanager:access_level:profile_managed",
         payload,
         deployment_spec(),
+    )
+
+
+def test_internal_https_lb_discovery_checks_certificate_and_routing_references() -> None:
+    provider = GoogleDiscoveryProvider(FakeTransport(), cloud_identity=None)
+    spec = deployment_spec().model_copy(
+        update={"backend_kind": BackendKind.INTERNAL_HTTPS_LB}
+    )
+    certificate_description = (
+        "Managed by Secure Gateway Studio; certificate configuration "
+        f"{certificate_configuration_hash(spec)}"
+    )
+
+    assert provider._compatible(
+        f"compute:ssl_certificate:{spec.name}-ilb-cert",
+        {"description": certificate_description},
+        spec,
+    )
+    assert not provider._compatible(
+        f"compute:ssl_certificate:{spec.name}-ilb-cert",
+        {"description": "Managed by another certificate configuration"},
+        spec,
+    )
+    assert provider._compatible(
+        f"compute:forwarding_rule:{spec.name}-ilb-fr",
+        {
+            "IPProtocol": "TCP",
+            "loadBalancingScheme": "INTERNAL_MANAGED",
+            "ports": ["443"],
+            "target": (
+                f"projects/{spec.project_id}/regions/{spec.region}/"
+                f"targetHttpsProxies/{spec.name}-ilb-proxy"
+            ),
+        },
+        spec,
+    )
+    assert not provider._compatible(
+        f"compute:forwarding_rule:{spec.name}-ilb-fr",
+        {
+            "IPProtocol": "TCP",
+            "loadBalancingScheme": "INTERNAL_MANAGED",
+            "ports": ["443"],
+            "target": "projects/example/regions/asia-east1/targetHttpsProxies/wrong",
+        },
+        spec,
     )
 
 

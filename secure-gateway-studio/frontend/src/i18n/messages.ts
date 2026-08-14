@@ -50,6 +50,11 @@ export interface WorkflowMessages {
   existingBackendDescription: string;
   directHttps: string;
   directHttpsDescription: string;
+  internalHttpsLb: string;
+  internalHttpsLbDescription: string;
+  legacyNginxTitle: string;
+  legacyNginxDescription: string;
+  proxySubnetCidr: string;
   backendUrl: string;
   directHttpsUrl: string;
   applicationEgressRegion: string;
@@ -67,10 +72,12 @@ export interface WorkflowMessages {
   noExternalIpNotice: string;
   certificateStepTitle: string;
   certificateIntro: string;
+  internalLbCertificateIntro: string;
   caPool: string;
   caName: string;
   secretName: string;
   certificateNotice: string;
+  internalLbCertificateNotice: string;
   directCertificateIntro: string;
   directCertificateNotice: string;
   directPrivateCertificate: string;
@@ -499,18 +506,26 @@ const en: Messages = {
     cpuTarget: "Autoscaling CPU target (0.1–0.9)",
     autoscalingHint:
       "Production uses a two-zone regional managed instance group. CPU autoscaling is used because passthrough load-balancer utilization is not an autoscaling signal.",
-    network: "Network",
+    network: "Deployment architecture",
     vpcName: "Existing VPC name",
     subnetName: "Existing subnet name",
-    managedSample: "Managed sample backend",
+    managedSample: "Managed sample backend (Nginx)",
     managedSampleDescription:
       "Create a private HTTP backend for validation and evidence collection.",
-    existingBackend: "Existing HTTP backend",
+    existingBackend: "Existing HTTP backend (Nginx)",
     existingBackendDescription:
       "Route to an administrator-managed private HTTP endpoint over connectivity that already exists.",
-    directHttps: "Direct private HTTPS app",
+    directHttps: "Option A — Connect directly to an existing HTTPS app",
     directHttpsDescription:
       "Connect Secure Gateway directly to an existing HTTPS endpoint through its VPC. No Nginx, VM, NAT, or offload certificate is created.",
+    internalHttpsLb:
+      "Option B — HTTPS offload with Internal Application Load Balancer",
+    internalHttpsLbDescription:
+      "Terminate HTTPS on a regional internal Application Load Balancer, then forward HTTP to a private sample backend. No Nginx offload tier is deployed.",
+    legacyNginxTitle: "Option C — Legacy Nginx method / advanced settings",
+    legacyNginxDescription:
+      "Expand only when an HTTP application or the previous Nginx-based deployment is required.",
+    proxySubnetCidr: "ILB proxy-only subnet CIDR",
     backendUrl: "Backend URL (http://)",
     directHttpsUrl: "Private HTTPS endpoint (https://host[:port])",
     applicationEgressRegion: "Egress region (optional)",
@@ -535,11 +550,15 @@ const en: Messages = {
     certificateStepTitle: "Configure TLS certificate source",
     certificateIntro:
       "The offload VM reads certificate material at runtime from Secret Manager; private keys are never written into startup scripts.",
+    internalLbCertificateIntro:
+      "The regional internal Application Load Balancer terminates HTTPS with a regional server certificate. Certificate material moves directly from memory to the Compute API and remains in Secret Manager for controlled lifecycle management.",
     caPool: "CA pool resource",
     caName: "Issuing CA resource",
     secretName: "Secret Manager certificate secret",
     certificateNotice:
       "Local CA is PoC-only. After Apply, download the public PEM root, add it at Chrome > Connectors > Chrome Root Store, and connect that configuration to the dedicated test OU. Public APIs cannot reliably inspect or perform this handoff; verify trust with T07. Production still requires enterprise-pretrusted PKI or a publicly trusted certificate.",
+    internalLbCertificateNotice:
+      "For a local CA, the ILB presents the generated server certificate. After Apply, distribute only its public PEM root through Chrome Root Store to the test OU, restart Chrome, and verify HTTPS with T07. The private key is never distributed to Chrome.",
     directCertificateIntro:
       "The HTTPS application owns TLS termination. Secure Gateway does not create or store its certificate or private key.",
     directCertificateNotice:
@@ -751,6 +770,7 @@ const en: Messages = {
         managed_sample: "Nginx HTTP offload · managed sample",
         existing_http: "Nginx HTTP offload · existing backend",
         direct_https: "Direct private HTTPS",
+        internal_https_lb: "Internal Application Load Balancer HTTPS offload",
       })[kind] ?? kind,
     ownedResources: "Owned deployment resources",
     retainedResources: "Shared or reused resources retained",
@@ -922,36 +942,13 @@ const en: Messages = {
     pocNoticeTitle: "Built for doing a Secure Gateway PoC ASAP",
     pocNoticeBody:
       "Production is shown for future readiness but is disabled in this release. Use a dedicated non-production OU and test principals; do not route production traffic through this workflow.",
-    architectureTitle: "Two independent deployment architectures",
+    architectureTitle: "Three independent deployment architectures",
     architectureIntro:
-      "Choose one path per application. The direct HTTPS path does not pass through or deploy Nginx.",
+      "Choose one path per application. Options A and B are the primary PoC paths; the previous Nginx method remains available as Option C under Legacy / advanced settings.",
     architectures: [
       {
-        eyebrow: "Option A · HTTP offload",
-        title: "Secure Gateway + Nginx + HTTP app",
-        summary:
-          "Use when the private application only speaks HTTP. PoC uses one private Nginx VM; the implemented scale-ready path adds a regional internal load balancer and two-zone managed instance group (Production selection is currently disabled).",
-        nodes: [
-          { label: "Managed Chrome", detail: "User identity + device/profile context" },
-          { label: "Secure Gateway", detail: "Service Discovery + access policy" },
-          { label: "Nginx offload tier", detail: "PoC: 1 private VM · Scale-ready: regional ILB + 2-zone MIG" },
-          { label: "HTTP app", detail: "GCP, AWS, Azure, or on premises" },
-        ],
-        supports: [
-          { label: "CPU autoscaling", detail: "Scale-ready default 2–20 replicas at 60%; min, max, and target are configurable" },
-          { label: "Healthy capacity gate", detail: "Apply waits until the configured minimum replica count is healthy" },
-          { label: "Two-zone resilience", detail: "Regional MIG distributes Nginx replicas across two zones" },
-          { label: "Private DNS", detail: "App hostname resolves to the Nginx internal IP" },
-          { label: "TLS material", detail: "CA Service/local CA or existing secret for Nginx" },
-          { label: "Private path", detail: "VPN/Interconnect and backend firewall when off-GCP" },
-          { label: "Discovery + conflicts", detail: "MIG and autoscaler state is discovered before mutations" },
-          { label: "Rollback", detail: "Owned MIG/autoscaler changes participate in deployment rollback" },
-          { label: "Least-privilege IAM", detail: "Preflight includes the required instance-group and autoscaler permissions" },
-        ],
-      },
-      {
-        eyebrow: "Option B · Native HTTPS",
-        title: "Secure Gateway + private HTTPS app",
+        eyebrow: "Option A · Direct HTTPS",
+        title: "Secure Gateway + existing private HTTPS app",
         summary:
           "Use when the application already serves HTTPS. Secure Gateway routes directly through the selected VPC; no Nginx, VM, NAT, or offload certificate is created.",
         nodes: [
@@ -966,6 +963,48 @@ const en: Messages = {
           { label: "Regional routing", detail: "Optional egress region, or Global Access for regional LB" },
         ],
       },
+      {
+        eyebrow: "Option B · ILB HTTPS offload",
+        title: "Secure Gateway + internal HTTPS load balancer + HTTP app",
+        summary:
+          "Use a regional internal Application Load Balancer as the HTTPS offload tier. The ILB presents the server certificate and forwards decrypted HTTP to the private backend; Nginx is not deployed in the offload path.",
+        nodes: [
+          { label: "Managed Chrome", detail: "Trusts the issuing root through Chrome Root Store" },
+          { label: "Secure Gateway", detail: "Identity, context, and hostname:443 policy" },
+          { label: "Regional internal Application LB", detail: "HTTPS termination with a regional server certificate" },
+          { label: "HTTP backend", detail: "Private sample VM on port 80" },
+        ],
+        supports: [
+          { label: "Proxy-only subnet", detail: "REGIONAL_MANAGED_PROXY subnet dedicated to Google-managed Envoy proxies" },
+          { label: "TLS ownership", detail: "Enterprise CA, local PoC CA, or validated existing certificate secret" },
+          { label: "Chrome trust", detail: "Download the public root PEM and connect it to the test OU through Chrome Root Store" },
+          { label: "Managed L7 path", detail: "HTTP health check, backend service, URL map, target HTTPS proxy, and internal forwarding rule" },
+          { label: "Safe lifecycle", detail: "Discovery, conflict checks, reverse rollback, ownership-only teardown, and least-privilege IAM" },
+        ],
+      },
+      {
+        eyebrow: "Option C · Legacy Nginx / advanced",
+        title: "Secure Gateway + Nginx + HTTP app",
+        summary:
+          "Use only when the private application speaks HTTP or the previous Nginx deployment is required. PoC uses one private Nginx VM; the implemented scale-ready path uses an internal passthrough Network Load Balancer and two-zone Nginx MIG (Production selection is disabled).",
+        nodes: [
+          { label: "Managed Chrome", detail: "User identity + device/profile context" },
+          { label: "Secure Gateway", detail: "Service Discovery + access policy" },
+          { label: "Nginx offload tier", detail: "PoC: 1 private VM · Scale-ready: passthrough ILB + 2-zone MIG" },
+          { label: "HTTP app", detail: "GCP, AWS, Azure, or on premises" },
+        ],
+        supports: [
+          { label: "CPU autoscaling", detail: "Scale-ready default 2–20 replicas at 60%; min, max, and target are configurable" },
+          { label: "Healthy capacity gate", detail: "Apply waits until the configured minimum replica count is healthy" },
+          { label: "Two-zone resilience", detail: "Regional MIG distributes Nginx replicas across two zones" },
+          { label: "Private DNS", detail: "App hostname resolves to the Nginx internal IP" },
+          { label: "TLS material", detail: "CA Service/local CA or existing secret for Nginx" },
+          { label: "Private path", detail: "VPN/Interconnect and backend firewall when off-GCP" },
+          { label: "Discovery + conflicts", detail: "MIG and autoscaler state is discovered before mutations" },
+          { label: "Rollback", detail: "Owned MIG/autoscaler changes participate in deployment rollback" },
+          { label: "Least-privilege IAM", detail: "Preflight includes the required instance-group and autoscaler permissions" },
+        ],
+      },
     ],
     implementationTitle: "What is implemented",
     implementationIntro:
@@ -976,6 +1015,7 @@ const en: Messages = {
         title: "HTTP offload and direct HTTPS",
         items: [
           "HTTP offload supports a managed sample backend or an existing private HTTP app in GCP, AWS, Azure, or on premises.",
+          "ILB HTTPS offload creates a REGIONAL_MANAGED_PROXY subnet, HTTP backend group and health check, INTERNAL_MANAGED backend service, regional URL map, regional server certificate, target HTTPS proxy, internal forwarding rule, and private DNS record without an Nginx offload VM.",
           "Direct HTTPS creates an exact hostname:port Secure Gateway application route through an existing VPC and omits Nginx, offload TLS, NAT, and managed A records.",
           "Dedicated-VPC and existing-VPC strategies, private-only VM addressing, Cloud NAT for created HTTP-offload VMs, private DNS, and the 136.124.16.0/20 gateway firewall source are modeled.",
           "Off-GCP connectivity is consumed, not created: VPN/Interconnect, private DNS forwarding, backend firewall, and return routes remain explicit prerequisites.",
@@ -985,7 +1025,7 @@ const en: Messages = {
         eyebrow: "Scale-ready HTTP tier",
         title: "Regional Nginx availability and autoscaling",
         items: [
-          "A two-zone regional Nginx managed instance group, regional internal TCP load balancer, regional TLS health check, and health-check firewall are implemented for the scale-ready path.",
+          "A two-zone regional Nginx managed instance group, internal passthrough Network Load Balancer, regional TLS health check, and health-check firewall are implemented for the scale-ready path. TLS remains on Nginx.",
           "CPU autoscaling defaults to 2–20 replicas at 60% CPU; minimum, maximum, and CPU target are configurable in English and Japanese.",
           "Deployment waits for the configured minimum number of healthy replicas before continuing.",
           "MIG/autoscaler discovery, compatibility and conflict detection, ownership-bounded reverse rollback, and required IAM permission checks are implemented.",
@@ -1058,14 +1098,15 @@ const en: Messages = {
       {
         title: "Environment",
         summary:
-          "Choose either Nginx HTTP offload or a separate direct private HTTPS deployment.",
+          "Choose Option A direct HTTPS or Option B ILB HTTPS offload. Open Option C Legacy / advanced settings only for the Nginx path.",
         actions: [
           "Capture project, region, zone, deployment name, network, subnet, and private hostname.",
-          "For HTTP, choose the managed sample or an existing private HTTP backend; Secure Gateway targets Nginx on HTTPS and Nginx forwards HTTP.",
-          "For an existing HTTPS application, select Direct private HTTPS. The application hostname and port become the Secure Gateway matcher and Nginx resources are omitted.",
+          "Option A connects Secure Gateway directly to an existing HTTPS application. The application hostname and port become the matcher and Nginx resources are omitted.",
+          "Option B requires a non-overlapping proxy-only CIDR. Apply creates a REGIONAL_MANAGED_PROXY subnet, regional internal Application Load Balancer, and private HTTP sample backend; the ILB terminates TLS and Nginx is not deployed.",
+          "Option C Legacy / advanced offers a managed sample or existing private HTTP backend; Secure Gateway targets Nginx on HTTPS and Nginx forwards HTTP.",
           "For AWS, Azure, or on-premises apps, first connect the selected GCP VPC with VPN/Interconnect and Cloud DNS forwarding. This PoC does not store third-party credentials or create that tunnel.",
-          "HTTP offload validates Nginx-to-backend HTTP with T02. Direct HTTPS instead requires TCP from 136.124.16.0/20, a return route, and validates the exact Gateway hostname:port/VPC route with T05.",
-          "Only HTTP offload creates a private Nginx VM, Cloud NAT, offload certificate, and managed A record.",
+          "Nginx offload validates Nginx-to-backend HTTP with T02. ILB offload validates the backend, DNS, and Secure Gateway route automatically and records the endpoint TLS result with T03/T07. Direct HTTPS validates the exact Gateway hostname:port/VPC route with T05.",
+          "Only Option C creates a Nginx offload tier. Options B and C create offload TLS and a managed A record; Option B adds the proxy-only subnet and managed L7 load-balancer resources.",
         ],
       },
       {
@@ -1073,6 +1114,7 @@ const en: Messages = {
         summary: "Define TLS ownership for the selected architecture.",
         actions: [
           "Nginx offload creates or references the certificate presented by Nginx.",
+          "ILB HTTPS offload attaches a regional server certificate to the target HTTPS proxy; the ILB presents it and keeps the HTTP backend private.",
           "Direct HTTPS keeps TLS termination and the private key at the existing application; Secure Gateway does not copy them.",
           "Reference enterprise CA Service resources or a publicly trusted certificate secret.",
           "For a local-CA PoC, Apply generates a public PEM root certificate. The download never contains the private key.",
@@ -1247,18 +1289,26 @@ const ja: Messages = {
     cpuTarget: "オートスケーリングCPU目標値（0.1～0.9）",
     autoscalingHint:
       "本番では2ゾーンのリージョンManaged Instance Groupを使用します。パススルー型ロードバランサの使用率はスケーリング指標にできないため、CPUで自動スケールします。",
-    network: "ネットワーク",
+    network: "デプロイ方式",
     vpcName: "既存VPC名",
     subnetName: "既存サブネット名",
-    managedSample: "管理対象サンプルバックエンド",
+    managedSample: "管理対象サンプルバックエンド（Nginx）",
     managedSampleDescription:
       "検証とエビデンス収集用のプライベートHTTPバックエンドを作成します。",
-    existingBackend: "既存HTTPバックエンド",
+    existingBackend: "既存HTTPバックエンド（Nginx）",
     existingBackendDescription:
       "既に確立済みのプライベート接続を使い、管理者が管理するHTTPエンドポイントへ転送します。",
-    directHttps: "プライベートHTTPSアプリへ直接接続",
+    directHttps: "Option A — 既存HTTPSアプリへ直接接続",
     directHttpsDescription:
       "Secure Gatewayから既存HTTPSエンドポイントへVPC経由で直接接続します。Nginx、VM、NAT、オフロード証明書は作成しません。",
+    internalHttpsLb:
+      "Option B — Internal Application Load BalancerでHTTPSオフロード",
+    internalHttpsLbDescription:
+      "Regional Internal Application Load BalancerでHTTPSを終端し、プライベートサンプルへHTTP転送します。Nginxオフロード層は作成しません。",
+    legacyNginxTitle: "Option C — 旧Nginx方式 / Legacy・詳細設定",
+    legacyNginxDescription:
+      "HTTPアプリ、または従来のNginxベース構成が必要な場合だけ展開します。",
+    proxySubnetCidr: "ILB Proxy-onlyサブネットCIDR",
     backendUrl: "バックエンドURL（http://）",
     directHttpsUrl: "プライベートHTTPSエンドポイント（https://host[:port]）",
     applicationEgressRegion: "下り（外向き）リージョン（任意）",
@@ -1283,11 +1333,15 @@ const ja: Messages = {
     certificateStepTitle: "TLS証明書ソースを設定",
     certificateIntro:
       "オフロードVMは実行時にSecret Managerから証明書を読み取ります。秘密鍵を起動スクリプトへ書き込みません。",
+    internalLbCertificateIntro:
+      "Regional Internal Application Load Balancerがリージョンサーバー証明書でHTTPSを終端します。証明書素材はメモリからCompute APIへ直接送信し、Secret Managerでライフサイクル管理します。",
     caPool: "CAプールのリソース名",
     caName: "発行CAのリソース名",
     secretName: "Secret Managerの証明書シークレット",
     certificateNotice:
       "ローカルCAはPoC専用です。適用後に公開PEMルートをダウンロードし、[Chrome] > [コネクタ] > [Chrome Root Store] へ追加して、その構成を専用テストOUへ接続します。公開APIではこの引き渡しを確実に参照・実行できないため、T07で信頼を検証します。本番ではエンタープライズPKIまたは公開信頼済み証明書が必要です。",
+    internalLbCertificateNotice:
+      "ローカルCAではILBが生成済みサーバー証明書を提示します。Apply後に公開PEMルートだけをChrome Root StoreからテストOUへ配布し、Chrome再起動後にT07でHTTPSを検証します。秘密鍵はChromeへ配布しません。",
     directCertificateIntro:
       "HTTPSアプリ自身がTLS終端を行います。Secure Gatewayはアプリの証明書や秘密鍵を作成・保存しません。",
     directCertificateNotice:
@@ -1495,6 +1549,7 @@ const ja: Messages = {
         managed_sample: "Nginx HTTPオフロード・管理サンプル",
         existing_http: "Nginx HTTPオフロード・既存バックエンド",
         direct_https: "プライベートHTTPS直接接続",
+        internal_https_lb: "Internal Application Load Balancer HTTPSオフロード",
       })[kind] ?? kind,
     ownedResources: "このデプロイが所有するリソース",
     retainedResources: "保持する共有・再利用リソース",
@@ -1667,36 +1722,13 @@ const ja: Messages = {
     pocNoticeTitle: "Secure Gateway の PoC を最短で実施するためのツール",
     pocNoticeBody:
       "本番モードは将来対応を示すために表示していますが、このリリースでは無効です。非本番専用OUとテスト用プリンシパルを使用し、本番トラフィックはこの手順へ流さないでください。",
-    architectureTitle: "独立した2つのデプロイアーキテクチャ",
+    architectureTitle: "独立した3つのデプロイアーキテクチャ",
     architectureIntro:
-      "アプリごとにどちらか一方を選択します。直接HTTPS方式はNginxを経由せず、Nginx自体もデプロイしません。",
+      "アプリごとに1方式を選択します。Option A/Bを主要PoC方式とし、従来のNginx方式はOption CとしてLegacy／詳細設定に残します。",
     architectures: [
       {
-        eyebrow: "オプションA · HTTPオフロード",
-        title: "Secure Gateway + Nginx + HTTPアプリ",
-        summary:
-          "プライベートアプリがHTTPだけを提供する場合に使います。PoCはプライベートNginx VM 1台を使用し、実装済みのスケール対応方式ではリージョン内部LBと2ゾーンMIGを使用します（現在Production選択は無効）。",
-        nodes: [
-          { label: "管理対象Chrome", detail: "ユーザーID + 端末/プロファイル情報" },
-          { label: "Secure Gateway", detail: "Service Discovery + アクセスポリシー" },
-          { label: "Nginxオフロード層", detail: "PoC: 非公開VM 1台 · スケール対応: リージョンILB + 2ゾーンMIG" },
-          { label: "HTTPアプリ", detail: "GCP・AWS・Azure・オンプレミス" },
-        ],
-        supports: [
-          { label: "CPUオートスケール", detail: "スケール対応の既定2～20台・CPU 60%。最小、最大、CPU目標を設定可能" },
-          { label: "Healthy台数ゲート", detail: "設定した最小レプリカ数がHealthyになるまでApplyが待機" },
-          { label: "2ゾーン冗長化", detail: "Regional MIGがNginxレプリカを2つのゾーンへ分散" },
-          { label: "Private DNS", detail: "アプリ名をNginx内部IPへ解決" },
-          { label: "TLS証明書", detail: "CA Service・ローカルCA・既存SecretをNginxで利用" },
-          { label: "プライベート経路", detail: "GCP外ではVPN/Interconnectとbackend firewall" },
-          { label: "検出 + 競合判定", detail: "変更前にMIGとAutoscalerの既存状態・互換性を検出" },
-          { label: "ロールバック", detail: "所有するMIG/Autoscaler変更をデプロイ失敗時に巻き戻し" },
-          { label: "最小権限IAM", detail: "Instance GroupとAutoscalerの必須権限も事前確認" },
-        ],
-      },
-      {
-        eyebrow: "オプションB · ネイティブHTTPS",
-        title: "Secure Gateway + プライベートHTTPSアプリ",
+        eyebrow: "Option A · 既存HTTPSへ直接接続",
+        title: "Secure Gateway + 既存プライベートHTTPSアプリ",
         summary:
           "アプリが既にHTTPSを提供する場合に使います。Secure Gatewayが選択VPC経由で直接ルーティングし、Nginx、VM、NAT、オフロード証明書は作成しません。",
         nodes: [
@@ -1711,6 +1743,48 @@ const ja: Messages = {
           { label: "リージョン経路", detail: "任意egress region、またはregional LBのGlobal Access" },
         ],
       },
+      {
+        eyebrow: "Option B · ILB HTTPSオフロード",
+        title: "Secure Gateway + 内部HTTPSロードバランサー + HTTPアプリ",
+        summary:
+          "Regional Internal Application Load BalancerをHTTPSオフロード層として使用します。ILBがサーバー証明書を提示して復号後のHTTPをプライベートバックエンドへ転送し、オフロード経路にNginxを作成しません。",
+        nodes: [
+          { label: "管理対象Chrome", detail: "Chrome Root Storeから発行元Root CAを信頼" },
+          { label: "Secure Gateway", detail: "ID・コンテキスト・hostname:443ポリシー" },
+          { label: "Regional Internal Application LB", detail: "リージョンサーバー証明書でHTTPS終端" },
+          { label: "HTTPバックエンド", detail: "TCP 80のプライベートサンプルVM" },
+        ],
+        supports: [
+          { label: "Proxy-onlyサブネット", detail: "Google管理Envoy専用のREGIONAL_MANAGED_PROXYサブネット" },
+          { label: "TLS所有", detail: "Enterprise CA、ローカルPoC CA、または検証済み既存Secret" },
+          { label: "Chrome信頼", detail: "公開Root PEMをダウンロードしてChrome Root StoreからテストOUへ接続" },
+          { label: "管理型L7経路", detail: "HTTP health check、backend service、URL map、target HTTPS proxy、内部forwarding rule" },
+          { label: "安全なライフサイクル", detail: "検出、競合判定、逆順rollback、所有範囲限定削除、最小権限IAM" },
+        ],
+      },
+      {
+        eyebrow: "Option C · 旧Nginx方式 / Legacy・詳細設定",
+        title: "Secure Gateway + Nginx + HTTPアプリ",
+        summary:
+          "HTTPしか提供しないプライベートアプリ、または従来のNginx構成が必要な場合だけ使用します。PoCは非公開Nginx VM 1台を使い、実装済みスケール対応方式は内部パススルーNetwork Load Balancerと2ゾーンNginx MIGを使用します（Production選択は無効）。",
+        nodes: [
+          { label: "管理対象Chrome", detail: "ユーザーID + 端末/プロファイル情報" },
+          { label: "Secure Gateway", detail: "Service Discovery + アクセスポリシー" },
+          { label: "Nginxオフロード層", detail: "PoC: 非公開VM 1台 · スケール対応: パススルーILB + 2ゾーンMIG" },
+          { label: "HTTPアプリ", detail: "GCP・AWS・Azure・オンプレミス" },
+        ],
+        supports: [
+          { label: "CPUオートスケール", detail: "スケール対応の既定2～20台・CPU 60%。最小、最大、CPU目標を設定可能" },
+          { label: "Healthy台数ゲート", detail: "設定した最小レプリカ数がHealthyになるまでApplyが待機" },
+          { label: "2ゾーン冗長化", detail: "Regional MIGがNginxレプリカを2つのゾーンへ分散" },
+          { label: "Private DNS", detail: "アプリ名をNginx内部IPへ解決" },
+          { label: "TLS証明書", detail: "CA Service・ローカルCA・既存SecretをNginxで利用" },
+          { label: "プライベート経路", detail: "GCP外ではVPN/Interconnectとbackend firewall" },
+          { label: "検出 + 競合判定", detail: "変更前にMIGとAutoscalerの既存状態・互換性を検出" },
+          { label: "ロールバック", detail: "所有するMIG/Autoscaler変更をデプロイ失敗時に巻き戻し" },
+          { label: "最小権限IAM", detail: "Instance GroupとAutoscalerの必須権限も事前確認" },
+        ],
+      },
     ],
     implementationTitle: "実装済み機能の全体像",
     implementationIntro:
@@ -1721,6 +1795,7 @@ const ja: Messages = {
         title: "HTTPオフロードと直接HTTPS",
         items: [
           "HTTPオフロードは、管理対象サンプルまたはGCP・AWS・Azure・オンプレミスの既存プライベートHTTPアプリに対応します。",
+          "ILB HTTPSオフロードはREGIONAL_MANAGED_PROXYサブネット、HTTP backend group/health check、INTERNAL_MANAGED backend service、regional URL map/サーバー証明書/target HTTPS proxy、内部forwarding rule、Private DNSを作り、NginxオフロードVMを作成しません。",
           "直接HTTPSは既存VPC経由の正確なhostname:portルートを作り、Nginx、オフロードTLS、NAT、管理Aレコードを作成しません。",
           "専用/既存VPC、VM外部IPなし、作成VM用Cloud NAT、Private DNS、Secure Gateway送信元136.124.16.0/20のFWをモデル化しています。",
           "GCP外へのVPN/Interconnect、DNS転送、backend firewall、戻り経路は作成せず、明示的な事前条件として利用します。",
@@ -1730,7 +1805,7 @@ const ja: Messages = {
         eyebrow: "スケール対応HTTP層",
         title: "Regional Nginxの可用性とオートスケール",
         items: [
-          "2ゾーンRegional Nginx MIG、リージョン内部TCP LB、リージョンTLSヘルスチェック、ヘルスチェック用FWをスケール対応方式に実装しています。",
+          "2ゾーンRegional Nginx MIG、内部パススルーNetwork Load Balancer、リージョンTLSヘルスチェック、ヘルスチェック用FWをスケール対応方式に実装し、TLS終端はNginxに残します。",
           "CPUオートスケールは既定2～20台・CPU 60%。最小、最大、CPU目標を日本語/英語UIから設定できます。",
           "設定した最小レプリカ数がHealthyになるまでデプロイを待機します。",
           "MIG/Autoscalerの検出、互換性・競合判定、所有範囲限定の逆順ロールバック、必須IAM権限確認を実装しています。",
@@ -1800,14 +1875,15 @@ const ja: Messages = {
       },
       {
         title: "環境",
-        summary: "Nginx HTTPオフロード、または独立したプライベートHTTPS直接方式を選択します。",
+        summary: "Option AのHTTPS直接方式、またはOption BのILB HTTPSオフロードを選択します。Nginx方式だけOption CのLegacy／詳細設定を開きます。",
         actions: [
           "プロジェクト、リージョン、ゾーン、デプロイ名、ネットワーク、サブネット、プライベートホスト名を入力します。",
-          "HTTPでは管理対象サンプルまたは既存HTTPバックエンドを選びます。Secure GatewayはHTTPSのNginxを対象にし、NginxがHTTP転送します。",
-          "既存HTTPSアプリでは［プライベートHTTPSアプリへ直接接続］を選びます。アプリのhostname:portがSecure Gateway matcherとなり、Nginxリソースは除外されます。",
+          "Option AはSecure Gatewayから既存HTTPSアプリへ直接接続します。アプリのhostname:portがmatcherとなり、Nginxリソースは除外されます。",
+          "Option Bでは重複しないProxy-only CIDRを入力します。ApplyがREGIONAL_MANAGED_PROXYサブネット、Regional Internal Application Load Balancer、プライベートHTTPサンプルを作成し、ILBがTLS終端します。Nginxは作成しません。",
+          "Option CのLegacy／詳細設定では管理対象サンプルまたは既存HTTPバックエンドを選びます。Secure GatewayはHTTPSのNginxを対象にし、NginxがHTTP転送します。",
           "AWS・Azure・オンプレミスのアプリでは、選択GCP VPCをVPN/Interconnectで接続し、Cloud DNS転送を先に設定します。このPoCは第三者クラウド認証情報を保存せず、そのトンネルも作成しません。",
-          "HTTPオフロードはNginxからbackendへのHTTPをT02で検証します。直接HTTPSは136.124.16.0/20からのTCP許可と戻り経路を必要とし、Gatewayのhostname:port/VPC経路をT05で検証します。",
-          "プライベートNginx VM、Cloud NAT、オフロード証明書、管理Aレコードを作成するのはHTTPオフロードだけです。",
+          "NginxオフロードはNginxからbackendへのHTTPをT02で検証します。ILBオフロードはbackend、DNS、Secure Gateway経路を自動検証し、endpoint TLS結果をT03/T07へ記録します。直接HTTPSはGatewayのhostname:port/VPC経路をT05で検証します。",
+          "Nginxオフロード層を作成するのはOption Cだけです。Option B/CはオフロードTLSと管理Aレコードを作成し、Option BはProxy-onlyサブネットと管理型L7 LBリソースも追加します。",
         ],
       },
       {
@@ -1815,6 +1891,7 @@ const ja: Messages = {
         summary: "選択したアーキテクチャでTLSをどこが所有するかを定義します。",
         actions: [
           "Nginxオフロードでは、Nginxが提示する証明書を作成または参照します。",
+          "ILB HTTPSオフロードでは、Regional server certificateをtarget HTTPS proxyへ接続し、ILBが提示します。HTTP backendはプライベートのままです。",
           "直接HTTPSでは既存アプリがTLS終端と秘密鍵を保持し、Secure Gatewayはそれらをコピーしません。",
           "エンタープライズCA Serviceリソースまたは公開信頼済み証明書のシークレットを参照します。",
           "ローカルCAのPoCでは、Applyが公開PEMルート証明書を生成します。ダウンロードに秘密鍵は含まれません。",

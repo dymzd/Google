@@ -24,6 +24,7 @@ from the target organization.
 | Managed Chrome only | Verified CAA level, conditional application IAM, two force-installed extensions |
 | PoC certificate boundary | Public-root artifact only; administrator uploads it to the dedicated test OU and selected managed Chrome platforms in Google Admin console; no private-key download |
 | Production HA and scale | Two-zone regional MIG, configurable CPU autoscaling, internal load balancer, two healthy backend requirement |
+| Managed ILB TLS offload | Regional internal Application Load Balancer with proxy-only subnet, regional certificate, HTTP backend, ownership-bounded rollback, and manual Chrome Root Store trust handoff |
 | Supply-chain control | Immutable Production image, uv/pnpm locks, CycloneDX SBOMs, path-scoped CI, weekly Dependabot |
 | Safe shared-resource handling | Etag read-modify-write and exact in-memory before-images |
 | Failure behavior | Stop on first error, owned-resource rollback, interrupted-run fail-closed state |
