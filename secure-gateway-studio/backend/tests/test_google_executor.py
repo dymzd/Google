@@ -65,6 +65,25 @@ def local_poc_spec() -> DeploymentSpec:
     )
 
 
+def internal_https_lb_spec() -> DeploymentSpec:
+    return DeploymentSpec(
+        project_id="enterprise-secgw-01",
+        mode=DeploymentMode.POC,
+        platforms=set(ChromePlatform),
+        backend_kind=BackendKind.INTERNAL_HTTPS_LB,
+        certificate_strategy=CertificateStrategy.LOCAL_POC,
+        proxy_subnet_cidr="10.42.1.0/24",
+        target_ou_id="03-test-ou",
+        test_ou_confirmed=True,
+        principals=[
+            AccessPrincipal(
+                type=PrincipalType.GROUP,
+                value="secure-access@example.com",
+            )
+        ],
+    )
+
+
 def change(provider: str, resource_type: str, name: str) -> ResourceChange:
     return ResourceChange(
         provider=provider,
@@ -416,6 +435,109 @@ def test_every_local_poc_resource_has_an_executor() -> None:
         if (item.provider, item.resource_type) not in executor._mutations
     }
     assert missing == set()
+
+
+def test_every_internal_https_lb_resource_has_an_executor() -> None:
+    executor = GoogleResourceExecutor(FakeTransport(), poll_interval_seconds=0)
+    planned = DesiredStatePlanner().build_plan(internal_https_lb_spec()).changes
+    missing = {
+        (item.provider, item.resource_type)
+        for item in planned
+        if (item.provider, item.resource_type) not in executor._mutations
+    }
+    assert missing == set()
+
+
+def test_internal_https_lb_uses_regional_managed_https_resources() -> None:
+    class HealthyInternalLbTransport(FakeTransport):
+        def request_json(self, method, url, **kwargs):
+            if method == "POST" and url.endswith("/getHealth"):
+                self.calls.append(
+                    {
+                        "method": method,
+                        "url": url,
+                        "params": kwargs.get("params"),
+                        "body": kwargs.get("json_body"),
+                    }
+                )
+                return 200, {"healthStatus": [{"healthState": "HEALTHY"}]}
+            return super().request_json(method, url, **kwargs)
+
+    deployment = internal_https_lb_spec()
+    transport = HealthyInternalLbTransport()
+    executor = GoogleResourceExecutor(transport, poll_interval_seconds=0)
+    executor._certificate = CertificateIssuer().issue_local_poc(
+        hostname=deployment.private_hostname,
+        lifetime_days=deployment.certificate_lifetime_days,
+    )
+
+    for resource_type, name in (
+        ("subnetwork", f"{deployment.name}-proxy-subnet"),
+        ("instance_group", f"{deployment.name}-backend-ig"),
+        ("health_check", f"{deployment.name}-ilb-hc"),
+        ("backend_service", f"{deployment.name}-ilb-bs"),
+        ("ssl_certificate", f"{deployment.name}-ilb-cert"),
+        ("url_map", f"{deployment.name}-ilb-map"),
+        ("target_https_proxy", f"{deployment.name}-ilb-proxy"),
+        ("forwarding_rule", f"{deployment.name}-ilb-fr"),
+    ):
+        executor.apply(change("compute", resource_type, name), deployment)
+
+    proxy_subnet = next(
+        call
+        for call in transport.calls
+        if call["method"] == "POST"
+        and call["url"].endswith("/subnetworks")
+        and call["body"]["name"].endswith("-proxy-subnet")
+    )["body"]
+    assert proxy_subnet["purpose"] == "REGIONAL_MANAGED_PROXY"
+    assert proxy_subnet["role"] == "ACTIVE"
+    assert proxy_subnet["ipCidrRange"] == "10.42.1.0/24"
+
+    health_check = next(
+        call["body"]
+        for call in transport.calls
+        if call["method"] == "POST" and call["url"].endswith("/healthChecks")
+    )
+    assert health_check["type"] == "HTTP"
+    assert health_check["httpHealthCheck"]["portSpecification"] == "USE_SERVING_PORT"
+
+    backend_service = next(
+        call["body"]
+        for call in transport.calls
+        if call["method"] == "POST" and call["url"].endswith("/backendServices")
+    )
+    assert backend_service["protocol"] == "HTTP"
+    assert backend_service["loadBalancingScheme"] == "INTERNAL_MANAGED"
+    assert backend_service["portName"] == "http"
+    assert backend_service["backends"][0]["group"].endswith("-backend-ig")
+
+    certificate = next(
+        call["body"]
+        for call in transport.calls
+        if call["method"] == "POST" and call["url"].endswith("/sslCertificates")
+    )
+    assert certificate["certificate"].startswith("-----BEGIN CERTIFICATE-----")
+    assert certificate["privateKey"].startswith("-----BEGIN PRIVATE KEY-----")
+    assert certificate_configuration_hash(deployment) in certificate["description"]
+
+    proxy = next(
+        call["body"]
+        for call in transport.calls
+        if call["method"] == "POST" and call["url"].endswith("/targetHttpsProxies")
+    )
+    assert proxy["urlMap"].endswith("-ilb-map")
+    assert proxy["sslCertificates"][0].endswith("-ilb-cert")
+
+    forwarding_rule = next(
+        call["body"]
+        for call in transport.calls
+        if call["method"] == "POST" and call["url"].endswith("/forwardingRules")
+    )
+    assert forwarding_rule["loadBalancingScheme"] == "INTERNAL_MANAGED"
+    assert forwarding_rule["ports"] == ["443"]
+    assert forwarding_rule["target"].endswith("-ilb-proxy")
+    assert "backendService" not in forwarding_rule
 
 
 def test_production_autoscaler_uses_configured_capacity_ceiling() -> None:

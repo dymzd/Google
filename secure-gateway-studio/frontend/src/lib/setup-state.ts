@@ -3,7 +3,11 @@ export type DeploymentMode = "poc" | "production";
 export type ChromePlatform = "macos" | "windows" | "linux" | "chromeos";
 export type NetworkStrategy = "dedicated" | "existing";
 export type CertificateStrategy = "enterprise_ca" | "public_trusted" | "local_poc";
-export type BackendKind = "managed_sample" | "existing_http" | "direct_https";
+export type BackendKind =
+  | "managed_sample"
+  | "existing_http"
+  | "direct_https"
+  | "internal_https_lb";
 export type BackendLocation = "gcp" | "aws" | "azure" | "on_prem";
 export type PrincipalType = "user" | "group" | "domain";
 export type ConnectionStatus =
@@ -19,7 +23,7 @@ export interface AccessPrincipal {
 }
 
 export interface SetupState {
-  schemaVersion: 7;
+  schemaVersion: 8;
   currentStep: number;
   deploymentName: string;
   mode: DeploymentMode;
@@ -42,6 +46,7 @@ export interface SetupState {
   offloadCpuTarget: string;
   vpcName: string;
   subnetName: string;
+  proxySubnetCidr: string;
   backendKind: BackendKind;
   existingBackendUrl: string;
   existingBackendLocation: BackendLocation;
@@ -64,14 +69,14 @@ export interface SetupState {
   updatedAt: string;
 }
 
-const SETUP_KEY = "sgs.setup.v7";
-const LEGACY_SETUP_KEY = "sgs.setup.v6";
+const SETUP_KEY = "sgs.setup.v8";
+const LEGACY_SETUP_KEYS = ["sgs.setup.v7", "sgs.setup.v6"];
 const LOCALE_KEY = "sgs.locale.v1";
 
 export const defaultSetupState: SetupState = {
-  schemaVersion: 7,
+  schemaVersion: 8,
   currentStep: 0,
-  deploymentName: "secure-gateway-http-offload",
+  deploymentName: "secure-gateway-ilb-https-offload",
   mode: "poc",
   platforms: {
     macos: true,
@@ -97,7 +102,8 @@ export const defaultSetupState: SetupState = {
   offloadCpuTarget: "0.6",
   vpcName: "",
   subnetName: "",
-  backendKind: "managed_sample",
+  proxySubnetCidr: "10.42.1.0/24",
+  backendKind: "internal_https_lb",
   existingBackendUrl: "",
   existingBackendLocation: "gcp",
   existingBackendConnectivityConfirmed: false,
@@ -151,6 +157,7 @@ export function toDeploymentSpec(
     offload_cpu_target: Number(setup.offloadCpuTarget),
     vpc_name: setup.networkStrategy === "existing" ? setup.vpcName : null,
     subnet_name: setup.networkStrategy === "existing" ? setup.subnetName : null,
+    proxy_subnet_cidr: setup.proxySubnetCidr,
     private_hostname: setup.privateHostname,
     gateway_id: "default",
     target_ou_id: setup.targetOuId,
@@ -164,9 +171,13 @@ export function toDeploymentSpec(
     test_ou_confirmed: setup.testOuConfirmed,
     backend_kind: setup.backendKind,
     existing_backend_url:
-      setup.backendKind === "managed_sample" ? null : setup.existingBackendUrl,
+      setup.backendKind === "managed_sample" ||
+      setup.backendKind === "internal_https_lb"
+        ? null
+        : setup.existingBackendUrl,
     existing_backend_location:
-      setup.backendKind === "managed_sample"
+      setup.backendKind === "managed_sample" ||
+      setup.backendKind === "internal_https_lb"
         ? null
         : setup.existingBackendLocation,
     application_egress_region:
@@ -175,6 +186,7 @@ export function toDeploymentSpec(
         : null,
     existing_backend_connectivity_confirmed:
       setup.backendKind !== "managed_sample" &&
+      setup.backendKind !== "internal_https_lb" &&
       setup.existingBackendConnectivityConfirmed,
     ca_pool: setup.certificateStrategy === "enterprise_ca" ? setup.caPool : null,
     ca_name: setup.certificateStrategy === "enterprise_ca" ? setup.caName : null,
@@ -198,7 +210,7 @@ function isSetupState(value: unknown): value is SetupState {
   const candidate = value as Partial<SetupState>;
   const schemaVersion = (value as { schemaVersion?: number }).schemaVersion;
   return (
-    (schemaVersion === 6 || schemaVersion === 7) &&
+    (schemaVersion === 6 || schemaVersion === 7 || schemaVersion === 8) &&
     (candidate.mode === "poc" || candidate.mode === "production") &&
     (candidate.networkStrategy === "dedicated" ||
       candidate.networkStrategy === "existing") &&
@@ -213,14 +225,14 @@ export function loadSetupState(): SetupState {
   try {
     const serialized =
       window.localStorage.getItem(SETUP_KEY) ??
-      window.localStorage.getItem(LEGACY_SETUP_KEY);
+      LEGACY_SETUP_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
     if (!serialized) return defaultSetupState;
     const parsed: unknown = JSON.parse(serialized);
     if (!isSetupState(parsed)) return defaultSetupState;
     const migrated: SetupState = {
       ...defaultSetupState,
       ...parsed,
-      schemaVersion: 7,
+      schemaVersion: 8,
       // This release is intentionally scoped to rapid PoC deployments.
       // Keep Production-shaped drafts usable without exposing a disabled mode.
       mode: "poc",

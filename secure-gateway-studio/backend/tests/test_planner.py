@@ -51,13 +51,19 @@ def test_poc_bootstrap_role_matches_poc_permissions_not_supplied_by_base_roles()
         for line in manifest.read_text(encoding="utf-8").splitlines()
         if line.startswith("  - ")
     }
-    spec = production_spec(
+    common = dict(
         mode="poc",
         certificate_strategy="local_poc",
         source_image=None,
         chrome_enterprise_premium_license_confirmed=False,
         workspace_services_confirmed=False,
         endpoint_verification_confirmed=False,
+    )
+    nginx_spec = production_spec(**common)
+    ilb_spec = production_spec(
+        **common,
+        backend_kind=BackendKind.INTERNAL_HTTPS_LB,
+        proxy_subnet_cidr="10.42.1.0/24",
     )
     base_role_permissions = {
         "accesscontextmanager.accessLevels.get",
@@ -69,7 +75,65 @@ def test_poc_bootstrap_role_matches_poc_permissions_not_supplied_by_base_roles()
         "serviceusage.services.use",
     }
 
-    assert manifest_permissions == required_permissions(spec) - base_role_permissions
+    expected_permissions = (
+        required_permissions(nginx_spec) | required_permissions(ilb_spec)
+    ) - base_role_permissions
+
+    assert manifest_permissions == expected_permissions
+
+
+def test_internal_https_lb_plans_managed_tls_offload_without_nginx() -> None:
+    spec = production_spec(
+        mode="poc",
+        backend_kind=BackendKind.INTERNAL_HTTPS_LB,
+        certificate_strategy=CertificateStrategy.LOCAL_POC,
+        source_image=None,
+        proxy_subnet_cidr="10.42.1.0/24",
+        chrome_enterprise_premium_license_confirmed=False,
+        workspace_services_confirmed=False,
+        endpoint_verification_confirmed=False,
+    )
+
+    plan = DesiredStatePlanner().build_plan(spec)
+    resources = {
+        (change.provider, change.resource_type, change.resource_name)
+        for change in plan.changes
+    }
+
+    assert ("compute", "subnetwork", f"{spec.name}-proxy-subnet") in resources
+    assert ("compute", "instance_group", f"{spec.name}-backend-ig") in resources
+    assert ("compute", "ssl_certificate", f"{spec.name}-ilb-cert") in resources
+    assert ("compute", "url_map", f"{spec.name}-ilb-map") in resources
+    assert ("compute", "target_https_proxy", f"{spec.name}-ilb-proxy") in resources
+    assert ("compute", "forwarding_rule", f"{spec.name}-ilb-fr") in resources
+    assert ("compute", "instance", f"{spec.name}-backend") in resources
+    assert ("compute", "instance", f"{spec.name}-offload") not in resources
+    assert not any(
+        resource_type == "instance_group_manager" for _, resource_type, _ in resources
+    )
+    assert not any(resource_type == "secret_iam" for _, resource_type, _ in resources)
+    ordered_keys = [
+        f"{change.provider}:{change.resource_type}:{change.resource_name}"
+        for change in plan.changes
+    ]
+    assert ordered_keys.index(f"compute:firewall_rule:{spec.name}-ilb-health-ingress") < (
+        ordered_keys.index(f"compute:forwarding_rule:{spec.name}-ilb-fr")
+    )
+
+
+def test_internal_https_lb_rejects_overlapping_proxy_subnet() -> None:
+    with pytest.raises(ValidationError, match="must not overlap"):
+        production_spec(
+            mode="poc",
+            backend_kind=BackendKind.INTERNAL_HTTPS_LB,
+            certificate_strategy=CertificateStrategy.LOCAL_POC,
+            source_image=None,
+            subnet_cidr="10.42.0.0/24",
+            proxy_subnet_cidr="10.42.0.128/25",
+            chrome_enterprise_premium_license_confirmed=False,
+            workspace_services_confirmed=False,
+            endpoint_verification_confirmed=False,
+        )
 
 
 def test_internal_address_permissions_cover_create_and_rollback() -> None:

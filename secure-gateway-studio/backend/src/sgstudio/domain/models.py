@@ -56,6 +56,7 @@ class BackendKind(StrEnum):
     MANAGED_SAMPLE = "managed_sample"
     EXISTING_HTTP = "existing_http"
     DIRECT_HTTPS = "direct_https"
+    INTERNAL_HTTPS_LB = "internal_https_lb"
 
 
 class BackendLocation(StrEnum):
@@ -119,6 +120,10 @@ class DeploymentSpec(BaseModel):
     vpc_name: ResourceName | None = None
     subnet_name: ResourceName | None = None
     subnet_cidr: str = Field(default="10.42.0.0/24", pattern=r"^\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}$")
+    proxy_subnet_cidr: str = Field(
+        default="10.42.1.0/24",
+        pattern=r"^\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}$",
+    )
     private_hostname: str = Field(
         default="demo-server-http.internal",
         min_length=4,
@@ -173,6 +178,18 @@ class DeploymentSpec(BaseModel):
             raise ValueError(
                 "offload_max_replicas must be greater than or equal to offload_min_replicas"
             )
+        try:
+            backend_network = ipaddress.ip_network(self.subnet_cidr)
+            proxy_network = ipaddress.ip_network(self.proxy_subnet_cidr)
+        except ValueError as error:
+            raise ValueError("Subnet CIDRs must be valid IPv4 networks") from error
+        if not backend_network.is_private or not proxy_network.is_private:
+            raise ValueError("Subnet CIDRs must use private IPv4 ranges")
+        if (
+            self.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+            and backend_network.overlaps(proxy_network)
+        ):
+            raise ValueError("ILB proxy-only subnet must not overlap the backend subnet")
         if self.mode is DeploymentMode.PRODUCTION:
             if self.certificate_strategy is CertificateStrategy.LOCAL_POC:
                 raise ValueError("Production mode cannot use a local PoC CA")
@@ -226,7 +243,7 @@ class DeploymentSpec(BaseModel):
             and self.backend_kind is not BackendKind.DIRECT_HTTPS
             and not self.subnet_name
         ):
-            raise ValueError("Nginx deployment in an existing VPC requires subnet_name")
+            raise ValueError("Managed backend deployment in an existing VPC requires subnet_name")
         if (
             self.backend_kind is BackendKind.DIRECT_HTTPS
             and self.network_strategy is not NetworkStrategy.EXISTING

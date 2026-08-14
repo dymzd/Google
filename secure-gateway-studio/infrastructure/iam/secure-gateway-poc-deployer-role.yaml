@@ -29,6 +29,11 @@ includedPermissions:
   - compute.images.get
   - compute.images.useReadOnly
   - compute.instanceTemplates.useReadOnly
+  - compute.instanceGroups.create
+  - compute.instanceGroups.delete
+  - compute.instanceGroups.get
+  - compute.instanceGroups.update
+  - compute.instanceGroups.use
   - compute.instances.create
   - compute.instances.delete
   - compute.instances.get
@@ -44,7 +49,29 @@ includedPermissions:
   - compute.networks.get
   - compute.networks.updatePolicy
   - compute.networks.use
+  - compute.forwardingRules.create
+  - compute.forwardingRules.delete
+  - compute.forwardingRules.get
+  - compute.healthChecks.create
+  - compute.healthChecks.delete
+  - compute.healthChecks.get
+  - compute.regionBackendServices.create
+  - compute.regionBackendServices.delete
+  - compute.regionBackendServices.get
+  - compute.regionBackendServices.use
+  - compute.regionHealthChecks.useReadOnly
   - compute.regionOperations.get
+  - compute.regionSslCertificates.create
+  - compute.regionSslCertificates.delete
+  - compute.regionSslCertificates.get
+  - compute.regionTargetHttpsProxies.create
+  - compute.regionTargetHttpsProxies.delete
+  - compute.regionTargetHttpsProxies.get
+  - compute.regionTargetHttpsProxies.use
+  - compute.regionUrlMaps.create
+  - compute.regionUrlMaps.delete
+  - compute.regionUrlMaps.get
+  - compute.regionUrlMaps.use
   - compute.routers.create
   - compute.routers.delete
   - compute.routers.get
@@ -76,5 +103,6 @@ includedPermissions:
   - secretmanager.secrets.setIamPolicy
   - secretmanager.secrets.update
   - secretmanager.versions.add
+  - secretmanager.versions.access
   - secretmanager.versions.disable
   - serviceusage.services.enable

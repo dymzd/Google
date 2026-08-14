@@ -1,9 +1,10 @@
 # Secure Gateway Studio
 
 Secure Gateway Studio is a loopback-only administration app for planning and
-applying Chrome Enterprise Premium Secure Gateway deployments. It supports two
-independent architectures: Nginx HTTPS-to-HTTP offload and direct routing to an
-existing private HTTPS application.
+applying Chrome Enterprise Premium Secure Gateway deployments. It supports three
+independent architectures: Nginx HTTPS-to-HTTP offload, direct routing to an
+existing private HTTPS application, and HTTPS termination on a regional internal
+Application Load Balancer that forwards HTTP to a private sample backend.
 The current UI is intentionally focused on doing a Secure Gateway proof of
 concept as quickly as possible. It supports English and Japanese, all four
 managed Chrome platforms, and either a dedicated or existing VPC. Production
@@ -34,7 +35,8 @@ fixture test passed.
   Secret Manager, CA Service, BeyondCorp, Access Context Manager, and Chrome
   Policy.
 - Production regional managed instance group across two zones, configurable
-  CPU autoscaling (default 2-20 replicas), internal TCP load balancer, SSL
+  CPU autoscaling (default 2-20 replicas), internal passthrough Network Load
+  Balancer, SSL
   health check, private DNS, Cloud NAT, and no VM external IPs.
 - Existing-VPC and dedicated-VPC strategies.
 - Existing private HTTP backends in GCP, AWS, Azure, or on premises, with an
@@ -49,6 +51,12 @@ fixture test passed.
   DNS A record, or offload certificate. The operator confirms Cloud DNS private
   or forwarding resolution, TCP ingress from `136.124.16.0/20`, and the return
   path before Apply.
+- Regional internal Application Load Balancer HTTPS offload, with a dedicated
+  `REGIONAL_MANAGED_PROXY` subnet, regional self-managed server certificate,
+  URL map, target HTTPS proxy, internal forwarding rule, HTTP health check, and
+  a private sample backend. The load balancer terminates TLS and forwards HTTP;
+  no Nginx offload tier is deployed. For a local PoC CA, only the public root PEM
+  is handed to Chrome Root Store through the documented manual Admin console step.
 - Enterprise CA, validated public certificate secret, and a local PoC CA. The
   app exports only the public root for upload to the dedicated test OU through
   Google Admin console, where the administrator selects the managed Chrome
@@ -196,7 +204,7 @@ pnpm build
 pnpm audit --prod --audit-level high
 ```
 
-The current automated suite contains 135 backend tests and 19 frontend tests,
+The current automated suite contains 141 backend tests and 22 frontend tests,
 with a 75% minimum backend coverage gate.
 The exact environment and browser acceptance cases are in
 [TEST_MATRIX.md](docs/TEST_MATRIX.md).

@@ -1470,6 +1470,68 @@ class StateRepository:
                     ]
                 )
             return requirements
+        if specification.backend_kind.value == "internal_https_lb":
+            requirements = [
+                AcceptanceRequirement(
+                    test_id=AcceptanceTestId.T01,
+                    case_key="default",
+                    operator_confirmable=False,
+                ),
+                AcceptanceRequirement(
+                    test_id=AcceptanceTestId.T03,
+                    case_key="default",
+                    operator_confirmable=True,
+                ),
+                AcceptanceRequirement(
+                    test_id=AcceptanceTestId.T04,
+                    case_key="default",
+                    operator_confirmable=False,
+                ),
+                AcceptanceRequirement(
+                    test_id=AcceptanceTestId.T05,
+                    case_key="default",
+                    operator_confirmable=False,
+                ),
+                AcceptanceRequirement(
+                    test_id=AcceptanceTestId.T06,
+                    case_key="default",
+                    operator_confirmable=True,
+                ),
+            ]
+            platform_order = ("macos", "windows", "linux", "chromeos")
+            selected_platforms = {
+                platform.value for platform in specification.platforms
+            }
+            requirements.extend(
+                AcceptanceRequirement(
+                    test_id=AcceptanceTestId.T07,
+                    case_key=platform,
+                    operator_confirmable=True,
+                )
+                for platform in platform_order
+                if platform in selected_platforms
+            )
+            if specification.mode.value == "production":
+                requirements.extend(
+                    [
+                        AcceptanceRequirement(
+                            test_id=AcceptanceTestId.T08,
+                            case_key="default",
+                            operator_confirmable=True,
+                        ),
+                        AcceptanceRequirement(
+                            test_id=AcceptanceTestId.T09,
+                            case_key="unauthorized-principal",
+                            operator_confirmable=True,
+                        ),
+                        AcceptanceRequirement(
+                            test_id=AcceptanceTestId.T09,
+                            case_key="unmanaged-browser",
+                            operator_confirmable=True,
+                        ),
+                    ]
+                )
+            return requirements
         existing_backend = specification.backend_kind.value == "existing_http"
         requirements = [
             AcceptanceRequirement(

@@ -11,6 +11,7 @@ import {
   AccessStep,
   ApplyStep,
   EnvironmentStep,
+  IdentitiesStep,
 } from "./features/setup/ConfigurationSteps";
 import { getMessages } from "./i18n/messages";
 import {
@@ -18,6 +19,7 @@ import {
   loadSetupState,
   toDeploymentSpec,
 } from "./lib/setup-state";
+import { ApiError } from "./lib/api";
 
 describe("Secure Gateway Studio mode screen", () => {
   beforeEach(() => {
@@ -48,6 +50,34 @@ describe("Secure Gateway Studio mode screen", () => {
     expect(
       screen.getByRole("button", { name: /^Production/ }),
     ).toBeDisabled();
+  });
+
+  it("shows the actionable gcloud bootstrap failure returned by the API", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(
+      <IdentitiesStep
+        messages={getMessages("ja")}
+        onBootstrapCloud={vi.fn().mockRejectedValue(
+          new ApiError(
+            424,
+            "deployer-bootstrap-failed",
+            "The active gcloud user credentials require reauthentication. Run `gcloud auth login`, complete browser sign-in, then retry automatic deployer setup.",
+          ),
+        )}
+        onPatch={vi.fn()}
+        onValidateCloud={vi.fn()}
+        onValidateWorkspace={vi.fn()}
+        state={{ ...defaultSetupState, projectId: "montreal-436802" }}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "SAと最小権限ロールを自動作成" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "gcloud auth login",
+    );
   });
 
   it("allows a local CA for all selected managed Chrome PoC platforms", () => {
@@ -131,7 +161,9 @@ describe("Secure Gateway Studio mode screen", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /^Direct private HTTPS app/ }),
+      screen.getByRole("button", {
+        name: /^Option A — Connect directly to an existing HTTPS app/,
+      }),
     ).toHaveAttribute("aria-pressed", "true");
     expect(
       screen.getByRole("textbox", { name: /Private HTTPS endpoint/ }),
@@ -149,6 +181,59 @@ describe("Secure Gateway Studio mode screen", () => {
       existing_backend_url: "https://app.corp.internal:8443",
       application_egress_region: "asia-east1",
     });
+  });
+
+  it("models internal Application Load Balancer HTTPS offload as Option B", () => {
+    const onPatch = vi.fn();
+    const ilbState = {
+      ...defaultSetupState,
+      backendKind: "internal_https_lb" as const,
+      deploymentName: "secure-gateway-ilb-https-offload",
+      proxySubnetCidr: "10.42.1.0/24",
+    };
+    render(
+      <EnvironmentStep
+        messages={getMessages("en")}
+        onPatch={onPatch}
+        state={ilbState}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /^Option B — HTTPS offload with Internal Application Load Balancer/,
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("textbox", { name: "ILB proxy-only subnet CIDR" }),
+    ).toHaveValue("10.42.1.0/24");
+    expect(screen.queryByText("Backend URL (http://)")).not.toBeInTheDocument();
+
+    expect(toDeploymentSpec(ilbState, "en")).toMatchObject({
+      backend_kind: "internal_https_lb",
+      proxy_subnet_cidr: "10.42.1.0/24",
+      existing_backend_url: null,
+    });
+  });
+
+  it("moves the legacy Nginx choices into Option C advanced settings", () => {
+    render(
+      <EnvironmentStep
+        messages={getMessages("en")}
+        onPatch={vi.fn()}
+        state={{ ...defaultSetupState, backendKind: "managed_sample" }}
+      />,
+    );
+
+    const legacy = screen.getByText(
+      "Option C — Legacy Nginx method / advanced settings",
+    ).closest("details");
+    expect(legacy).toHaveAttribute("open");
+    expect(
+      within(legacy as HTMLElement).getByRole("button", {
+        name: /^Managed sample backend \(Nginx\)/,
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("offers the public root CA handoff after a successful local CA Apply", () => {
@@ -285,10 +370,17 @@ describe("Secure Gateway Studio mode screen", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText(/^Step [1-7]$/)).toHaveLength(7);
     expect(
-      screen.getByRole("heading", { name: "Two independent deployment architectures" }),
+      screen.getByRole("heading", { name: "Three independent deployment architectures" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Secure Gateway + private HTTPS app" }),
+      screen.getByRole("heading", {
+        name: "Secure Gateway + internal HTTPS load balancer + HTTP app",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Secure Gateway + existing private HTTPS app",
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getAllByText(/AWS, Azure, or on premises/).length,

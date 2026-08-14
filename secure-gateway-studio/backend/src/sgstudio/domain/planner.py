@@ -104,6 +104,10 @@ REQUIRED_PERMISSIONS = {
     "compute.instanceGroupManagers.delete",
     "compute.instanceGroupManagers.get",
     "compute.instanceGroupManagers.update",
+    "compute.instanceGroups.create",
+    "compute.instanceGroups.delete",
+    "compute.instanceGroups.get",
+    "compute.instanceGroups.update",
     "compute.instanceGroups.use",
     "compute.instanceTemplates.create",
     "compute.instanceTemplates.delete",
@@ -125,6 +129,17 @@ REQUIRED_PERMISSIONS = {
     "compute.regionBackendServices.get",
     "compute.regionBackendServices.use",
     "compute.regionHealthChecks.useReadOnly",
+    "compute.regionSslCertificates.create",
+    "compute.regionSslCertificates.delete",
+    "compute.regionSslCertificates.get",
+    "compute.regionTargetHttpsProxies.create",
+    "compute.regionTargetHttpsProxies.delete",
+    "compute.regionTargetHttpsProxies.get",
+    "compute.regionTargetHttpsProxies.use",
+    "compute.regionUrlMaps.create",
+    "compute.regionUrlMaps.delete",
+    "compute.regionUrlMaps.get",
+    "compute.regionUrlMaps.use",
     "compute.subnetworks.create",
     "compute.subnetworks.delete",
     "compute.subnetworks.get",
@@ -218,7 +233,28 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             or permission == "accesscontextmanager.accessLevels.get"
             or permission in {"compute.networks.get", "compute.networks.use"}
         }
-    if spec.network_strategy is NetworkStrategy.EXISTING:
+    if spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB:
+        permissions -= {
+            "compute.instanceGroups.create",
+            "compute.instanceGroups.delete",
+            "compute.instanceGroups.get",
+            "compute.instanceGroups.update",
+            "compute.regionSslCertificates.create",
+            "compute.regionSslCertificates.delete",
+            "compute.regionSslCertificates.get",
+            "compute.regionTargetHttpsProxies.create",
+            "compute.regionTargetHttpsProxies.delete",
+            "compute.regionTargetHttpsProxies.get",
+            "compute.regionTargetHttpsProxies.use",
+            "compute.regionUrlMaps.create",
+            "compute.regionUrlMaps.delete",
+            "compute.regionUrlMaps.get",
+            "compute.regionUrlMaps.use",
+        }
+    if (
+        spec.network_strategy is NetworkStrategy.EXISTING
+        and spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB
+    ):
         permissions -= {
             "compute.networks.create",
             "compute.networks.delete",
@@ -242,14 +278,15 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             "secretmanager.versions.disable",
         }
     elif spec.certificate_strategy is CertificateStrategy.LOCAL_POC:
-        permissions.discard("secretmanager.versions.access")
+        if spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB:
+            permissions.discard("secretmanager.versions.access")
         permissions.discard("privateca.caPools.use")
         permissions.discard("privateca.certificates.create")
         permissions.discard("privateca.certificates.get")
         permissions.discard("privateca.certificates.update")
         permissions.discard("privateca.operations.get")
     if spec.mode.value == "poc":
-        permissions -= {
+        production_only_permissions = {
             "compute.autoscalers.create",
             "compute.autoscalers.delete",
             "compute.autoscalers.get",
@@ -273,6 +310,26 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             "compute.regionBackendServices.use",
             "compute.regionHealthChecks.useReadOnly",
         }
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            production_only_permissions -= {
+                "compute.forwardingRules.create",
+                "compute.forwardingRules.delete",
+                "compute.forwardingRules.get",
+                "compute.healthChecks.create",
+                "compute.healthChecks.delete",
+                "compute.healthChecks.get",
+                "compute.instanceGroups.create",
+                "compute.instanceGroups.delete",
+                "compute.instanceGroups.get",
+                "compute.instanceGroups.update",
+                "compute.instanceGroups.use",
+                "compute.regionBackendServices.create",
+                "compute.regionBackendServices.delete",
+                "compute.regionBackendServices.get",
+                "compute.regionBackendServices.use",
+                "compute.regionHealthChecks.useReadOnly",
+            }
+        permissions -= production_only_permissions
     else:
         permissions -= {
             "compute.instances.start",
@@ -353,6 +410,11 @@ class DesiredStatePlanner:
         snapshot: DiscoverySnapshot,
     ) -> list[DesiredResource]:
         prefix = spec.name
+        network_name = (
+            f"{prefix}-vpc"
+            if spec.network_strategy is NetworkStrategy.DEDICATED
+            else str(spec.vpc_name)
+        )
         offload_account = service_account_id(prefix, "offload")
         backend_account = service_account_id(prefix, "backend")
         tls_secret_name = (
@@ -437,6 +499,18 @@ class DesiredStatePlanner:
                     )
                 )
 
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            resources.append(
+                DesiredResource(
+                    "compute",
+                    "subnetwork",
+                    f"{prefix}-proxy-subnet",
+                    RiskLevel.HIGH,
+                    "Regional managed proxy-only subnet for the internal HTTPS load balancer",
+                    (f"compute:network:{network_name}",),
+                )
+            )
+
         if spec.backend_kind is BackendKind.DIRECT_HTTPS:
             if spec.managed_chrome_access_level:
                 resources.append(
@@ -489,6 +563,310 @@ class DesiredStatePlanner:
                         (
                             f"beyondcorp:security_gateway:{spec.gateway_id}",
                             f"compute:network:{spec.vpc_name}",
+                            f"cloudresourcemanager:project_iam:{prefix}-upstream-access",
+                        ),
+                    ),
+                    DesiredResource(
+                        "beyondcorp",
+                        "application_iam",
+                        f"{prefix}-app-access",
+                        RiskLevel.HIGH,
+                        "Grant application access to the approved principal set",
+                        (
+                            f"beyondcorp:application:{prefix}-app",
+                            *(
+                                (
+                                    "accesscontextmanager:access_level:"
+                                    f"{spec.managed_chrome_access_level}",
+                                )
+                                if spec.managed_chrome_access_level
+                                else ()
+                            ),
+                        ),
+                    ),
+                    DesiredResource(
+                        "chromepolicy",
+                        "extension_install",
+                        "ekajlcmdfcigmdbphhifahdfjbkciflj",
+                        RiskLevel.HIGH,
+                        "Force-install the Secure Enterprise Browser extension in the test OU",
+                        shared=True,
+                    ),
+                    DesiredResource(
+                        "chromepolicy",
+                        "extension_install",
+                        "callobklhcbilhphinckomhgkigmfocg",
+                        RiskLevel.HIGH,
+                        "Force-install Endpoint Verification for managed Chrome signals",
+                        shared=True,
+                    ),
+                    DesiredResource(
+                        "chromepolicy",
+                        "extension_configuration",
+                        "ekajlcmdfcigmdbphhifahdfjbkciflj",
+                        RiskLevel.HIGH,
+                        "Configure the gateway resource and Service Discovery routes",
+                        (f"beyondcorp:security_gateway:{spec.gateway_id}",),
+                        shared=True,
+                    ),
+                    DesiredResource(
+                        "chromepolicy",
+                        "service_discovery_proxy",
+                        spec.target_ou_id,
+                        RiskLevel.HIGH,
+                        "Override an inherited legacy PAC in the test OU for Service Discovery",
+                        (
+                            "chromepolicy:extension_configuration:"
+                            "ekajlcmdfcigmdbphhifahdfjbkciflj",
+                        ),
+                        shared=True,
+                    ),
+                ]
+            )
+            resources.extend(
+                DesiredResource(
+                    "chromepolicy",
+                    "group_extension_configuration",
+                    group_email,
+                    RiskLevel.BLOCKING,
+                    "A group policy overrides the target OU Secure Gateway configuration",
+                    shared=True,
+                )
+                for group_email in snapshot.chrome_extension_group_conflicts
+            )
+            return resources
+
+        if spec.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+            if spec.managed_chrome_access_level:
+                resources.append(
+                    DesiredResource(
+                        "accesscontextmanager",
+                        "access_level",
+                        spec.managed_chrome_access_level,
+                        RiskLevel.HIGH,
+                        "Existing access level requiring a managed Chrome profile or browser",
+                        shared=True,
+                        must_exist=True,
+                    )
+                )
+            resources.extend(
+                [
+                    DesiredResource(
+                        "iam",
+                        "service_account",
+                        backend_account,
+                        RiskLevel.LOW,
+                        "Dedicated identity for the HTTP backend VM",
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "internal_address",
+                        f"{prefix}-backend-ip",
+                        RiskLevel.MEDIUM,
+                        "Stable private address for the sample HTTP backend",
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "instance",
+                        f"{prefix}-backend",
+                        RiskLevel.MEDIUM,
+                        "Private HTTP sample backend with no external IP",
+                        (
+                            f"iam:service_account:{backend_account}",
+                            f"compute:internal_address:{prefix}-backend-ip",
+                        ),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "instance_group",
+                        f"{prefix}-backend-ig",
+                        RiskLevel.MEDIUM,
+                        "Zonal instance group exposing the sample backend on HTTP port 80",
+                        (f"compute:instance:{prefix}-backend",),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "health_check",
+                        f"{prefix}-ilb-hc",
+                        RiskLevel.MEDIUM,
+                        "Regional HTTP health check for the ILB backend",
+                        (f"compute:instance_group:{prefix}-backend-ig",),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "firewall_rule",
+                        f"{prefix}-ilb-proxy-ingress",
+                        RiskLevel.HIGH,
+                        "Allow the proxy-only subnet to reach backend TCP 80",
+                        (
+                            f"compute:subnetwork:{prefix}-proxy-subnet",
+                            f"compute:instance:{prefix}-backend",
+                        ),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "firewall_rule",
+                        f"{prefix}-ilb-health-ingress",
+                        RiskLevel.HIGH,
+                        "Allow Google health checks to backend TCP 80",
+                        (
+                            f"compute:health_check:{prefix}-ilb-hc",
+                            f"compute:instance:{prefix}-backend",
+                        ),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "backend_service",
+                        f"{prefix}-ilb-bs",
+                        RiskLevel.HIGH,
+                        "Regional INTERNAL_MANAGED HTTP backend service",
+                        (
+                            f"compute:health_check:{prefix}-ilb-hc",
+                            f"compute:instance_group:{prefix}-backend-ig",
+                        ),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "internal_address",
+                        f"{prefix}-offload-ip",
+                        RiskLevel.MEDIUM,
+                        "Stable private frontend address for the internal HTTPS load balancer",
+                    ),
+                    DesiredResource(
+                        "secretmanager",
+                        "secret",
+                        tls_secret_name,
+                        RiskLevel.HIGH,
+                        "TLS material for the internal HTTPS load balancer",
+                        shared=spec.certificate_strategy
+                        is CertificateStrategy.PUBLIC_TRUSTED,
+                        must_exist=spec.certificate_strategy
+                        is CertificateStrategy.PUBLIC_TRUSTED,
+                    ),
+                ]
+            )
+            if spec.certificate_strategy is not CertificateStrategy.PUBLIC_TRUSTED:
+                resources.append(
+                    DesiredResource(
+                        "secretmanager",
+                        "secret_version",
+                        tls_secret_name,
+                        RiskLevel.HIGH,
+                        "Validated ILB certificate chain and private key payload",
+                        (f"secretmanager:secret:{tls_secret_name}",),
+                    )
+                )
+            if spec.certificate_strategy is CertificateStrategy.LOCAL_POC:
+                resources.append(
+                    DesiredResource(
+                        "local",
+                        "root_certificate_artifact",
+                        f"{prefix}-poc-root",
+                        RiskLevel.HIGH,
+                        "Public root CA for manual Chrome Root Store distribution",
+                        (f"secretmanager:secret_version:{tls_secret_name}",),
+                    )
+                )
+            resources.extend(
+                [
+                    DesiredResource(
+                        "compute",
+                        "ssl_certificate",
+                        f"{prefix}-ilb-cert",
+                        RiskLevel.HIGH,
+                        "Regional server certificate presented by the internal HTTPS load balancer",
+                        (
+                            (
+                                f"secretmanager:secret:{tls_secret_name}"
+                                if spec.certificate_strategy
+                                is CertificateStrategy.PUBLIC_TRUSTED
+                                else f"secretmanager:secret_version:{tls_secret_name}"
+                            ),
+                        ),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "url_map",
+                        f"{prefix}-ilb-map",
+                        RiskLevel.HIGH,
+                        "Regional URL map forwarding requests to the HTTP backend service",
+                        (f"compute:backend_service:{prefix}-ilb-bs",),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "target_https_proxy",
+                        f"{prefix}-ilb-proxy",
+                        RiskLevel.HIGH,
+                        "Regional HTTPS proxy terminating TLS with the ILB certificate",
+                        (
+                            f"compute:url_map:{prefix}-ilb-map",
+                            f"compute:ssl_certificate:{prefix}-ilb-cert",
+                        ),
+                    ),
+                    DesiredResource(
+                        "compute",
+                        "forwarding_rule",
+                        f"{prefix}-ilb-fr",
+                        RiskLevel.HIGH,
+                        "Regional internal Application Load Balancer HTTPS frontend",
+                        (
+                            f"compute:target_https_proxy:{prefix}-ilb-proxy",
+                            f"compute:internal_address:{prefix}-offload-ip",
+                            f"compute:subnetwork:{prefix}-proxy-subnet",
+                        ),
+                    ),
+                    DesiredResource(
+                        "dns",
+                        "private_zone",
+                        f"{prefix}-zone",
+                        RiskLevel.MEDIUM,
+                        f"Private DNS authority for {spec.private_hostname}",
+                    ),
+                    DesiredResource(
+                        "dns",
+                        "record_set",
+                        spec.private_hostname,
+                        RiskLevel.MEDIUM,
+                        "Private A record pointing to the internal HTTPS load balancer",
+                        (
+                            f"dns:private_zone:{prefix}-zone",
+                            f"compute:internal_address:{prefix}-offload-ip",
+                        ),
+                    ),
+                    DesiredResource(
+                        "beyondcorp",
+                        "security_gateway",
+                        spec.gateway_id,
+                        RiskLevel.HIGH,
+                        "Service Discovery-enabled Secure Gateway",
+                        shared=spec.gateway_id == "default",
+                    ),
+                    DesiredResource(
+                        "beyondcorp",
+                        "gateway_iam",
+                        f"{spec.gateway_id}-service-discovery-users",
+                        RiskLevel.HIGH,
+                        "Grant Service Discovery use to the approved principal set",
+                        (f"beyondcorp:security_gateway:{spec.gateway_id}",),
+                    ),
+                    DesiredResource(
+                        "cloudresourcemanager",
+                        "project_iam",
+                        f"{prefix}-upstream-access",
+                        RiskLevel.HIGH,
+                        "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account",
+                        (f"beyondcorp:security_gateway:{spec.gateway_id}",),
+                        shared=True,
+                    ),
+                    DesiredResource(
+                        "beyondcorp",
+                        "application",
+                        f"{prefix}-app",
+                        RiskLevel.HIGH,
+                        f"HTTPS application matcher {spec.private_hostname}:443",
+                        (
+                            f"beyondcorp:security_gateway:{spec.gateway_id}",
+                            f"compute:forwarding_rule:{prefix}-ilb-fr",
                             f"cloudresourcemanager:project_iam:{prefix}-upstream-access",
                         ),
                     ),

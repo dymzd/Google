@@ -228,8 +228,12 @@ export function IdentitiesStep({
     setBootstrapResult(null);
     try {
       setBootstrapResult(await onBootstrapCloud());
-    } catch {
-      setBootstrapError(copy.bootstrapFailed);
+    } catch (error) {
+      setBootstrapError(
+        error instanceof ApiError
+          ? `${copy.bootstrapFailed}: ${error.message}`
+          : copy.bootstrapFailed,
+      );
     } finally {
       setBootstrapBusy(false);
     }
@@ -374,6 +378,9 @@ export function IdentitiesStep({
 
 export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
   const copy = messages.workflow;
+  const legacyNginxSelected = ["managed_sample", "existing_http"].includes(
+    state.backendKind,
+  );
 
   return (
     <section className="workflow-step">
@@ -402,7 +409,8 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           />
         )}
       </div>
-      {state.mode === "production" && state.backendKind !== "direct_https" && (
+      {state.mode === "production" &&
+        !["direct_https", "internal_https_lb"].includes(state.backendKind) && (
         <>
           <div className="field-grid one">
             <Field
@@ -467,28 +475,6 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
       <h3 className="subsection-title">{copy.network}</h3>
       <div className="mode-grid backend-grid">
         <ChoiceCard
-          description={copy.managedSampleDescription}
-          icon={<NetworkIcon size={27} />}
-          onSelect={() => onPatch({ backendKind: "managed_sample" })}
-          selected={state.backendKind === "managed_sample"}
-          title={copy.managedSample}
-        />
-        <ChoiceCard
-          description={copy.existingBackendDescription}
-          icon={<NetworkIcon size={27} />}
-          onSelect={() =>
-            onPatch({
-              backendKind: "existing_http",
-              existingBackendUrl: state.existingBackendUrl.startsWith("http://")
-                ? state.existingBackendUrl
-                : "",
-              existingBackendConnectivityConfirmed: false,
-            })
-          }
-          selected={state.backendKind === "existing_http"}
-          title={copy.existingBackend}
-        />
-        <ChoiceCard
           description={copy.directHttpsDescription}
           icon={<ShieldIcon size={27} />}
           onSelect={() =>
@@ -496,7 +482,8 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
               backendKind: "direct_https",
               networkStrategy: "existing",
               deploymentName:
-                state.deploymentName === "secure-gateway-http-offload"
+                state.deploymentName === "secure-gateway-http-offload" ||
+                state.deploymentName === "secure-gateway-ilb-https-offload"
                   ? "secure-gateway-private-https"
                   : state.deploymentName,
               existingBackendConnectivityConfirmed: false,
@@ -508,7 +495,72 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           selected={state.backendKind === "direct_https"}
           title={copy.directHttps}
         />
+        <ChoiceCard
+          description={copy.internalHttpsLbDescription}
+          icon={<ShieldIcon size={27} />}
+          onSelect={() =>
+            onPatch({
+              backendKind: "internal_https_lb",
+              deploymentName:
+                state.deploymentName === "secure-gateway-http-offload" ||
+                state.deploymentName === "secure-gateway-private-https"
+                  ? "secure-gateway-ilb-https-offload"
+                  : state.deploymentName,
+              existingBackendUrl: "",
+              existingBackendConnectivityConfirmed: false,
+            })
+          }
+          selected={state.backendKind === "internal_https_lb"}
+          title={copy.internalHttpsLb}
+        />
       </div>
+
+      <details className="legacy-options" open={legacyNginxSelected || undefined}>
+        <summary>
+          <span>
+            <strong>{copy.legacyNginxTitle}</strong>
+            <small>{copy.legacyNginxDescription}</small>
+          </span>
+        </summary>
+        <div className="mode-grid legacy-backend-grid">
+          <ChoiceCard
+            description={copy.managedSampleDescription}
+            icon={<NetworkIcon size={27} />}
+            onSelect={() =>
+              onPatch({
+                backendKind: "managed_sample",
+                deploymentName:
+                  state.deploymentName === "secure-gateway-ilb-https-offload" ||
+                  state.deploymentName === "secure-gateway-private-https"
+                    ? "secure-gateway-http-offload"
+                    : state.deploymentName,
+              })
+            }
+            selected={state.backendKind === "managed_sample"}
+            title={copy.managedSample}
+          />
+          <ChoiceCard
+            description={copy.existingBackendDescription}
+            icon={<NetworkIcon size={27} />}
+            onSelect={() =>
+              onPatch({
+                backendKind: "existing_http",
+                deploymentName:
+                  state.deploymentName === "secure-gateway-ilb-https-offload" ||
+                  state.deploymentName === "secure-gateway-private-https"
+                    ? "secure-gateway-http-offload"
+                    : state.deploymentName,
+                existingBackendUrl: state.existingBackendUrl.startsWith("http://")
+                  ? state.existingBackendUrl
+                  : "",
+                existingBackendConnectivityConfirmed: false,
+              })
+            }
+            selected={state.backendKind === "existing_http"}
+            title={copy.existingBackend}
+          />
+        </div>
+      </details>
 
       <div className="field-grid two">
         {state.backendKind !== "direct_https" ? (
@@ -518,7 +570,7 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
             value={state.privateHostname}
           />
         ) : null}
-        {state.backendKind !== "managed_sample" ? (
+        {!["managed_sample", "internal_https_lb"].includes(state.backendKind) ? (
           <label className="field">
             <span>{copy.backendLocation}</span>
             <select
@@ -562,6 +614,16 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           </label>
           <small className="field-hint">{copy.backendConnectivityHint}</small>
         </>
+      )}
+      {state.backendKind === "internal_https_lb" && (
+        <div className="field-grid one">
+          <Field
+            label={copy.proxySubnetCidr}
+            onChange={(proxySubnetCidr) => onPatch({ proxySubnetCidr })}
+            placeholder="10.42.1.0/24"
+            value={state.proxySubnetCidr}
+          />
+        </div>
       )}
       {state.backendKind === "direct_https" ? (
         <>
@@ -618,6 +680,8 @@ export function CertificateStep({ messages, onPatch, state }: StepProps) {
         description={
           state.backendKind === "direct_https"
             ? copy.directCertificateIntro
+            : state.backendKind === "internal_https_lb"
+              ? copy.internalLbCertificateIntro
             : copy.certificateIntro
         }
         title={copy.certificateStepTitle}
@@ -676,7 +740,11 @@ export function CertificateStep({ messages, onPatch, state }: StepProps) {
         <Notice>{messages.localPocCaDescription}</Notice>
       )}
       {state.backendKind !== "direct_https" ? (
-        <Notice tone="security">{copy.certificateNotice}</Notice>
+        <Notice tone="security">
+          {state.backendKind === "internal_https_lb"
+            ? copy.internalLbCertificateNotice
+            : copy.certificateNotice}
+        </Notice>
       ) : null}
     </section>
   );
@@ -983,11 +1051,13 @@ export function isConfigurationReady(state: SetupState): boolean {
             state.sourceImage)) &&
         (state.backendKind === "direct_https" || state.privateHostname),
     ) &&
+    (state.backendKind !== "internal_https_lb" || Boolean(state.proxySubnetCidr)) &&
     (state.backendKind === "direct_https"
       ? state.networkStrategy === "existing" && Boolean(state.vpcName)
       : state.networkStrategy === "dedicated" ||
         Boolean(state.vpcName && state.subnetName)) &&
     (state.backendKind === "managed_sample" ||
+      state.backendKind === "internal_https_lb" ||
       (state.backendKind === "existing_http" &&
         state.existingBackendUrl.startsWith("http://") &&
         state.existingBackendConnectivityConfirmed) ||
@@ -1465,6 +1535,12 @@ export function ApplyStep({
 }
 
 export function normalizeBackendKind(value: string): BackendKind {
-  if (value === "existing_http" || value === "direct_https") return value;
+  if (
+    value === "existing_http" ||
+    value === "direct_https" ||
+    value === "internal_https_lb"
+  ) {
+    return value;
+  }
   return "managed_sample";
 }
