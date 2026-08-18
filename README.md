@@ -2,17 +2,17 @@
 # Google Workspace and Google Admin Console Scripts
 
 ## Introduction
-This repository contains a collection of scripts written in Google Apps Script and Python. These scripts are designed to enhance the functionalities and management of Google Workspace Services (GWS) and Google Admin Console, providing valuable tools for companies utilizing these services.
+This repository contains a collection of enterprise-ready scripts written in Google Apps Script and Python, as well as the **Secure Gateway Studio** suite. These tools are designed to enhance the functionalities and management of Google Workspace Services (GWS), Google Admin Console, Chrome Enterprise, and BeyondCorp Security Gateway.
 
-## Scripts in this Repository
+## Scripts & Tools in this Repository
 
 ### 1. WiFi Settings Management
 Automates the management of WiFi settings for Google Workspace Organizational Units using Google Sheets.
-- For detailed information and setup instructions, refer to [WiFi Settings Management Documentation](WiFi_Settings_Management_README.md).
+- For detailed information and setup instructions, refer to [WiFi Settings Management Documentation](MassAddWifiSettings.md).
 
 ### 2. Organizational Unit (OU) Settings Management
-Facilitates the management of Organizational Units in Google Workspace, streamlining the process of adding and modifying OUs.
-- See the [OU Settings Management Documentation](OU_Settings_Management_README.md) for more details.
+Facilitates the management of Organizational Units in Google Workspace, streamlining the process of adding and modifying OUs via Google Sheets.
+- See the [OU Settings Management Documentation](MassAddOUs.md) for more details.
 
 ### 3. Move Multiple Browsers
 This script, `MoveMultipleBrowsers.py`, enables administrators to move multiple Chrome browser devices across different Organizational Units (OUs) in Google Workspace efficiently. Ideal for managing large numbers of devices.
@@ -24,20 +24,23 @@ Automates the assessment and blocking of Chrome extensions in Google Workspace b
 
 ### 5. Configure Managed Bookmarks For Organizational Unit (OU)
 Automates the process of setting up managed bookmarks in Google Chrome for users within a specified Organizational Unit (OU) in Google Admin Console. It utilizes the Chrome Management Policy API to centrally manage and distribute bookmarks across the organization.
-- For more information, see the [Managed Bookmarks Documentation](ManagedBookmarks.md)
+- For more information, see the [Managed Bookmarks Documentation](ManagedBookmarks.md).
 
+### 6. Chrome Enterprise Release Scraper
+`ReleaseScraper.py` monitors official Google Chrome Enterprise release notes and automatically publishes structured updates to a Slack channel via Webhook.
 
+### 7. Secure Gateway Studio
+A comprehensive tool and Chrome Extension suite (`secure-gateway-studio/`) for designing, evaluating, and applying Google Cloud BeyondCorp Private Security Gateway architectures, enabling zero-trust private HTTPS access for managed Chrome devices.
+- For more information, see [Secure Gateway Studio Documentation](secure-gateway-studio/README.md).
+
+## Configuration & Setup
+If you are configuring or running any of the scripts, take a look at the [Config Guide](ConfigGuide.md) for detailed guidance on configuration settings and permissions.
 
 ## Usage
-These scripts are intended for use by administrators and IT professionals who manage Google Workspace or Google Admin Console environments. They are designed to be user-friendly and easily integrated into existing Google Workspace setups.
-
-## Disclaimer
-- The operation of these scripts is not guaranteed. Use them at your own risk.
-- The author does not take any responsibility for problems that may occur due to the use of these scripts.
+These scripts are intended for use by administrators, security engineers, and IT professionals who manage Google Workspace, Google Cloud, or Google Admin Console environments.
 
 ## Support
-While these scripts are provided 'as-is', users are welcome to report issues or seek assistance through GitHub issues. 
-If you are encountering issues running or configuring the script, take a look at [Config Guide](ConfigGuide.md) for detailed guidance on configuration settings.
+Users are welcome to report issues or seek assistance through GitHub issues. 
 
 ## License
-All scripts in this repository are licensed under the MIT License - see the LICENSE file for details.
+All scripts in this repository are licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

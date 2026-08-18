@@ -1,60 +1,70 @@
-import google.auth
+import json
+import sys
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
-import requests
-import json
 
-#/******* BEGIN: Customer to modify this section *******/
+# /******* BEGIN: Customer to modify this section *******/
 SERVICE_ACCOUNT_FILE = '.json'  # Path to the service account JSON file
-# Add the customer id here. You can find the customer Id by navigating to the Google Admin Console > Account > Account Settings
-CUSTOMER_ID = ''  # Your Google Workspace customer ID
-ADMIN_USER_EMAIL = 'admin@yourdomain.com'  # Admin email for user delegation
-TARGET_OU_ID = '' # The unique ID for the target Organizational Unit (OU)
-CRX_RISK_THRESHOLD = 550  # Threshold for Crxcavator risk score
-SPIN_RISK_THRESHOLD = 70  # Threshold for Spin risk score
-#/******* END: Customer to modify this section *******/
+# Add the customer id here. You can find the customer Id by navigating to:
+# Google Admin Console > Account > Account Settings
+CUSTOMER_ID = ''  # Your Google Workspace customer ID (e.g., 'C01234567')
+ADMIN_USER_EMAIL = ''  # Admin email for domain-wide delegation (leave empty if not using delegation)
+TARGET_OU_ID = ''  # The unique ID for the target Organizational Unit (OU)
+CRX_RISK_THRESHOLD = 550  # Threshold for Crxcavator risk score (higher = riskier)
+SPIN_RISK_THRESHOLD = 70  # Threshold for Spin.ai risk score
+REQUEST_TIMEOUT = 30  # Timeout for API requests in seconds
+# /******* END: Customer to modify this section *******/
 
 SCOPES = [
     'https://www.googleapis.com/auth/admin.directory.device.chromeos',
     'https://www.googleapis.com/auth/chrome.management.reports.readonly',
     'https://www.googleapis.com/auth/chrome.management.appdetails.readonly',
     'https://www.googleapis.com/auth/chrome.management.policy',
-    'https://www.googleapis.com/auth/admin.directory.orgunit.readonly'
-]  # OAuth scopes required for accessing the necessary APIs
+    'https://www.googleapis.com/auth/admin.directory.orgunit.readonly',
+]
 
 
-def list_extensions(session, customer_id):
+def list_extensions(session: AuthorizedSession, customer_id: str) -> List[Dict[str, Any]]:
     """List all Chrome extensions for a given customer ID.
 
     Args:
-        session (AuthorizedSession): The authorized session for making API requests.
-        customer_id (str): The customer ID in Google Workspace.
+        session: AuthorizedSession for making Google API requests.
+        customer_id: The customer ID in Google Workspace.
 
     Returns:
-        list: A list of dictionaries containing details of each extension.
+        List of dictionaries containing details of each extension.
     """
-    extensions = []
-    page_token = None
+    extensions: List[Dict[str, Any]] = []
+    page_token: Optional[str] = None
 
     while True:
-        # Make a request to list installed Chrome Extensions & Apps
+        params: Dict[str, Any] = {}
+        if page_token:
+            params['pageToken'] = page_token
+
         response = session.get(
             f'https://chromemanagement.googleapis.com/v1/customers/{customer_id}/reports:countInstalledApps',
-            params={'pageToken': page_token}
+            params=params,
+            timeout=REQUEST_TIMEOUT,
         )
         if response.status_code != 200:
-            raise Exception("Failed to list extensions: " + response.text)
+            raise RuntimeError(f"Failed to list extensions ({response.status_code}): {response.text}")
 
         data = response.json()
 
-        # Process each apps, filtering for extensions and fetching their details
         for app in data.get('installedApps', []):
             if app.get('appType') == 'EXTENSION':
                 extension_id = app.get('appId')
-                # Fetch additional details for each extension
-                extension_details = get_extension_details(session, customer_id, extension_id)
-                extensions.append(extension_details)
+                if extension_id:
+                    try:
+                        extension_details = get_extension_details(session, customer_id, extension_id)
+                        extensions.append(extension_details)
+                    except Exception as e:
+                        print(f"Warning: Could not fetch details for extension {extension_id}: {e}", file=sys.stderr)
+                        extensions.append({'id': extension_id, 'version': None})
 
         page_token = data.get('nextPageToken')
         if not page_token:
@@ -62,50 +72,42 @@ def list_extensions(session, customer_id):
 
     return extensions
 
-def get_extension_details(session, customer_id, extension_id):
-    """
-    Fetch detailed information for a specific Chrome extension.
+
+def get_extension_details(session: AuthorizedSession, customer_id: str, extension_id: str) -> Dict[str, Any]:
+    """Fetch detailed information for a specific Chrome extension.
 
     Args:
-        session (AuthorizedSession): The authorized session for making API requests.
-        customer_id (str): The customer ID in Google Workspace.
-        extension_id (str): The ID of the Chrome extension.
+        session: AuthorizedSession for making Google API requests.
+        customer_id: The customer ID in Google Workspace.
+        extension_id: The 32-character ID of the Chrome extension.
 
     Returns:
-        dict: A dictionary containing the extension's ID and its version.
+        Dictionary containing the extension ID and its version (revisionId).
     """
-    # Make a request to get detailed information about the specified Chrome extension
     response = session.get(
-        f'https://chromemanagement.googleapis.com/v1/customers/{customer_id}/apps/chrome/{extension_id}'
+        f'https://chromemanagement.googleapis.com/v1/customers/{customer_id}/apps/chrome/{extension_id}',
+        timeout=REQUEST_TIMEOUT,
     )
-    # Raise an exception if the request fails
     if response.status_code != 200:
-        raise Exception(f"Failed to get details for extension {extension_id}: {response.text}")
+        raise RuntimeError(f"Failed to get details for extension {extension_id}: {response.text}")
 
-    # Parse the response to extract extension data
     extension_data = response.json()
-    # Return a dictionary with the extension's ID and its version
     return {
         'id': extension_id,
-        'version': extension_data.get('revisionId')
+        'version': extension_data.get('revisionId'),
     }
 
-def block_extension(session, customer_id, org_unit_id, extension_id):
-    """
-    Block a specific Chrome extension in a given Organizational Unit.
+
+def block_extension(session: AuthorizedSession, customer_id: str, org_unit_id: str, extension_id: str) -> None:
+    """Block a specific Chrome extension in a given Organizational Unit.
 
     Args:
-        session (AuthorizedSession): The authorized session for making API requests.
-        customer_id (str): The customer ID in Google Workspace.
-        org_unit_id (str): The unique ID for the target Organizational Unit.
-        extension_id (str): The ID of the Chrome extension to be blocked.
-
-    Raises:
-        Exception: If the API request to block the extension fails.
+        session: AuthorizedSession for making Google API requests.
+        customer_id: The customer ID in Google Workspace.
+        org_unit_id: The unique ID for the target Organizational Unit.
+        extension_id: The ID of the Chrome extension to block.
     """
-    # Endpoint URL for modifying organizational unit policies
     url = f"https://chromepolicy.googleapis.com/v1/customers/{customer_id}/policies/orgunits:batchModify"
-    # Construct the payload for the POST request
     payload = {
         "requests": [{
             "policyTargetKey": {
@@ -116,113 +118,106 @@ def block_extension(session, customer_id, org_unit_id, extension_id):
                 "policySchema": "chrome.users.apps.InstallType",
                 "value": {"appInstallType": "BLOCKED"}
             },
-            "updateMask": {"paths": "appInstallType"}
+            "updateMask": "appInstallType"
         }]
     }
-    # Make the POST request to apply the blocking policy
-    response = session.post(url, data=json.dumps(payload))
-    # Raise an exception if the request fails
+    response = session.post(
+        url,
+        data=json.dumps(payload),
+        headers={'Content-Type': 'application/json'},
+        timeout=REQUEST_TIMEOUT,
+    )
     if response.status_code != 200:
-        raise Exception(f"Failed to block extension {extension_id}: {response.text}")
+        raise RuntimeError(f"Failed to block extension {extension_id} ({response.status_code}): {response.text}")
 
-def get_risk_score(extension_id, version):
-    """
-    Fetch the risk scores from Crxcavator and Spin.ai for a specific Chrome extension.
+
+def get_risk_score(extension_id: str, version: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
+    """Fetch the risk scores from Crxcavator and Spin.ai for a specific Chrome extension.
 
     Args:
-        extension_id (str): The ID of the Chrome extension.
-        version (str): The version of the Chrome extension.
+        extension_id: The ID of the Chrome extension.
+        version: Optional version string of the Chrome extension.
 
     Returns:
-        tuple: A tuple containing the Crxcavator and Spin.ai risk scores.
+        Tuple of (crxcavator_score, spin_score). Values are None if unavailable.
     """
-    # Initialize risk scores to None
-    crxcavator_score = None
-    spin_score = None
+    crxcavator_score: Optional[float] = None
+    spin_score: Optional[float] = None
 
-    # Attempt to fetch the risk score from Crxcavator
-    crxcavator_url = f"https://api.crxcavator.io/v1/report/{extension_id}/{version}?platform=Chrome"
+    # Fetch Crxcavator risk score
     try:
-        crxcavator_response = requests.get(crxcavator_url)
-        # If successful, parse and extract the Crxcavator score
-        if crxcavator_response.status_code == 200:
-            crxcavator_data = crxcavator_response.json()
-            # Ensure data is not None
-            if crxcavator_data:
-                crxcavator_score = crxcavator_data.get('data', {}).get('risk', {}).get('total')
-            else:
-                # Try fetching Crxcavator score without specifying version
-                crxcavator_url = f"https://api.crxcavator.io/v1/report/{extension_id}?platform=Chrome"
-                try:
-                    crxcavator_response = requests.get(crxcavator_url)
-                    if crxcavator_response.status_code == 200:
-                        crxcavator_data = crxcavator_response.json()
-                        if crxcavator_data:
-                            # Handle case where response is a list
-                            crxcavator_score = crxcavator_data[0].get('data', {}).get('risk', {}).get('total')
-                except Exception as e:
-                    print(f"Error fetching Crxcavator score for {extension_id}: {e}")
+        url = (
+            f"https://api.crxcavator.io/v1/report/{extension_id}/{version}?platform=Chrome"
+            if version
+            else f"https://api.crxcavator.io/v1/report/{extension_id}?platform=Chrome"
+        )
+        resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+        if resp.status_code == 200:
+            crx_data = resp.json()
+            if isinstance(crx_data, list) and len(crx_data) > 0:
+                crxcavator_score = crx_data[0].get('data', {}).get('risk', {}).get('total')
+            elif isinstance(crx_data, dict):
+                crxcavator_score = crx_data.get('data', {}).get('risk', {}).get('total')
     except Exception as e:
-        print(f"Error fetching Crxcavator score for {extension_id}: {e}")
+        print(f"Notice: Crxcavator score lookup for {extension_id} returned: {e}", file=sys.stderr)
 
-    # Attempt to fetch the risk score from Spin.ai
-    spin_url = f"https://apg-1.spin.ai/api/v1/assessment/platform/chrome/{extension_id}"
-    temp_url = spin_url  # Backup URL in case the first Spin.ai request fails
-    if version:
-        spin_url += f"/version/{version}"
+    # Fetch Spin.ai risk score
     try:
-        spin_response = requests.get(spin_url)
-        # If successful, parse and extract the Spin score
-        if spin_response.status_code == 200:
-            spin_data = spin_response.json()
-            spin_score = spin_data.get('trustRate')
-        # If no specific version data, try without the version
-        elif spin_response.status_code in [204, 202]:
-            try:
-                spin_response = requests.get(temp_url)
-                if spin_response.status_code == 200:
-                    spin_data = spin_response.json()
-                    spin_score = spin_data.get('trustRate')
-            except Exception as e:
-                print(f"Error fetching Spin score for {extension_id}: {e}")
+        spin_url = f"https://apg-1.spin.ai/api/v1/assessment/platform/chrome/{extension_id}"
+        if version:
+            spin_url += f"/version/{version}"
+        resp = requests.get(spin_url, timeout=REQUEST_TIMEOUT)
+        if resp.status_code == 200:
+            spin_data = resp.json()
+            if isinstance(spin_data, dict):
+                spin_score = spin_data.get('trustRate')
     except Exception as e:
-        print(f"Error fetching Spin score for {extension_id}: {e}")
+        print(f"Notice: Spin.ai score lookup for {extension_id} returned: {e}", file=sys.stderr)
 
-    # Return both Crxcavator and Spin scores
     return crxcavator_score, spin_score
 
 
-def main():
-    # Load service account credentials from a specified JSON file.
-    # These credentials are used to authenticate API requests.
-    credentials = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+def main() -> None:
+    if not CUSTOMER_ID:
+        print("Error: CUSTOMER_ID is not configured. Please set CUSTOMER_ID in the script.", file=sys.stderr)
+        sys.exit(1)
+    if not TARGET_OU_ID:
+        print("Error: TARGET_OU_ID is not configured. Please set TARGET_OU_ID in the script.", file=sys.stderr)
+        sys.exit(1)
 
-    # Create an authorized session with the loaded credentials.
-    # This session will be used to make authenticated API requests.
+    # Load service account credentials with optional domain-wide delegation
+    if ADMIN_USER_EMAIL.strip():
+        credentials = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE, scopes=SCOPES, subject=ADMIN_USER_EMAIL.strip()
+        )
+    else:
+        credentials = service_account.Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE, scopes=SCOPES
+        )
+
     session = AuthorizedSession(credentials)
 
-    # Retrieve a list of all Chrome extensions for the specified customer ID.
+    print(f"Retrieving Chrome extensions for Customer ID: {CUSTOMER_ID}...")
     extensions = list_extensions(session, CUSTOMER_ID)
+    print(f"Found {len(extensions)} extensions. Evaluating risk scores...")
+
     for extension in extensions:
-        # Fetch the risk scores (Crxcavator and Spin) for each extension.
-        crxcavator_score, spin_score = get_risk_score(extension['id'], extension.get('version'))
+        ext_id = extension['id']
+        ext_version = extension.get('version')
+        crxcavator_score, spin_score = get_risk_score(ext_id, ext_version)
 
-        # Check if both risk scores are above their respective thresholds.
-        # If so, block the extension in the specified Organizational Unit.
-        if crxcavator_score is not None and spin_score is not None and \
-           crxcavator_score > CRX_RISK_THRESHOLD and spin_score > SPIN_RISK_THRESHOLD:
-            print(f"BLOCKING Extension ID: {extension['id']}, Crxcavator Score: {crxcavator_score}, Spin Score: {spin_score}")
-            block_extension(session, CUSTOMER_ID, TARGET_OU_ID, extension['id'])
-
-        # If either risk score is unknown (None), flag the extension for manual review.
-        elif crxcavator_score is None or spin_score is None:
-            print(f"Extension ID for manual review (unknown score): {extension['id']} , Crxcavator Score: {crxcavator_score}, Spin Score: {spin_score}")
-
-        # If both scores are known and below the threshold, consider the extension safe.
+        if crxcavator_score is not None and spin_score is not None:
+            if crxcavator_score > CRX_RISK_THRESHOLD and spin_score > SPIN_RISK_THRESHOLD:
+                print(f"[BLOCK] Extension {ext_id} (Crx: {crxcavator_score}, Spin: {spin_score}) -> Blocking in OU {TARGET_OU_ID}")
+                try:
+                    block_extension(session, CUSTOMER_ID, TARGET_OU_ID, ext_id)
+                    print(f"        Successfully applied block policy.")
+                except Exception as e:
+                    print(f"        Failed to block: {e}", file=sys.stderr)
+            else:
+                print(f"[SAFE]  Extension {ext_id} (Crx: {crxcavator_score}, Spin: {spin_score}) is within allowed thresholds.")
         else:
-            print(f"Safe: Extension ID: {extension['id']}, Crxcavator Score: {crxcavator_score}, Spin Score: {spin_score}")
-
+            print(f"[WARN]  Extension {ext_id} (Crx: {crxcavator_score}, Spin: {spin_score}) requires manual review.")
 
 
 if __name__ == '__main__':

@@ -1,47 +1,74 @@
-// Load the service account credentials
-var CLIENT_ID = '.apps.googleusercontent.com' // Your Google Client ID
-var CLIENT_SECRET = 'XXXXX-XXXXX-XXXXXXXXXXXXXX' // Your Google Client Secret
-var CUSTOMER_ID = 'XXXXXXXXX' // Your Google Customer ID
+// Column indices in the spreadsheet (0-indexed)
+const OU_COLUMN_INDEX = 0; // Column A: Organizational Unit (OU) Name
+const PARENT_OU_COLUMN_INDEX = 1; // Column B: Parent OU Path (e.g., '/' or '/Sales')
 
-// Column indices in the spreadsheet
-OU_COLUMN_INDEX = 0; // Index of the Organizational Unit (OU) column
-PARENT_OU_COLUMN_INDEX = 1; // Index of the Parent OU column
-
-// Function to create a custom menu in Google Sheets
+/**
+ * Creates a custom menu in Google Sheets on open.
+ */
 function onOpen() {
-  SpreadsheetApp
-    .getActiveSpreadsheet()
-    .addMenu('Custom Script', [
-      { name: 'Add OUs', functionName: 'addOUs' }, // Adding 'Add OUs' option to the menu
-    ]);
+  SpreadsheetApp.getUi()
+    .createMenu('Admin Tools')
+    .addItem('Add OUs from Sheet', 'addOUs')
+    .addToUi();
 }
 
-// Function to add Organizational Units (OUs)
+/**
+ * Creates Organizational Units in Google Workspace from spreadsheet data.
+ * Requires the 'AdminDirectory' Advanced Google Service to be enabled.
+ */
 function addOUs() {
-  // Open the spreadsheet and get the 'OU Settings' sheet
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('OU Settings');
-  var flag = []; // Array to keep track of OUs that failed to be created
+  const ui = SpreadsheetApp.getUi();
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet.getSheetByName('OU Settings');
 
-  // Loop over each row and perform actions
-  var values = sheet.getSheetValues(2, 1, sheet.getLastRow(), 2); // Fetch values starting from the second row
-  values.forEach( row => {
-    // Create an OU using the Admin SDK
-    var resource = {
-      name: row[OU_COLUMN_INDEX], // OU name from the first column
-      parentOrgUnitPath: row[PARENT_OU_COLUMN_INDEX] // Parent OU path from the second column
+  if (!sheet) {
+    ui.alert("Error: Sheet named 'OU Settings' was not found. Please create it and try again.");
+    return;
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    ui.alert("No data found in 'OU Settings'. Please add OU data starting from Row 2.");
+    return;
+  }
+
+  // Fetch values starting from row 2 (headers on row 1)
+  const numRows = lastRow - 1;
+  const values = sheet.getSheetValues(2, 1, numRows, 2);
+  const failedOUs = [];
+  let successCount = 0;
+
+  values.forEach((row, index) => {
+    const ouName = String(row[OU_COLUMN_INDEX] || '').trim();
+    let parentPath = String(row[PARENT_OU_COLUMN_INDEX] || '').trim();
+
+    if (!ouName) {
+      return; // Skip empty rows
+    }
+
+    if (!parentPath) {
+      parentPath = '/';
+    } else if (!parentPath.startsWith('/')) {
+      parentPath = '/' + parentPath;
+    }
+
+    const resource = {
+      name: ouName,
+      parentOrgUnitPath: parentPath,
     };
 
     try {
-      var result = AdminDirectory.Orgunits.insert(resource, "my_customer") // Attempt to create the OU
+      AdminDirectory.Orgunits.insert(resource, 'my_customer');
+      successCount++;
     } catch (e) {
-      flag.push(row[OU_COLUMN_INDEX]); // If there's an error, add OU to the flag list
+      Logger.log(`Failed to create OU '${ouName}' under '${parentPath}': ${e.message}`);
+      failedOUs.push(`${ouName} (${parentPath})`);
     }
   });
 
-  // Check if any OUs failed to be created and alert the user
-  if (flag.length !== 0) { // Check if the flag list is not empty
-    var ui = SpreadsheetApp.getUi(); // Get the UI of the spreadsheet
-    var alertString = flag.join(); // Join all flagged OUs into a single string
-    ui.alert('An error occurred while creating the following OUs. Please check if they already exist.: ' + alertString); // Show an alert with the flagged OUs
+  let message = `Process completed. Successfully created: ${successCount} OU(s).`;
+  if (failedOUs.length > 0) {
+    message += `\n\nFailed to create ${failedOUs.length} OU(s) (they may already exist or parent path is invalid):\n` + failedOUs.join('\n');
   }
+  ui.alert(message);
 }
