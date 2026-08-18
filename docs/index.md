@@ -7,8 +7,6 @@ description: >-
   and Workspace tenant.
 ---
 
-# Secure Gateway Studio
-
 **Secure Gateway Studio is a Chrome extension for Google Workspace
 administrators.** It plans, applies, and verifies Chrome Enterprise Premium and
 BeyondCorp Security Gateway configurations in **your own** Google Cloud project

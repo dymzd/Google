@@ -2,10 +2,8 @@
 # an <h1> reading "Google" above the real one. On a page whose whole job is to
 # prove this app is not Google's, that was the worst possible default.
 title: Secure Gateway Studio
-description: >-
-  Plan, apply, and verify Chrome Enterprise Premium and BeyondCorp Security
-  Gateway deployments in your own Google Cloud project and Google Workspace
-  tenant. An independent open-source tool, not affiliated with Google.
+# Short on purpose: jekyll-seo-tag builds <title> as "title | description".
+description: Chrome Enterprise Premium deployment tool for Workspace administrators
 
 # Paste the token from Search Console (Ownership verification, HTML tag method)
 # between the quotes. jekyll-seo-tag renders it into <head>.
