@@ -1,9 +1,11 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Locale } from "../lib/setup-state";
 import type { Messages } from "../i18n/messages";
 import type { OperationsView } from "../features/operations/OperationsPage";
 import {
   BookIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   CubeIcon,
   DocumentIcon,
   HelpIcon,
@@ -26,8 +28,6 @@ interface AppShellProps {
   onNavigate: (view: AppView) => void;
 }
 
-const navIcons = [CubeIcon, PlusCircleIcon, DocumentIcon, BookIcon, ShieldNetworkIcon];
-
 export function AppShell({
   children,
   locale,
@@ -38,16 +38,33 @@ export function AppShell({
   onLocaleChange,
   onNavigate,
 }: AppShellProps) {
-  const navItems: Array<{
+  const isSgwActive =
+    activeView === "setup" ||
+    activeView === "deployments" ||
+    activeView === "evidence" ||
+    activeView === "guide";
+
+  const [sgwMenuOpen, setSgwMenuOpen] = useState<boolean>(isSgwActive);
+
+  const sgwSubItems: Array<{
     label: string;
     view: AppView;
+    icon: typeof CubeIcon;
   }> = [
-    { label: messages.nav.deployments, view: "deployments" },
-    { label: messages.nav.newSetup, view: "setup" },
-    { label: messages.nav.evidence, view: "evidence" },
-    { label: messages.nav.guide, view: "guide" },
-    { label: messages.nav.cepDeployer, view: "cepDeployer" },
+    { label: messages.nav.deployments, view: "deployments", icon: CubeIcon },
+    { label: messages.nav.newSetup, view: "setup", icon: PlusCircleIcon },
+    { label: messages.nav.evidence, view: "evidence", icon: DocumentIcon },
+    { label: messages.nav.guide, view: "guide", icon: BookIcon },
   ];
+
+  const handleToggleSgw = () => {
+    if (!isSgwActive) {
+      setSgwMenuOpen(true);
+      onNavigate("setup");
+    } else {
+      setSgwMenuOpen((open) => !open);
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -56,29 +73,64 @@ export function AppShell({
           <ShieldNetworkIcon size={44} />
         </div>
         <nav aria-label="Primary navigation" className="primary-nav">
-          {navItems.map((item, index) => {
-            const Icon = navIcons[index];
-            const active = activeView === item.view;
-            return (
-              <button
-                aria-current={active ? "page" : undefined}
-                className={active ? "nav-item active" : "nav-item"}
-                key={item.view}
-                onClick={() => onNavigate(item.view)}
-                type="button"
-              >
-                <Icon size={24} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
+          {/* 1. Easy PoC (Top-level primary tab) */}
+          <button
+            aria-current={activeView === "cepDeployer" ? "page" : undefined}
+            className={activeView === "cepDeployer" ? "nav-item active" : "nav-item"}
+            onClick={() => onNavigate("cepDeployer")}
+            type="button"
+          >
+            <ShieldNetworkIcon size={24} />
+            <span>{messages.nav.easyPoc}</span>
+          </button>
+
+          {/* 2. Secure Gateway Deployer (Collapsible dropdown parent) */}
+          <div className={`nav-dropdown-group ${isSgwActive ? "active-parent" : ""} ${sgwMenuOpen ? "open" : ""}`}>
+            <button
+              aria-expanded={sgwMenuOpen}
+              className={`nav-item nav-dropdown-trigger ${isSgwActive ? "active" : ""}`}
+              onClick={handleToggleSgw}
+              type="button"
+            >
+              <CubeIcon size={24} />
+              <div className="nav-label-with-arrow">
+                <span>{messages.nav.sgwDeployer}</span>
+                {sgwMenuOpen ? <ChevronUpIcon size={14} /> : <ChevronDownIcon size={14} />}
+              </div>
+            </button>
+
+            {/* Submenu containing the 4 SGW tabs */}
+            {sgwMenuOpen && (
+              <div className="nav-submenu">
+                {sgwSubItems.map((item) => {
+                  const SubIcon = item.icon;
+                  const active = activeView === item.view;
+                  return (
+                    <button
+                      aria-current={active ? "page" : undefined}
+                      className={`nav-subitem ${active ? "active" : ""}`}
+                      key={item.view}
+                      onClick={() => onNavigate(item.view)}
+                      type="button"
+                    >
+                      <SubIcon size={15} />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </nav>
       </aside>
 
       <div className="app-frame">
         <header className="topbar">
           <div className="product-title">
-            <strong>{messages.productName}</strong>
+            <div className="product-title-headings">
+              <strong className="product-main-title">{messages.mainTitle}</strong>
+              <span className="product-sub-title">{messages.productName}</span>
+            </div>
             <span className="local-status">
               <LockIcon size={16} />
               {messages.localOnly}

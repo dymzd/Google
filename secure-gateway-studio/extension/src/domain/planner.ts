@@ -1070,29 +1070,37 @@ function gates(
       title: "Private package egress",
       status:
         directHttps ||
+        spec.backend_kind === "internal_https_lb" ||
         spec.network_strategy === "dedicated" ||
         snapshot.private_egress_available === true
           ? "pass"
           : "pending",
       blocking: true,
-      detail: directHttps
-        ? "Direct HTTPS creates no VM and requires no package egress path."
-        : spec.network_strategy === "dedicated"
-          ? "Cloud NAT is included in the desired state."
-          : "The existing VPC must provide a verified private egress path.",
+      detail:
+        directHttps
+          ? "Direct HTTPS creates no VM and requires no package egress path."
+          : spec.backend_kind === "internal_https_lb"
+            ? "Internal HTTPS Load Balancer creates no Nginx VM and requires no package egress path."
+            : spec.network_strategy === "dedicated"
+              ? "Cloud NAT is included in the desired state."
+              : "The existing VPC must provide a verified private egress path.",
     },
     {
       gate_id: "backend-connectivity",
       title: "Existing backend private connectivity",
       status:
-        spec.backend_kind === "managed_sample" || spec.existing_backend_connectivity_confirmed
+        spec.backend_kind === "managed_sample" ||
+        spec.backend_kind === "internal_https_lb" ||
+        spec.existing_backend_connectivity_confirmed
           ? "pass"
           : "blocked",
       blocking: true,
       detail:
         spec.backend_kind === "managed_sample"
           ? "The managed sample backend is created inside the deployment VPC."
-          : directHttps && spec.existing_backend_connectivity_confirmed
+          : spec.backend_kind === "internal_https_lb"
+            ? "Regional Internal Application Load Balancer routes directly to the private backend."
+            : directHttps && spec.existing_backend_connectivity_confirmed
             ? "The operator confirmed that the selected VPC resolves and routes " +
               `${applicationHostname(spec)}:${applicationPort(spec)}, permits ingress ` +
               "from 136.124.16.0/20, and provides a return path. Secure Gateway connects " +

@@ -38,6 +38,7 @@ export const DEFAULT_SCOPES = [
   "https://www.googleapis.com/auth/admin.directory.orgunit",
   // Resolves the tenant's primary domain for the data-boundary policies.
   "https://www.googleapis.com/auth/admin.directory.customer.readonly",
+  "https://www.googleapis.com/auth/admin.directory.user.readonly",
   // DLP rules and detectors through the Cloud Identity policy API.
   "https://www.googleapis.com/auth/cloud-identity.policies",
   "https://www.googleapis.com/auth/cloud-platform",

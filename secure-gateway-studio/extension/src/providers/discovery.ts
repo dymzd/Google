@@ -54,10 +54,6 @@ export class GoogleDiscoveryProvider {
   }
 
   async preflight(spec: DeploymentSpec): Promise<PreflightResult> {
-    if (spec.backend_kind !== "direct_https") {
-      throw new Error("Path A discovery is ported in Phase 4");
-    }
-
     const diagnostics: PreflightDiagnostic[] = [];
     const existing = new Set<string>();
     const conflicting = new Set<string>();

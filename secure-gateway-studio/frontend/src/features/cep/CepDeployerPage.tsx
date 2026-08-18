@@ -3,12 +3,15 @@ import type { Messages } from "../../i18n/messages";
 import type {
   CepDataBoundaryMode,
   CepDlpAction,
+  CepDlpMatrixState,
   CepDlpRuleId,
+  CepLicenseAssignResult,
   CepProvisionConfig,
   CepProvisionResult,
   SetupOption,
 } from "../../lib/api";
 import {
+  assignCepLicenses,
   createCepCustomRoles,
   generateCepScript,
   listAccessLevelOptions,
@@ -21,6 +24,7 @@ import {
   ExclamationCircleIcon,
   ShieldNetworkIcon,
 } from "../../components/Icons";
+import { DEFAULT_DLP_MATRIX, DlpMatrixTable } from "./DlpMatrixTable";
 
 interface CepDeployerPageProps {
   messages: Messages;
@@ -56,10 +60,13 @@ const DLP_REGIONS: Array<{ value: string; label: string }> = [
 
 /** Audit first: an evaluation that starts by blocking gets switched off. */
 const DEFAULT_RULE_ACTIONS: Record<CepDlpRuleId, CepDlpAction> = {
+  universal_upload: "auditOnly",
+  universal_download: "auditOnly",
   payment_card: "auditOnly",
   national_id: "auditOnly",
   access_level: "auditOnly",
   watermark: "auditOnly",
+  genai_block: "blockContent",
 };
 
 type PresetName = "full" | "ai" | "endpoint" | "audit";
@@ -136,10 +143,15 @@ export function CepDeployerPage({
   const [autoSubOus, setAutoSubOus] = useState<boolean>(true);
 
   const [modules, setModules] = useState<ModuleState>(PRESETS.full);
+  const [dlpMatrix, setDlpMatrix] = useState<CepDlpMatrixState>(DEFAULT_DLP_MATRIX);
   const [internalUrls, setInternalUrls] = useState<string>("");
 
   const [accessLevels, setAccessLevels] = useState<SetupOption[]>([]);
   const [accessLevelError, setAccessLevelError] = useState<boolean>(false);
+
+  const [assigningLicenses, setAssigningLicenses] = useState<boolean>(false);
+  const [licenseResult, setLicenseResult] = useState<CepLicenseAssignResult | null>(null);
+  const [licenseError, setLicenseError] = useState<string>("");
 
   const [assignUserEmail, setAssignUserEmail] = useState<string>("");
   const [rolesBusy, setRolesBusy] = useState<boolean>(false);
@@ -221,6 +233,16 @@ export function CepDeployerPage({
   }
 
   function currentConfig(): CepProvisionConfig {
+    const computedActions: Partial<Record<CepDlpRuleId, CepDlpAction>> = {
+      universal_upload: dlpMatrix.universal_upload?.upload ?? "auditOnly",
+      universal_download: dlpMatrix.universal_download?.download ?? "auditOnly",
+      payment_card: dlpMatrix.payment_card?.upload ?? "auditOnly",
+      national_id: dlpMatrix.national_id?.paste ?? dlpMatrix.national_id?.upload ?? "auditOnly",
+      access_level: dlpMatrix.access_level?.upload ?? "auditOnly",
+      watermark: dlpMatrix.watermark?.watermark ? "auditOnly" : "off",
+      genai_block: dlpMatrix.genai_block?.paste ?? dlpMatrix.genai_block?.upload ?? "blockContent",
+    };
+
     return {
       customer_id: customerId || "my_customer",
       project_id: projectId,
@@ -234,7 +256,8 @@ export function CepDeployerPage({
       dlp_detectors: modules.dlpDetectors,
       dlp_rules: modules.dlpRules,
       dlp_region: modules.dlpRegion,
-      dlp_rule_actions: modules.dlpRuleActions,
+      dlp_rule_actions: computedActions,
+      dlp_matrix: dlpMatrix,
       data_boundary_mode: modules.dataBoundaryMode,
       internal_urls: internalUrls
         .split("\n")
@@ -242,6 +265,28 @@ export function CepDeployerPage({
         .filter(Boolean),
     };
   }
+
+  const handleAssignLicenses = async () => {
+    if (!selectedOu) return;
+    setAssigningLicenses(true);
+    setLicenseError("");
+    setLicenseResult(null);
+    try {
+      const res = await assignCepLicenses({
+        customer_id: customerId || "my_customer",
+        target_ou_id: selectedOu,
+        target_ou_path: selectedUnit?.label,
+      });
+      setLicenseResult(res);
+      if (!res.success && res.errors.length > 0) {
+        setLicenseError(res.errors.join("; "));
+      }
+    } catch (err) {
+      setLicenseError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAssigningLicenses(false);
+    }
+  };
 
   const handleCopy = (text: string, key: string) => {
     void navigator.clipboard.writeText(text);
@@ -492,6 +537,63 @@ export function CepDeployerPage({
         </label>
       </section>
 
+      <section className="cep-section cep-license-section" aria-labelledby="cep-license-title">
+        <h2 id="cep-license-title">{m.licenseCardTitle}</h2>
+        <p>{m.licenseCardSubtitle}</p>
+
+        <div className="cep-license-warning-box">
+          <div className="cep-license-warning-header">
+            <ExclamationCircleIcon size={20} />
+            <strong>{m.licenseAutoAssignWarning}</strong>
+          </div>
+          <ol className="cep-license-steps">
+            {m.licenseAutoAssignSteps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <a
+            className="cep-license-link"
+            href="https://admin.google.com/ac/billing/licensesettings"
+            rel="noreferrer"
+            target="_blank"
+          >
+            {m.licenseAutoAssignWarningLink} ↗
+          </a>
+        </div>
+
+        <div className="cep-license-action-row">
+          <button
+            className="secondary-action cep-license-btn"
+            disabled={selectedOu === "" || assigningLicenses}
+            onClick={handleAssignLicenses}
+            type="button"
+          >
+            {assigningLicenses ? m.btnAssigningLicenses : m.btnAssignLicensesToOu}
+          </button>
+        </div>
+
+        {licenseResult !== null && (
+          <div className={licenseResult.success ? "cep-banner cep-banner-ok" : "cep-banner cep-banner-error"}>
+            <CheckCircleIcon size={18} />
+            <div>
+              <strong>{licenseResult.message}</strong>
+              {licenseResult.errors.length > 0 && (
+                <ul className="cep-license-err-list">
+                  {licenseResult.errors.map((e) => (
+                    <li key={e}>{e}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+        {licenseError !== "" && licenseResult === null && (
+          <p className="cep-inline-error" role="alert">
+            {licenseError}
+          </p>
+        )}
+      </section>
+
       <section className="cep-section" aria-labelledby="cep-presets-title">
         <h2 id="cep-presets-title">{m.presetsTitle}</h2>
         <p>{m.presetsSubtitle}</p>
@@ -535,46 +637,13 @@ export function CepDeployerPage({
         {anyDlpSelected && <p className="cep-inline-note">{m.dlpBetaNote}</p>}
 
         {modules.dlpRules && (
-          <fieldset className="cep-fieldset">
-            <legend>{m.dlpRulesTableTitle}</legend>
-            <div className="cep-field">
-              <label htmlFor="cep-dlp-region">{m.dlpRegionTitle}</label>
-              <select
-                id="cep-dlp-region"
-                onChange={(event) => update("dlpRegion", event.target.value)}
-                value={modules.dlpRegion}
-              >
-                {DLP_REGIONS.map((region) => (
-                  <option key={region.value} value={region.value}>
-                    {region.label}
-                  </option>
-                ))}
-              </select>
-              <small>{m.dlpRegionHint}</small>
-            </div>
-
-            <p className="cep-inline-note">{m.dlpRulesTableHint}</p>
-            <ul className="cep-rule-list">
-              {dlpRuleRows.map((rule) => (
-                <li key={rule.id}>
-                  <label htmlFor={`cep-rule-${rule.id}`}>{rule.label}</label>
-                  <select
-                    id={`cep-rule-${rule.id}`}
-                    onChange={(event) =>
-                      setRuleAction(rule.id, event.target.value as CepDlpAction)
-                    }
-                    value={modules.dlpRuleActions[rule.id]}
-                  >
-                    {dlpActions.map((action) => (
-                      <option key={action.value} value={action.value}>
-                        {action.label}
-                      </option>
-                    ))}
-                  </select>
-                </li>
-              ))}
-            </ul>
-          </fieldset>
+          <DlpMatrixTable
+            matrix={dlpMatrix}
+            messages={messages}
+            onChange={setDlpMatrix}
+            onRegionChange={(reg) => update("dlpRegion", reg)}
+            region={modules.dlpRegion}
+          />
         )}
 
         <fieldset className="cep-fieldset">

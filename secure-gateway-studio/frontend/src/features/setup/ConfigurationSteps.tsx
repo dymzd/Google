@@ -289,6 +289,9 @@ export function IdentitiesStep({
             <ShieldIcon size={18} />
             {bootstrapBusy ? copy.bootstrapWorking : copy.bootstrapDeployer}
           </button>
+          <small className="connection-help-hint">
+            {copy.bootstrapDeployerHint}
+          </small>
           {bootstrapResult && (
             <div className="bootstrap-result" role="status">
               <strong>{copy.bootstrapComplete}</strong>
@@ -372,6 +375,9 @@ export function IdentitiesStep({
             )}
             {statusLabel(state.workspaceConnection)}
           </button>
+          <small className="connection-help-hint">
+            {copy.workspaceRequiredRolesHint}
+          </small>
           {state.workspaceConnectionError && (
             <p className="connection-error" role="alert">
               {state.workspaceConnectionError}
@@ -406,7 +412,11 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
       setSampleBackendResult(res);
       onPatch({
         vpcName: res.vpc_name,
-        existingBackendUrl: `https://${res.hostname}:443`,
+        subnetName: res.subnet_name,
+        existingBackendUrl:
+          state.backendKind === "direct_https"
+            ? `https://${res.hostname}:443`
+            : state.existingBackendUrl,
         existingBackendConnectivityConfirmed: true,
       });
     } catch (err) {
@@ -591,6 +601,8 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           onSelect={() =>
             onPatch({
               backendKind: "internal_https_lb",
+              proxySubnetCidr: state.proxySubnetCidr || "10.42.1.0/24",
+              privateHostname: state.privateHostname || "secgw-backend.internal",
               deploymentName:
                 state.deploymentName === "secure-gateway-http-offload" ||
                 state.deploymentName === "secure-gateway-private-https"
@@ -651,6 +663,67 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           />
         </div>
       </details>
+
+      {(() => {
+        const activeArchitecture =
+          state.backendKind === "direct_https"
+            ? messages.guide.architectures[0]
+            : state.backendKind === "internal_https_lb"
+              ? messages.guide.architectures[1]
+              : messages.guide.architectures[2];
+        return (
+          <div
+            className="step-architecture-preview"
+            role="region"
+            aria-label={activeArchitecture.title}
+          >
+            <div className="step-architecture-header">
+              <span className="step-architecture-eyebrow">
+                {activeArchitecture.eyebrow}
+              </span>
+              <h4>{activeArchitecture.title}</h4>
+              <p>{activeArchitecture.summary}</p>
+            </div>
+            <div className="step-architecture-cost-pill">
+              <strong>💰 {activeArchitecture.estimatedCost}</strong>
+              <span>({activeArchitecture.costFixed} · {activeArchitecture.costVariable})</span>
+            </div>
+            <div className="architecture-flow" role="list">
+              {activeArchitecture.nodes.map((node, index) => (
+                <div
+                  className="architecture-flow-item"
+                  key={node.label}
+                  role="listitem"
+                >
+                  <div className="architecture-node">
+                    {node.costBadge && (
+                      <span className="node-cost-badge">{node.costBadge}</span>
+                    )}
+                    <strong>{node.label}</strong>
+                    <small>{node.detail}</small>
+                  </div>
+                  {index < activeArchitecture.nodes.length - 1 ? (
+                    <span className="architecture-arrow" aria-hidden="true">
+                      <i />
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            <div className="architecture-supports step-architecture-supports">
+              {activeArchitecture.supports.map((support) => (
+                <div className="architecture-support" key={support.label}>
+                  <span aria-hidden="true" />
+                  <div>
+                    <strong>{support.label}</strong>
+                    <small>{support.detail}</small>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="field-grid two">
         {state.backendKind !== "direct_https" ? (
@@ -752,41 +825,43 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
             <span>{copy.directHttpsConnectivity}</span>
           </label>
           <small className="field-hint">{copy.directHttpsConnectivityHint}</small>
-
-          {state.mode === "poc" && (
-            <article className="sample-backend-box">
-              <div className="sample-backend-header">
-                <div>
-                  <strong>{copy.deploySampleBackend}</strong>
-                  <p>{copy.sampleBackendDescription}</p>
-                </div>
-                <button
-                  className="connection-action"
-                  disabled={sampleBackendBusy || state.cloudConnection !== "connected"}
-                  onClick={() => void handleSampleBackendDeploy()}
-                  type="button"
-                >
-                  {sampleBackendBusy ? copy.deployingSampleBackend : copy.deploySampleBackend}
-                </button>
-              </div>
-              {sampleBackendResult && (
-                <div className="sample-backend-success">
-                  <CheckIcon size={18} />
-                  <div>
-                    <strong>{copy.sampleBackendReady}</strong>
-                    <small>
-                      VM: <code>{sampleBackendResult.vm_name}</code> (IP: <code>{sampleBackendResult.internal_ip}</code>) | VPC: <code>{sampleBackendResult.vpc_name}</code> | NAT Egress: <code>{sampleBackendResult.static_egress_ip}</code>
-                    </small>
-                  </div>
-                </div>
-              )}
-              {sampleBackendError && (
-                <p className="connection-error" role="alert">{sampleBackendError}</p>
-              )}
-            </article>
-          )}
         </>
       ) : null}
+
+      {state.mode === "poc" &&
+        ["direct_https", "internal_https_lb"].includes(state.backendKind) && (
+          <article className="sample-backend-box">
+            <div className="sample-backend-header">
+              <div>
+                <strong>{copy.deploySampleBackend}</strong>
+                <p>{copy.sampleBackendDescription}</p>
+              </div>
+              <button
+                className="connection-action"
+                disabled={sampleBackendBusy || state.cloudConnection !== "connected"}
+                onClick={() => void handleSampleBackendDeploy()}
+                type="button"
+              >
+                {sampleBackendBusy ? copy.deployingSampleBackend : copy.deploySampleBackend}
+              </button>
+            </div>
+            {sampleBackendResult && (
+              <div className="sample-backend-success">
+                <CheckIcon size={18} />
+                <div>
+                  <strong>{copy.sampleBackendReady}</strong>
+                  <small>
+                    VM: <code>{sampleBackendResult.vm_name}</code> (IP: <code>{sampleBackendResult.internal_ip}</code>) | VPC: <code>{sampleBackendResult.vpc_name}</code> | NAT Egress: <code>{sampleBackendResult.static_egress_ip}</code>
+                  </small>
+                </div>
+              </div>
+            )}
+            {sampleBackendError && (
+              <p className="connection-error" role="alert">{sampleBackendError}</p>
+            )}
+          </article>
+        )}
+
       {state.backendKind !== "direct_https" ? (
         <Notice tone="security">{copy.noExternalIpNotice}</Notice>
       ) : null}

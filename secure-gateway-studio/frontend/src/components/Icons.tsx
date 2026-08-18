@@ -226,3 +226,12 @@ export function ExclamationCircleIcon(props: IconProps) {
   );
 }
 
+export function ChevronUpIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m18 15-6-6-6 6" {...strokeProps} />
+    </IconBase>
+  );
+}
+
+

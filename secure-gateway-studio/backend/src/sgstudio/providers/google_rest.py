@@ -29,6 +29,7 @@ ALLOWED_GOOGLE_API_HOSTS = {
 DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/admin.directory.group.readonly",
     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+    "https://www.googleapis.com/auth/admin.directory.user.readonly",
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/chrome.management.policy",
     "https://www.googleapis.com/auth/chrome.management.profiles.readonly",
