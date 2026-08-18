@@ -1,5 +1,8 @@
 ---
-title: Privacy Policy - Secure Gateway Studio
+title: Privacy Policy
+description: >-
+  Privacy policy for the Secure Gateway Studio Chrome extension. The extension
+  collects no user data and sends nothing to its developer.
 ---
 
 # Privacy Policy — Secure Gateway Studio

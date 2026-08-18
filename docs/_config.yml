@@ -1,0 +1,21 @@
+# Jekyll served the repository name as the site title, so the homepage rendered
+# an <h1> reading "Google" above the real one. On a page whose whole job is to
+# prove this app is not Google's, that was the worst possible default.
+title: Secure Gateway Studio
+description: >-
+  Plan, apply, and verify Chrome Enterprise Premium and BeyondCorp Security
+  Gateway deployments in your own Google Cloud project and Google Workspace
+  tenant. An independent open-source tool, not affiliated with Google.
+
+# Paste the token from Search Console (Ownership verification, HTML tag method)
+# between the quotes. jekyll-seo-tag renders it into <head>.
+google_site_verification: ""
+
+theme: minima
+plugins:
+  - jekyll-seo-tag
+
+# The implementation plans are reference material, not part of the site.
+exclude:
+  - CHROME_EXTENSION_IMPLEMENTATION_PLAN.md
+  - CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md
