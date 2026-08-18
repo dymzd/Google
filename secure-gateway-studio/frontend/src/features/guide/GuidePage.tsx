@@ -39,10 +39,31 @@ export function GuidePage({ messages }: GuidePageProps) {
                 <h3>{architecture.title}</h3>
                 <p>{architecture.summary}</p>
               </div>
+
+              <div className="architecture-cost-box">
+                <div className="architecture-cost-header">
+                  <strong>💰 {architecture.estimatedCost}</strong>
+                  <span className="cost-tag">GCP Infrastructure (Excl. CEP)</span>
+                </div>
+                <div className="architecture-cost-details">
+                  <div className="cost-detail-row">
+                    <span className="cost-type-fixed">Fixed</span>
+                    <span>{architecture.costFixed}</span>
+                  </div>
+                  <div className="cost-detail-row">
+                    <span className="cost-type-variable">Variable</span>
+                    <span>{architecture.costVariable}</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="architecture-flow" role="list">
                 {architecture.nodes.map((node, index) => (
                   <div className="architecture-flow-item" key={node.label} role="listitem">
                     <div className="architecture-node">
+                      {node.costBadge && (
+                        <span className="node-cost-badge">{node.costBadge}</span>
+                      )}
                       <strong>{node.label}</strong>
                       <small>{node.detail}</small>
                     </div>

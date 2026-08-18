@@ -45,10 +45,30 @@ const CLOUD_IDENTITY = "https://cloudidentity.googleapis.com/v1beta1";
 /** Display-name prefix that marks a rule or detector as ours to roll back. */
 const DLP_PREFIX = "CEP PoC - ";
 
-export type CepDlpRuleId = "national_id" | "payment_card" | "access_level" | "watermark";
+export type CepDlpRuleId =
+  | "universal_upload"
+  | "universal_download"
+  | "payment_card"
+  | "national_id"
+  | "access_level"
+  | "watermark"
+  | "genai_block";
 
 /** What a rule does when it matches. `off` means do not create it. */
 export type CepDlpAction = "off" | "auditOnly" | "warnUser" | "blockContent";
+
+export type CepDlpOperation = "upload" | "download" | "paste" | "print" | "watermark";
+
+export interface CepDlpMatrixRuleConfig {
+  upload?: CepDlpAction;
+  download?: CepDlpAction;
+  paste?: CepDlpAction;
+  print?: CepDlpAction;
+  watermark?: boolean;
+  byodOnly?: boolean;
+}
+
+export type CepDlpMatrixState = Partial<Record<CepDlpRuleId, CepDlpMatrixRuleConfig>>;
 
 /**
  * The national identifier to scan for, per region.
@@ -125,6 +145,8 @@ export interface CepProvisionConfig {
   dlp_region?: string;
   /** Per-rule action; a rule set to `off` is not created. */
   dlp_rule_actions?: Partial<Record<CepDlpRuleId, CepDlpAction>>;
+  /** Comprehensive DLP matrix state */
+  dlp_matrix?: CepDlpMatrixState;
   data_boundary_mode?: CepDataBoundaryMode;
   internal_urls?: string[];
 }
@@ -134,6 +156,26 @@ export interface CepCustomRoleConfig {
   customer_id: string;
   role_type: "administrator" | "auditor" | "both";
   assigned_user_email?: string;
+}
+
+export interface CepLicenseAssignConfig {
+  customer_id: string;
+  target_ou_id: string;
+  target_ou_path?: string;
+  product_id?: string;
+  sku_id?: string;
+}
+
+export interface CepLicenseAssignResult {
+  success: boolean;
+  message: string;
+  total_users: number;
+  assigned_count: number;
+  already_assigned_count: number;
+  failed_count: number;
+  assigned_users: string[];
+  errors: string[];
+  debug_trace: CepTraceItem[];
 }
 
 export interface CepRollbackConfig {
@@ -444,6 +486,48 @@ const CEP_POLICIES: readonly CepPolicyDefinition[] = [
     // A comma-separated domain list, per the published policy. The previous
     // value was `*.{customer_id}`, and customer_id is `my_customer` or `C0…`.
     fields: [{ name: /allowedDomainsForApps/i, value: (c) => c.primaryDomain }],
+  },
+  {
+    module: "dlpRules",
+    ou: "users",
+    label: "Block unapproved consumer GenAI services",
+    schema: "chrome.users.URLBlocklist",
+    schemaMatcher: /URLBlocklist/i,
+    appliesTo: (config) =>
+      config.dlp_rule_actions?.genai_block !== undefined &&
+      config.dlp_rule_actions.genai_block !== "off",
+    fields: [
+      {
+        name: /urlBlocklist/i,
+        value: () => [
+          "*chatgpt.com*",
+          "*claude.ai*",
+          "*deepseek.com*",
+          "*poe.com*",
+          "*perplexity.ai*",
+          "*copilot.microsoft.com*",
+        ],
+      },
+    ],
+  },
+  {
+    module: "dlpRules",
+    ou: "users",
+    label: "Allow corporate GenAI (Gemini)",
+    schema: "chrome.users.URLAllowlist",
+    schemaMatcher: /URLAllowlist/i,
+    appliesTo: (config) =>
+      config.dlp_rule_actions?.genai_block !== undefined &&
+      config.dlp_rule_actions.genai_block !== "off",
+    fields: [
+      {
+        name: /urlAllowlist/i,
+        value: () => [
+          "*gemini.google.com*",
+          "*workspace.google.com*",
+        ],
+      },
+    ],
   },
 ];
 
@@ -1194,10 +1278,25 @@ export class CepProvider {
 
     return [
       {
-        id: "payment_card",
-        displayName: `${DLP_PREFIX}Payment card numbers in uploads`,
-        description: "Detects payment card numbers in files uploaded from Chrome.",
+        id: "universal_upload",
+        displayName: `${DLP_PREFIX}Universal file upload protection`,
+        description: "Inspects and audits/blocks all file uploads from Chrome.",
         triggers: ["google.workspace.chrome.file.v1.upload"],
+      },
+      {
+        id: "universal_download",
+        displayName: `${DLP_PREFIX}Universal file download protection`,
+        description: "Inspects and audits/blocks all file downloads in Chrome.",
+        triggers: ["google.workspace.chrome.file.v1.download"],
+      },
+      {
+        id: "payment_card",
+        displayName: `${DLP_PREFIX}Payment card numbers in uploads and paste`,
+        description: "Detects payment card numbers in files uploaded and content pasted from Chrome.",
+        triggers: [
+          "google.workspace.chrome.file.v1.upload",
+          "google.workspace.chrome.web_content.v1.upload",
+        ],
         condition: {
           contentCondition:
             "all_content.matches_dlp_detector('CREDIT_CARD_NUMBER', google.privacy.dlp.v2.Likelihood.LIKELY, {minimum_match_count: 1, minimum_unique_match_count: 1})",
@@ -1205,17 +1304,23 @@ export class CepProvider {
       },
       {
         id: "national_id",
-        displayName: `${DLP_PREFIX}National ID numbers pasted into pages`,
-        description: `Detects ${region.infoTypes.join(", ")} in content pasted into a page (${region.label}).`,
-        triggers: ["google.workspace.chrome.web_content.v1.upload"],
+        displayName: `${DLP_PREFIX}National ID numbers in pages and uploads`,
+        description: `Detects ${region.infoTypes.join(", ")} in content pasted into pages or uploaded (${region.label}).`,
+        triggers: [
+          "google.workspace.chrome.web_content.v1.upload",
+          "google.workspace.chrome.file.v1.upload",
+        ],
         condition: { contentCondition: nationalIdCondition },
       },
       {
         id: "access_level",
-        displayName: `${DLP_PREFIX}Uploads from unmanaged Chrome`,
+        displayName: `${DLP_PREFIX}Uploads and paste from unmanaged Chrome / BYOD`,
         description:
-          "Detects file uploads from sessions that do not meet the selected Context-Aware Access level.",
-        triggers: ["google.workspace.chrome.file.v1.upload"],
+          "Enforces controls on sessions that do not meet the selected Context-Aware Access level.",
+        triggers: [
+          "google.workspace.chrome.file.v1.upload",
+          "google.workspace.chrome.web_content.v1.upload",
+        ],
         condition: {
           contextCondition: `!access_levels.meets_access_requirements(['${context.accessLevelName ?? ""}'])`,
         },
@@ -1232,6 +1337,16 @@ export class CepProvider {
         },
         actionParams: { watermarkMessage: "Confidential", blockScreenshot: true },
         requires: "internalSites",
+      },
+      {
+        id: "genai_block",
+        displayName: `${DLP_PREFIX}Prevent data paste to consumer GenAI`,
+        description:
+          "Prevents pasting sensitive data into unapproved consumer GenAI services while allowing corporate Gemini.",
+        triggers: [
+          "google.workspace.chrome.web_content.v1.upload",
+          "google.workspace.chrome.url.v1.navigation",
+        ],
       },
     ];
   }
@@ -1955,6 +2070,148 @@ export class CepProvider {
       this.cloudTransport,
     );
     return updated !== null;
+  }
+
+  // -- License assignment -----------------------------------------------------
+
+  /**
+   * Assign Chrome Enterprise Premium licenses to all users in the target OU.
+   */
+  async assignLicenses(config: CepLicenseAssignConfig): Promise<CepLicenseAssignResult> {
+    const trace: CepTraceItem[] = [];
+    const customerId = config.customer_id || "my_customer";
+    const productId = config.product_id || "101040";
+    const skuId = config.sku_id || "1010400001";
+    let targetPath = config.target_ou_path;
+
+    if (!targetPath) {
+      try {
+        const units = await this.listOrgUnits(customerId);
+        const found = units.find((u) => u.id === config.target_ou_id);
+        targetPath = found?.path || "/";
+      } catch {
+        targetPath = "/";
+      }
+    }
+
+    const users: Array<{ primaryEmail: string }> = [];
+    let pageToken = "";
+    const query = `orgUnitPath='${targetPath.replace(/'/g, "\\'")}'`;
+
+    for (let page = 0; page < 20; page += 1) {
+      const queryParam = `customer=${encodeURIComponent(customerId)}&query=${encodeURIComponent(query)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
+      const url = `${DIRECTORY}/users?${queryParam}`;
+      const payload = await this.call(trace, `List users in OU ${targetPath}`, "GET", url);
+      if (payload === null) {
+        break;
+      }
+      const rawUsers = Array.isArray(payload.users) ? payload.users : [];
+      for (const u of rawUsers) {
+        const email = (u as { primaryEmail?: string }).primaryEmail;
+        if (typeof email === "string" && email !== "") {
+          users.push({ primaryEmail: email });
+        }
+      }
+      const next = payload.nextPageToken;
+      if (typeof next !== "string" || next === "") break;
+      pageToken = next;
+    }
+
+    if (users.length === 0) {
+      return {
+        success: true,
+        message: `組織部門「${targetPath}」内にユーザーは見つかりませんでした。`,
+        total_users: 0,
+        assigned_count: 0,
+        already_assigned_count: 0,
+        failed_count: 0,
+        assigned_users: [],
+        errors: [],
+        debug_trace: trace,
+      };
+    }
+
+    let assignedCount = 0;
+    let alreadyAssignedCount = 0;
+    let failedCount = 0;
+    const assignedUsers: string[] = [];
+    const errors: string[] = [];
+
+    const LICENSING = "https://licensing.googleapis.com/apps/licensing/v1";
+
+    for (const user of users) {
+      const url = `${LICENSING}/product/${productId}/sku/${skuId}/user`;
+      try {
+        const { status, payload } = await this.transport.requestJson("POST", url, {
+          jsonBody: { userId: user.primaryEmail },
+        });
+        if (status >= 200 && status < 300) {
+          assignedCount += 1;
+          assignedUsers.push(user.primaryEmail);
+          trace.push({
+            label: `Assign CEP license to ${user.primaryEmail}`,
+            method: "POST",
+            url,
+            status,
+            ok: true,
+          });
+        } else {
+          const errDetail = (payload.error as { message?: string })?.message || `HTTP ${status}`;
+          if (
+            errDetail.toLowerCase().includes("already") ||
+            errDetail.toLowerCase().includes("duplicate") ||
+            status === 400 ||
+            status === 409
+          ) {
+            alreadyAssignedCount += 1;
+            trace.push({
+              label: `License for ${user.primaryEmail} already assigned (${errDetail})`,
+              method: "POST",
+              url,
+              status,
+              ok: true,
+            });
+          } else {
+            failedCount += 1;
+            errors.push(`${user.primaryEmail}: ${errDetail}`);
+            trace.push({
+              label: `Failed to assign license to ${user.primaryEmail}`,
+              method: "POST",
+              url,
+              status,
+              ok: false,
+              error: errDetail,
+            });
+          }
+        }
+      } catch (err) {
+        failedCount += 1;
+        const msg = errorMessage(err);
+        errors.push(`${user.primaryEmail}: ${msg}`);
+        trace.push({
+          label: `Exception assigning license to ${user.primaryEmail}`,
+          method: "POST",
+          url,
+          status: 0,
+          ok: false,
+          error: msg,
+        });
+      }
+    }
+
+    const message = `組織部門「${targetPath}」内のユーザー ${users.length} 名の処理が完了しました（新規割り当て: ${assignedCount} 名、割り当て済み: ${alreadyAssignedCount} 名${failedCount > 0 ? `、失敗: ${failedCount} 名` : ""}）。`;
+
+    return {
+      success: failedCount === 0 || assignedCount > 0 || alreadyAssignedCount > 0,
+      message,
+      total_users: users.length,
+      assigned_count: assignedCount,
+      already_assigned_count: alreadyAssignedCount,
+      failed_count: failedCount,
+      assigned_users: assignedUsers,
+      errors,
+      debug_trace: trace,
+    };
   }
 
   // -- Script export ----------------------------------------------------------

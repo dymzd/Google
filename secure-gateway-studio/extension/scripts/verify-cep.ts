@@ -224,6 +224,7 @@ interface StubOptions {
   /** Org units already present, as `{path, id}`. */
   existingOus?: Array<{ path: string; id: string }>;
   customerDomain?: string | null;
+  licenseAlreadyAssigned?: boolean;
 }
 
 function stubTransport(options: StubOptions = {}): {
@@ -358,6 +359,32 @@ function stubTransport(options: StubOptions = {}): {
         };
       }
 
+      if (url.includes("admin/directory") && url.includes("/users")) {
+        return {
+          status: 200,
+          payload: {
+            users: [
+              { primaryEmail: "alice@example.com" },
+              { primaryEmail: "bob@example.com" },
+            ],
+          },
+        };
+      }
+
+      if (url.includes("licensing.googleapis.com")) {
+        const userId = (body as { userId?: string } | undefined)?.userId;
+        if (options.licenseAlreadyAssigned && userId === "bob@example.com") {
+          return {
+            status: 400,
+            payload: { error: { message: "License already assigned" } },
+          };
+        }
+        return {
+          status: 200,
+          payload: { kind: "licensing#licenseAssignment" },
+        };
+      }
+
       return { status: 200, payload: {} };
     },
   };
@@ -427,6 +454,10 @@ for (const [path, payload] of [
     { project_id: "secgw-project", customer_id: "C01abcdef", role_type: "both" },
   ],
   ["/api/v1/cep/script", FULL_CONFIG],
+  [
+    "/api/v1/cep/assign-licenses",
+    { customer_id: "C01abcdef", target_ou_id: "03pilot", target_ou_path: "/Pilot" },
+  ],
 ] as const) {
   const { transport } = stubTransport();
   try {
@@ -1359,7 +1390,7 @@ function ruleBodies(calls: Recorded[]): Array<Record<string, unknown>> {
     existingDlp: [
       {
         name: "policies/existing-snake",
-        displayName: "CEP PoC - Payment card numbers in uploads",
+        displayName: "CEP PoC - Payment card numbers in uploads and paste",
         type: "settings/rule.dlp",
         snakeCase: true,
       },
@@ -1373,6 +1404,38 @@ function ruleBodies(calls: Recorded[]): Array<Record<string, unknown>> {
     ),
     JSON.stringify(ruleBodies(calls).map((rule) => rule.displayName)),
   );
+}
+
+// -- License batch assignment -------------------------------------------------
+
+{
+  const { transport, calls } = stubTransport();
+  const result = (await route(
+    context(transport),
+    "POST",
+    "/api/v1/cep/assign-licenses",
+    { customer_id: "C01abcdef", target_ou_id: "03pilot", target_ou_path: "/Pilot" },
+  )) as { success: boolean; total_users: number; assigned_count: number; already_assigned_count: number };
+
+  check("assign-licenses succeeds", result.success === true);
+  check("assign-licenses found 2 users", result.total_users === 2);
+  check("assign-licenses assigned 2 users", result.assigned_count === 2);
+  const licenseCalls = calls.filter((call) => call.url.includes("licensing.googleapis.com"));
+  check("issued 2 licensing API calls", licenseCalls.length === 2);
+}
+
+{
+  const { transport } = stubTransport({ licenseAlreadyAssigned: true });
+  const result = (await route(
+    context(transport),
+    "POST",
+    "/api/v1/cep/assign-licenses",
+    { customer_id: "C01abcdef", target_ou_id: "03pilot", target_ou_path: "/Pilot" },
+  )) as { success: boolean; total_users: number; assigned_count: number; already_assigned_count: number };
+
+  check("assign-licenses handles already-assigned users gracefully", result.success === true);
+  check("already_assigned_count is 1", result.already_assigned_count === 1);
+  check("assigned_count is 1", result.assigned_count === 1);
 }
 
 // -- Report -------------------------------------------------------------------

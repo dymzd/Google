@@ -18,8 +18,10 @@ export interface WorkflowMessages {
   adcUnavailable: string;
   cloudValidationFailed: string;
   workspaceValidationFailed: string;
+  workspaceRequiredRolesHint: string;
   connectionNotice: string;
   bootstrapDeployer: string;
+  bootstrapDeployerHint: string;
   bootstrapConfirm: string;
   bootstrapWorking: string;
   bootstrapComplete: string;
@@ -347,11 +349,16 @@ export interface GuideMessages {
   quickOverviewIntro: string;
   architectureTitle: string;
   architectureIntro: string;
+  costOverviewTitle: string;
+  costOverviewIntro: string;
   architectures: readonly {
     eyebrow: string;
     title: string;
     summary: string;
-    nodes: readonly { label: string; detail: string }[];
+    estimatedCost: string;
+    costFixed: string;
+    costVariable: string;
+    nodes: readonly { label: string; detail: string; costBadge?: string }[];
     supports: readonly { label: string; detail: string }[];
   }[];
   implementationTitle: string;
@@ -389,6 +396,8 @@ export interface Messages {
     settings: string;
     guide: string;
     cepDeployer: string;
+    easyPoc: string;
+    sgwDeployer: string;
   };
   title: string;
   steps: readonly string[];
@@ -445,6 +454,7 @@ export interface Messages {
     english: string;
     japanese: string;
   };
+  mainTitle: string;
   workflow: WorkflowMessages;
   operations: OperationsMessages;
   guide: GuideMessages;
@@ -565,9 +575,63 @@ export interface CepDeployerMessages {
   skippedTitle: string;
   statusLogTitle: string;
   noActionYet: string;
+
+  // License assignment & Auto-assign guidance
+  licenseCardTitle: string;
+  licenseCardSubtitle: string;
+  licenseAutoAssignWarning: string;
+  licenseAutoAssignWarningLink: string;
+  licenseAutoAssignSteps: ReadonlyArray<string>;
+  btnAssignLicensesToOu: string;
+  btnAssigningLicenses: string;
+  licenseAssignUsersFound: string;
+  noUsersFoundInOu: string;
+
+  // DLP Controls Matrix
+  dlpMatrixTitle: string;
+  dlpMatrixSubtitle: string;
+  dlpColThreat: string;
+  dlpColUpload: string;
+  dlpColDownload: string;
+  dlpColPaste: string;
+  dlpColPrint: string;
+  dlpColWatermark: string;
+  dlpColDeviceScope: string;
+
+  dlpRowUniversalUpload: string;
+  dlpRowUniversalUploadDesc: string;
+  dlpRowUniversalDownload: string;
+  dlpRowUniversalDownloadDesc: string;
+  dlpRowPaymentCard: string;
+  dlpRowPaymentCardDesc: string;
+  dlpRowNationalId: string;
+  dlpRowNationalIdDesc: string;
+  dlpRowAccessLevel: string;
+  dlpRowAccessLevelDesc: string;
+  dlpRowWatermark: string;
+  dlpRowWatermarkDesc: string;
+  dlpRowGenAiBlock: string;
+  dlpRowGenAiBlockDesc: string;
+
+  dlpScopeAll: string;
+  dlpScopeByodOnly: string;
+  dlpActionBadgeBlock: string;
+  dlpActionBadgeWarn: string;
+  dlpActionBadgeAudit: string;
+  dlpActionBadgeOff: string;
+
+  dlpPresetRecommended: string;
+  dlpPresetRecommendedDesc: string;
+  dlpPresetStrictZeroTrust: string;
+  dlpPresetStrictZeroTrustDesc: string;
+  dlpPresetGenAiSecure: string;
+  dlpPresetGenAiSecureDesc: string;
+  dlpPresetAuditOnly: string;
+  dlpPresetAuditOnlyDesc: string;
 }
 
 const en: Messages = {
+  mainTitle: "Chrome Enterprise Premium PoC Deployer",
   productName: "Secure Gateway Studio",
   localOnly: "Local only",
   cloudIdentity: "Google Cloud",
@@ -582,7 +646,9 @@ const en: Messages = {
     evidence: "Evidence",
     settings: "Settings",
     guide: "Guide",
-    cepDeployer: "CEP PoC Deployer",
+    cepDeployer: "Easy PoC",
+    easyPoc: "Easy PoC",
+    sgwDeployer: "Secure Gateway Deployer",
   },
   title: "New secure gateway setup",
   steps: ["Mode", "Identities", "Environment", "Certificate", "Access", "Review", "Apply"],
@@ -664,9 +730,13 @@ const en: Messages = {
       "Google Cloud validation failed. Verify the project ID and read permissions.",
     workspaceValidationFailed:
       "Workspace validation failed. Verify the customer ID and Chrome Policy administrator permissions.",
+    workspaceRequiredRolesHint:
+      "Required Workspace privileges: Chrome Management (Policy & Settings), Organizational Units (Create/Read for sub-OUs), Groups (Read-only), Domain (Read-only), and Rule Management (Chrome DLP). Super Admin is not required if these are granted via Chrome Admin or custom admin roles.",
     connectionNotice:
       "Connection validation is read-only. Apply permissions are checked separately during preflight.",
     bootstrapDeployer: "Create deployer and least-privilege role",
+    bootstrapDeployerHint:
+      "Required operator roles: Service Account Admin (roles/iam.serviceAccountAdmin), Role Administrator (roles/iam.roleAdmin), and Project IAM Admin (roles/resourcemanager.projectIamAdmin). Alternatively, Security Admin (roles/iam.securityAdmin) or Owner.",
     bootstrapConfirm:
       "Create or update the deployer service account, custom role, project bindings, and your Token Creator binding?",
     bootstrapWorking: "Creating deployer…",
@@ -1178,17 +1248,23 @@ const en: Messages = {
     architectureTitle: "Three independent deployment architectures",
     architectureIntro:
       "Choose one path per application. Options A and B are the primary PoC paths; the previous Nginx method remains available as Option C under Legacy / advanced settings.",
+    costOverviewTitle: "Estimated GCP Infrastructure Costs (Beyond CEP Licenses)",
+    costOverviewIntro:
+      "BeyondCorp Security Gateway resources are included in your Chrome Enterprise Premium (CEP) subscription with no base gateway fee. The following are estimated monthly Google Cloud infrastructure costs incurred by each architecture option outside the CEP user license.",
     architectures: [
       {
         eyebrow: "Option A · Direct HTTPS",
         title: "Secure Gateway + existing private HTTPS app",
         summary:
           "Use when the application already serves HTTPS. Secure Gateway routes directly through the selected VPC; no Nginx, VM, NAT, or offload certificate is created.",
+        estimatedCost: "≈ $0.20 – $1.00 / month",
+        costFixed: "Fixed: Cloud DNS private zone ($0.20/mo). No Load Balancer, VM, NAT, or Router is created ($0.00).",
+        costVariable: "Variable: Cloud DNS query volume ($0.40/million queries) + standard VPC network egress traffic.",
         nodes: [
-          { label: "Managed Chrome", detail: "User identity + device/profile context" },
-          { label: "Secure Gateway", detail: "Hostname:port matcher + access policy" },
-          { label: "Upstream VPC", detail: "Delegating service account has upstreamAccess" },
-          { label: "HTTPS app", detail: "Existing certificate and TLS termination" },
+          { label: "Managed Chrome", detail: "User identity + device/profile context", costBadge: "Free" },
+          { label: "Secure Gateway", detail: "Hostname:port matcher + access policy ($0.00 base)", costBadge: "Included in CEP trial" },
+          { label: "Upstream VPC", detail: "Delegating service account has upstreamAccess", costBadge: "$0 base / traffic only" },
+          { label: "HTTPS app", detail: "Existing certificate and TLS termination", costBadge: "Existing Infra" },
         ],
         supports: [
           { label: "DNS resolution", detail: "Cloud DNS private zone or forwarding zone" },
@@ -1201,11 +1277,14 @@ const en: Messages = {
         title: "Secure Gateway + internal HTTPS load balancer + HTTP app",
         summary:
           "Use a regional internal Application Load Balancer as the HTTPS offload tier. The ILB presents the server certificate and forwards decrypted HTTP to the private backend; Nginx is not deployed in the offload path.",
+        estimatedCost: "≈ $18.00 – $25.00 / month",
+        costFixed: "Fixed: Regional Internal Application LB forwarding rule (≈ $18.25/mo) + Cloud DNS ($0.20/mo). Local CA / DevOps CA ($0.00).",
+        costVariable: "Variable: LB data processing / LCU charges (≈ $0.008–$0.01/GB) + backend VPC traffic.",
         nodes: [
-          { label: "Managed Chrome", detail: "Trusts the issuing root through Chrome Root Store" },
-          { label: "Secure Gateway", detail: "Identity, context, and hostname:443 policy" },
-          { label: "Regional internal Application LB", detail: "HTTPS termination with a regional server certificate" },
-          { label: "HTTP backend", detail: "Private sample VM on port 80" },
+          { label: "Managed Chrome", detail: "Trusts the issuing root through Chrome Root Store", costBadge: "Free" },
+          { label: "Secure Gateway", detail: "Identity, context, and hostname:443 policy", costBadge: "Included in CEP trial" },
+          { label: "Regional internal Application LB", detail: "HTTPS termination with a regional server certificate (≈ $18.25/mo base)", costBadge: "≈ $18/mo + LCU" },
+          { label: "HTTP backend", detail: "Private sample VM on port 80 or existing HTTP endpoint", costBadge: "Sample VM: ≈ $7–15/mo or Existing" },
         ],
         supports: [
           { label: "Proxy-only subnet", detail: "REGIONAL_MANAGED_PROXY subnet dedicated to Google-managed Envoy proxies" },
@@ -1220,11 +1299,14 @@ const en: Messages = {
         title: "Secure Gateway + Nginx + HTTP app",
         summary:
           "Use only when the private application speaks HTTP or the previous Nginx deployment is required. PoC uses one private Nginx VM; the implemented scale-ready path uses an internal passthrough Network Load Balancer and two-zone Nginx MIG (Production selection is disabled).",
+        estimatedCost: "≈ $10.00 – $45.00 / month",
+        costFixed: "Fixed: Compute Engine VM (e2-micro ≈ $7–$10/mo, e2-small ≈ $15/mo) + 10GB disk ($0.40/mo) + Cloud DNS ($0.20/mo). (Cloud NAT if enabled: ≈ $32/mo).",
+        costVariable: "Variable: VM runtime hours + NAT egress data processing ($0.045/GB).",
         nodes: [
-          { label: "Managed Chrome", detail: "User identity + device/profile context" },
-          { label: "Secure Gateway", detail: "Service Discovery + access policy" },
-          { label: "Nginx offload tier", detail: "PoC: 1 private VM · Scale-ready: passthrough ILB + 2-zone MIG" },
-          { label: "HTTP app", detail: "GCP, AWS, Azure, or on premises" },
+          { label: "Managed Chrome", detail: "User identity + device/profile context", costBadge: "Free" },
+          { label: "Secure Gateway", detail: "Service Discovery + access policy", costBadge: "Included in CEP trial" },
+          { label: "Nginx offload tier", detail: "PoC: 1 private VM · Scale-ready: passthrough ILB + 2-zone MIG", costBadge: "PoC VM: ≈ $7–15/mo" },
+          { label: "HTTP app", detail: "GCP, AWS, Azure, or on premises", costBadge: "Existing Infra" },
         ],
         supports: [
           { label: "CPU autoscaling", detail: "Scale-ready default 2–20 replicas at 60%; min, max, and target are configurable" },
@@ -1869,10 +1951,69 @@ const en: Messages = {
     skippedTitle: "Skipped",
     statusLogTitle: "Execution trace",
     noActionYet: "Nothing has run yet. Pick a target OU and the modules you want, then apply.",
+
+    licenseCardTitle: "License Management & Auto-Assignment Control",
+    licenseCardSubtitle:
+      "Prevent unexpected domain-wide license consumption and assign CEP licenses directly to the target OU.",
+    licenseAutoAssignWarning:
+      "If auto-assign is enabled on the Root OU, CEP licenses will be automatically consumed by random users across your entire organization.",
+    licenseAutoAssignWarningLink: "Open Google Admin Console License Settings",
+    licenseAutoAssignSteps: [
+      "1. Open License Settings in Google Admin Console and select the Root OU.",
+      "2. Turn Auto-assign OFF for Chrome Enterprise Premium.",
+      "3. Either turn Auto-assign ON only for this pilot OU, or use the button below to assign licenses directly.",
+    ],
+    btnAssignLicensesToOu: "Assign CEP licenses to all users in this OU",
+    btnAssigningLicenses: "Assigning licenses to OU users...",
+    licenseAssignUsersFound: "Processed users in OU",
+    noUsersFoundInOu: "No users found in this organizational unit.",
+
+    dlpMatrixTitle: "DLP Control Matrix",
+    dlpMatrixSubtitle:
+      "Configure actions (Block, Warn, Audit, Off) across all operations (Upload, Download, Paste, Print, Screen Capture) and device scopes (All vs BYOD / Unmanaged).",
+    dlpColThreat: "Data & Threat Category",
+    dlpColUpload: "Upload",
+    dlpColDownload: "Download",
+    dlpColPaste: "Paste",
+    dlpColPrint: "Print",
+    dlpColWatermark: "Watermark",
+    dlpColDeviceScope: "Device Scope",
+
+    dlpRowUniversalUpload: "All file uploads",
+    dlpRowUniversalUploadDesc: "Inspects and audits/blocks all file uploads from Chrome.",
+    dlpRowUniversalDownload: "All file downloads",
+    dlpRowUniversalDownloadDesc: "Inspects and audits/blocks all file downloads in Chrome.",
+    dlpRowPaymentCard: "Credit card / Payment data",
+    dlpRowPaymentCardDesc: "Detects credit card numbers in uploads, pastes, and prints.",
+    dlpRowNationalId: "National ID / PII data",
+    dlpRowNationalIdDesc: "Detects regional PII / National ID numbers (e.g. My Number / SSN).",
+    dlpRowAccessLevel: "Unmanaged / BYOD devices",
+    dlpRowAccessLevelDesc: "Applies Context-Aware Access controls on non-compliant / BYOD sessions.",
+    dlpRowWatermark: "Internal sites / Watermark",
+    dlpRowWatermarkDesc: "Overlays dynamic watermark and blocks screenshots on internal sites.",
+    dlpRowGenAiBlock: "Unapproved GenAI (allow Gemini)",
+    dlpRowGenAiBlockDesc: "Blocks ChatGPT, Claude, DeepSeek, etc. while allowing corporate Gemini.",
+
+    dlpScopeAll: "All Devices",
+    dlpScopeByodOnly: "BYOD Only",
+    dlpActionBadgeBlock: "Block",
+    dlpActionBadgeWarn: "Warn",
+    dlpActionBadgeAudit: "Audit",
+    dlpActionBadgeOff: "Off",
+
+    dlpPresetRecommended: "Recommended PoC",
+    dlpPresetRecommendedDesc: "Audit sensitive data, warn on BYOD, block unapproved GenAI, and watermark internal sites.",
+    dlpPresetStrictZeroTrust: "Strict Zero Trust",
+    dlpPresetStrictZeroTrustDesc: "Block sensitive uploads, pastes, and unmanaged devices completely.",
+    dlpPresetGenAiSecure: "Secure GenAI Pilot",
+    dlpPresetGenAiSecureDesc: "Block unapproved consumer AI, permit Gemini with paste inspection.",
+    dlpPresetAuditOnly: "Audit Only",
+    dlpPresetAuditOnlyDesc: "Monitor all activities across all surfaces without user disruption.",
   },
 };
 
 const ja: Messages = {
+  mainTitle: "Chrome Enterprise Premium PoC デプロイヤー",
   productName: "Secure Gateway Studio",
   localOnly: "ローカルのみ",
   cloudIdentity: "Google Cloud",
@@ -1887,7 +2028,9 @@ const ja: Messages = {
     evidence: "エビデンス",
     settings: "設定",
     guide: "ガイド",
-    cepDeployer: "CEP PoC Deployer",
+    cepDeployer: "Easy PoC",
+    easyPoc: "Easy PoC",
+    sgwDeployer: "Secure Gateway Deployer",
   },
   title: "セキュア ゲートウェイの新規セットアップ",
   steps: ["モード", "ID", "環境", "証明書", "アクセス", "確認", "適用"],
@@ -1968,9 +2111,13 @@ const ja: Messages = {
       "Google Cloud の検証に失敗しました。プロジェクトIDと読み取り権限を確認してください。",
     workspaceValidationFailed:
       "Workspace の検証に失敗しました。顧客IDと Chrome Policy 管理者権限を確認してください。",
+    workspaceRequiredRolesHint:
+      "必要なWorkspace特権: Chrome 管理 (ポリシー・設定)、組織部門 (サブOU作成用の作成・読取)、グループ (読取)、ドメイン (読取)、ルール管理 (Chrome DLP)。これらの特権を持つカスタム管理者ロール、またはChrome管理者ロールがあれば特権管理者は不要です。",
     connectionNotice:
       "接続検証は読み取り専用です。適用権限は事前確認で別途検証します。",
     bootstrapDeployer: "SAと最小権限ロールを自動作成",
+    bootstrapDeployerHint:
+      "必要な最小ロール: サービス アカウント管理者 (roles/iam.serviceAccountAdmin)、ロール管理者 (roles/iam.roleAdmin)、プロジェクト IAM 管理者 (roles/resourcemanager.projectIamAdmin)。または セキュリティ管理者 / オーナー。",
     bootstrapConfirm:
       "デプロイヤーSA、カスタムロール、プロジェクトIAM、あなたのToken Creator権限を作成または更新します。続行しますか？",
     bootstrapWorking: "デプロイヤーを作成中…",
@@ -2479,17 +2626,23 @@ const ja: Messages = {
     architectureTitle: "独立した3つのデプロイアーキテクチャ",
     architectureIntro:
       "アプリごとに1方式を選択します。Option A/Bを主要PoC方式とし、従来のNginx方式はOption CとしてLegacy／詳細設定に残します。",
+    costOverviewTitle: "GCPインフラ概算月額コスト（CEPライセンス外）",
+    costOverviewIntro:
+      "BeyondCorp Security Gatewayリソース自体の作成・利用はChrome Enterprise Premium（CEP）ライセンスに含まれており、追加のGateway基本料金はかかりません。以下は、CEPユーザーライセンス外で発生する各アーキテクチャのGoogle Cloudインフラ概算月額費用です。",
     architectures: [
       {
         eyebrow: "Option A · 既存HTTPSへ直接接続",
         title: "Secure Gateway + 既存プライベートHTTPSアプリ",
         summary:
           "アプリが既にHTTPSを提供する場合に使います。Secure Gatewayが選択VPC経由で直接ルーティングし、Nginx、VM、NAT、オフロード証明書は作成しません。",
+        estimatedCost: "約 $0.20 〜 $1.00 / 月（約30円〜150円）",
+        costFixed: "固定費: Cloud DNS限定公開ゾーン（約$0.20/月）。ロードバランサー・VM・NAT・Router等の固定費リソースは一切不要（$0.00）。",
+        costVariable: "変動費: Cloud DNSクエリ課金（100万回あたり$0.40）+ VPC標準ネットワークトラフィック（通常利用では数十円未満）。",
         nodes: [
-          { label: "管理対象Chrome", detail: "ユーザーID + 端末/プロファイル情報" },
-          { label: "Secure Gateway", detail: "hostname:port matcher + アクセスポリシー" },
-          { label: "Upstream VPC", detail: "委任SAにupstreamAccessを付与" },
-          { label: "HTTPSアプリ", detail: "既存証明書でアプリ自身がTLS終端" },
+          { label: "管理対象Chrome", detail: "ユーザーID + 端末/プロファイル情報", costBadge: "無料" },
+          { label: "Secure Gateway", detail: "hostname:port matcher + アクセスポリシー（Gateway基本料 $0.00）", costBadge: "CEPトライアルライセンス内に含まれる" },
+          { label: "Upstream VPC", detail: "委任SAにupstreamAccessを付与（VPC自体は無料）", costBadge: "基本無料 / 通信量のみ" },
+          { label: "HTTPSアプリ", detail: "既存証明書でアプリ自身がTLS終端", costBadge: "既存インフラ" },
         ],
         supports: [
           { label: "DNS解決", detail: "Cloud DNS限定公開ゾーンまたは転送ゾーン" },
@@ -2502,11 +2655,14 @@ const ja: Messages = {
         title: "Secure Gateway + 内部HTTPSロードバランサー + HTTPアプリ",
         summary:
           "Regional Internal Application Load BalancerをHTTPSオフロード層として使用します。ILBがサーバー証明書を提示して復号後のHTTPをプライベートバックエンドへ転送し、オフロード経路にNginxを作成しません。",
+        estimatedCost: "約 $18.00 〜 $25.00 / 月（約2,700円〜3,800円）",
+        costFixed: "固定費: Regional Internal Application LBの転送ルール基本料（約$18.25/月）+ Cloud DNS（約$0.20/月）。ローカルPoC CA/DevOps CAは$0.00。",
+        costVariable: "変動費: ロードバランサーのデータ処理量・LCU（1GBあたり約$0.008〜$0.01）+ バックエンド通信トラフィック。",
         nodes: [
-          { label: "管理対象Chrome", detail: "Chrome Root Storeから発行元Root CAを信頼" },
-          { label: "Secure Gateway", detail: "ID・コンテキスト・hostname:443ポリシー" },
-          { label: "Regional Internal Application LB", detail: "リージョンサーバー証明書でHTTPS終端" },
-          { label: "HTTPバックエンド", detail: "TCP 80のプライベートサンプルVM" },
+          { label: "管理対象Chrome", detail: "Chrome Root Storeから発行元Root CAを信頼", costBadge: "無料" },
+          { label: "Secure Gateway", detail: "ID・コンテキスト・hostname:443ポリシー", costBadge: "CEPトライアルライセンス内に含まれる" },
+          { label: "Regional Internal Application LB", detail: "リージョンサーバー証明書でHTTPS終端（転送ルール基本料 約$18.25/月）", costBadge: "約 $18/月 + LCU従量" },
+          { label: "HTTPバックエンド", detail: "TCP 80のプライベートサンプルVM または 既存HTTPアプリ", costBadge: "サンプルVM: 約$7〜15/月 または 既存" },
         ],
         supports: [
           { label: "Proxy-onlyサブネット", detail: "Google管理Envoy専用のREGIONAL_MANAGED_PROXYサブネット" },
@@ -2521,11 +2677,14 @@ const ja: Messages = {
         title: "Secure Gateway + Nginx + HTTPアプリ",
         summary:
           "HTTPしか提供しないプライベートアプリ、または従来のNginx構成が必要な場合だけ使用します。PoCは非公開Nginx VM 1台を使い、実装済みスケール対応方式は内部パススルーNetwork Load Balancerと2ゾーンNginx MIGを使用します（Production選択は無効）。",
+        estimatedCost: "約 $10.00 〜 $45.00 / 月（約1,500円〜6,800円）",
+        costFixed: "固定費: Compute Engine Nginx VM（e2-microで約$7〜$10/月、e2-smallで約$15/月）+ ディスク代（約$0.40/月）+ Cloud DNS（約$0.20/月）。（Cloud NAT有効時のみ基本料 約$32/月）。",
+        costVariable: "変動費: VM稼働時間 + NATデータ処理量（$0.045/GB）。",
         nodes: [
-          { label: "管理対象Chrome", detail: "ユーザーID + 端末/プロファイル情報" },
-          { label: "Secure Gateway", detail: "Service Discovery + アクセスポリシー" },
-          { label: "Nginxオフロード層", detail: "PoC: 非公開VM 1台 · スケール対応: パススルーILB + 2ゾーンMIG" },
-          { label: "HTTPアプリ", detail: "GCP・AWS・Azure・オンプレミス" },
+          { label: "管理対象Chrome", detail: "ユーザーID + 端末/プロファイル情報", costBadge: "無料" },
+          { label: "Secure Gateway", detail: "Service Discovery + アクセスポリシー", costBadge: "CEPトライアルライセンス内に含まれる" },
+          { label: "Nginxオフロード層", detail: "PoC: 非公開VM 1台 · スケール対応: パススルーILB + 2ゾーンMIG", costBadge: "PoC VM: 約$7〜15/月" },
+          { label: "HTTPアプリ", detail: "GCP・AWS・Azure・オンプレミス", costBadge: "既存インフラ" },
         ],
         supports: [
           { label: "CPUオートスケール", detail: "スケール対応の既定2～20台・CPU 60%。最小、最大、CPU目標を設定可能" },
@@ -3168,6 +3327,64 @@ const ja: Messages = {
     skippedTitle: "スキップした設定",
     statusLogTitle: "実行トレース",
     noActionYet: "まだ実行していません。対象 OU とモジュールを選び、適用してください。",
+
+    licenseCardTitle: "ライセンス管理と自動割り当て制御",
+    licenseCardSubtitle:
+      "全社への意図しないライセンス消費を防ぎ、対象 OU のユーザーにのみ CEP ライセンスを直接割り当てます。",
+    licenseAutoAssignWarning:
+      "最上位組織（ドメイン全体）で自動割り当てが有効な場合、意図しない一般ユーザーに CEP ライセンスが自動消費されてしまいます。",
+    licenseAutoAssignWarningLink: "Google 管理コンソールのライセンス設定を開く",
+    licenseAutoAssignSteps: [
+      "1. Google 管理コンソールの「お支払い › ライセンス設定」を開き、最上位組織（ルート OU）を選択します。",
+      "2. Chrome Enterprise Premium の自動割り当てを「オフ」に変更します。",
+      "3. このパイロット OU のみ自動割り当てを「オン」にするか、または下のボタンから対象ユーザーへ直接一括割り当てを行います。",
+    ],
+    btnAssignLicensesToOu: "選択した組織（OU）の全ユーザーに CEP ライセンスを一括割り当て",
+    btnAssigningLicenses: "OU 内のユーザーへライセンスを割り当て中...",
+    licenseAssignUsersFound: "OU 内のユーザーを処理しました",
+    noUsersFoundInOu: "選択された組織部門内にユーザーは見つかりませんでした。",
+
+    dlpMatrixTitle: "DLP コントロール マトリクス",
+    dlpMatrixSubtitle:
+      "各操作（アップロード・ダウンロード・貼り付け・印刷・画面透かし）と端末条件（全端末 vs BYOD/未管理端末）ごとに、動作（ブロック・警告・監査・オフ）を一目で直感的に設定できます。",
+    dlpColThreat: "データ・脅威種別",
+    dlpColUpload: "アップロード",
+    dlpColDownload: "ダウンロード",
+    dlpColPaste: "貼り付け",
+    dlpColPrint: "印刷",
+    dlpColWatermark: "画面透かし",
+    dlpColDeviceScope: "対象端末スコープ",
+
+    dlpRowUniversalUpload: "すべてのファイルアップロード",
+    dlpRowUniversalUploadDesc: "Chrome からのあらゆるファイルアップロードを検査・制御します。",
+    dlpRowUniversalDownload: "すべてのファイルダウンロード",
+    dlpRowUniversalDownloadDesc: "Chrome でのファイルダウンロードを検査・不正ダウンロードを防止します。",
+    dlpRowPaymentCard: "クレジットカード・金融情報",
+    dlpRowPaymentCardDesc: "アップロード、貼り付け、印刷時のカード番号漏洩を検知・制御します。",
+    dlpRowNationalId: "マイナンバー・個人識別情報",
+    dlpRowNationalIdDesc: "各国の個人番号（マイナンバー／SSN等）の外部送信を検知・制御します。",
+    dlpRowAccessLevel: "未管理端末・BYODからの操作",
+    dlpRowAccessLevelDesc: "コンテキストアウェア非準拠端末や BYOD からの操作を制限します。",
+    dlpRowWatermark: "社内機密サイト保護・透かし",
+    dlpRowWatermarkDesc: "登録した社内サイト上で動的透かしを表示し、画面キャプチャを禁止します。",
+    dlpRowGenAiBlock: "未承認の生成AI利用ブロック（Geminiのみ許可）",
+    dlpRowGenAiBlockDesc: "ChatGPT・Claude・DeepSeek 等をブロックし、承認済み Gemini のみ安全に許可します。",
+
+    dlpScopeAll: "全端末",
+    dlpScopeByodOnly: "BYODのみ",
+    dlpActionBadgeBlock: "ブロック",
+    dlpActionBadgeWarn: "警告",
+    dlpActionBadgeAudit: "監査のみ",
+    dlpActionBadgeOff: "オフ",
+
+    dlpPresetRecommended: "推奨PoC設定",
+    dlpPresetRecommendedDesc: "機密データは監査、BYODは警告/ブロック、未承認AIは遮断、社内サイトは透かし保護します。",
+    dlpPresetStrictZeroTrust: "厳格なゼロトラスト",
+    dlpPresetStrictZeroTrustDesc: "機密データの外部送信や未管理端末からの操作を完全にブロックします。",
+    dlpPresetGenAiSecure: "生成AIセキュア活用",
+    dlpPresetGenAiSecureDesc: "ChatGPT等の個人向けAIを遮断し、Geminiの業務利用を安全に保護します。",
+    dlpPresetAuditOnly: "監査ファースト",
+    dlpPresetAuditOnlyDesc: "ユーザー業務を中断させず、全操作のログ記録・可視化を先行して開始します。",
   },
 };
 

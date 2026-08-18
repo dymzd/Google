@@ -193,4 +193,61 @@ describe("CepDeployerPage", () => {
     expect(confirm).toHaveBeenCalledWith(m.confirmRollback);
     expect(rollback).not.toHaveBeenCalled();
   });
+
+  it("assigns licenses to users in the selected OU when clicking the license button", async () => {
+    const assign = vi.spyOn(api, "assignCepLicenses").mockResolvedValue({
+      success: true,
+      message: "組織部門「/Pilot」内のユーザー 3 名を処理しました（新規割り当て: 2 名、割り当て済み: 1 名）。",
+      total_users: 3,
+      assigned_count: 2,
+      already_assigned_count: 1,
+      failed_count: 0,
+      assigned_users: ["user1@example.com", "user2@example.com"],
+      errors: [],
+      debug_trace: [],
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText(m.selectTargetOu)).toHaveValue("03pilot"));
+
+    expect(screen.getByText(m.licenseCardTitle)).toBeInTheDocument();
+    expect(
+      screen.getByText(m.licenseAutoAssignWarningLink, { exact: false }),
+    ).toHaveAttribute("href", "https://admin.google.com/ac/billing/licensesettings");
+
+    fireEvent.click(screen.getByText(m.btnAssignLicensesToOu));
+
+    await waitFor(() => {
+      expect(assign).toHaveBeenCalledWith({
+        customer_id: "C012345",
+        target_ou_id: "03pilot",
+        target_ou_path: "/Pilot",
+      });
+      expect(
+        screen.getByText(
+          "組織部門「/Pilot」内のユーザー 3 名を処理しました（新規割り当て: 2 名、割り当て済み: 1 名）。",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("renders the DLP matrix table with presets and threat rows", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByLabelText(m.selectTargetOu)).toHaveValue("03pilot"));
+
+    expect(screen.getByText(m.dlpMatrixTitle)).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowUniversalUpload, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowUniversalDownload, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowPaymentCard, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowNationalId, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowAccessLevel, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowWatermark, { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(m.dlpRowGenAiBlock, { exact: false })).toBeInTheDocument();
+
+    // Presets
+    expect(screen.getByText(m.dlpPresetRecommended)).toBeInTheDocument();
+    expect(screen.getByText(m.dlpPresetStrictZeroTrust)).toBeInTheDocument();
+    expect(screen.getByText(m.dlpPresetGenAiSecure)).toBeInTheDocument();
+    expect(screen.getByText(m.dlpPresetAuditOnly)).toBeInTheDocument();
+  });
 });

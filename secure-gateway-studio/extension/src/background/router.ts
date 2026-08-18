@@ -24,6 +24,7 @@ import { GoogleAcceptanceVerifier, acceptanceRequirements } from "../providers/a
 import {
   CepProvider,
   type CepCustomRoleConfig,
+  type CepLicenseAssignConfig,
   type CepProvisionConfig,
   type CepRollbackConfig,
 } from "../providers/cep-provider.ts";
@@ -99,6 +100,7 @@ const PORTED = new Set([
   "POST /api/v1/cep/rollback",
   "POST /api/v1/cep/roles",
   "POST /api/v1/cep/script",
+  "POST /api/v1/cep/assign-licenses",
 ]);
 
 /**
@@ -1195,6 +1197,11 @@ DQsOwZd4dX3wYp5mEPcXsBThVQ8=
     const request_ = body as CepProvisionConfig;
     const script = await cepProvider(context).generatePythonScript(request_);
     return { script, filename: "cep_configure.py" };
+  }
+
+  if (key === "POST /api/v1/cep/assign-licenses") {
+    const request_ = body as CepLicenseAssignConfig;
+    return cepProvider(context).assignLicenses(request_);
   }
 
   throw new RouteError(

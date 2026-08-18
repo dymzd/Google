@@ -569,10 +569,30 @@ export type CepModule =
 
 export type CepDataBoundaryMode = "copy_paste" | "block_non_corp" | "none";
 
-export type CepDlpRuleId = "national_id" | "payment_card" | "access_level" | "watermark";
+export type CepDlpRuleId =
+  | "universal_upload"
+  | "universal_download"
+  | "payment_card"
+  | "national_id"
+  | "access_level"
+  | "watermark"
+  | "genai_block";
 
 /** What a rule does when it matches. `off` means do not create it. */
 export type CepDlpAction = "off" | "auditOnly" | "warnUser" | "blockContent";
+
+export type CepDlpOperation = "upload" | "download" | "paste" | "print" | "watermark";
+
+export interface CepDlpMatrixRuleConfig {
+  upload?: CepDlpAction;
+  download?: CepDlpAction;
+  paste?: CepDlpAction;
+  print?: CepDlpAction;
+  watermark?: boolean;
+  byodOnly?: boolean;
+}
+
+export type CepDlpMatrixState = Partial<Record<CepDlpRuleId, CepDlpMatrixRuleConfig>>;
 
 export interface CepProvisionConfig {
   customer_id: string;
@@ -597,6 +617,8 @@ export interface CepProvisionConfig {
   dlp_region?: string;
   /** Per-rule action; a rule set to `off` is not created. */
   dlp_rule_actions?: Partial<Record<CepDlpRuleId, CepDlpAction>>;
+  /** Comprehensive DLP matrix state */
+  dlp_matrix?: CepDlpMatrixState;
   data_boundary_mode?: CepDataBoundaryMode;
   internal_urls?: string[];
 }
@@ -617,6 +639,26 @@ export interface CepCustomRoleConfig {
   customer_id: string;
   role_type: "administrator" | "auditor" | "both";
   assigned_user_email?: string;
+}
+
+export interface CepLicenseAssignConfig {
+  customer_id: string;
+  target_ou_id: string;
+  target_ou_path?: string;
+  product_id?: string;
+  sku_id?: string;
+}
+
+export interface CepLicenseAssignResult {
+  success: boolean;
+  message: string;
+  total_users: number;
+  assigned_count: number;
+  already_assigned_count: number;
+  failed_count: number;
+  assigned_users: string[];
+  errors: string[];
+  debug_trace: CepTraceItem[];
 }
 
 export interface CepTraceItem {
@@ -659,6 +701,12 @@ export function createCepCustomRoles(
   config: CepCustomRoleConfig,
 ): Promise<CepRoleResult> {
   return postJson<CepRoleResult>("/api/v1/cep/roles", config);
+}
+
+export function assignCepLicenses(
+  config: CepLicenseAssignConfig,
+): Promise<CepLicenseAssignResult> {
+  return postJson<CepLicenseAssignResult>("/api/v1/cep/assign-licenses", config);
 }
 
 export function generateCepScript(

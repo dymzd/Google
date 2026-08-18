@@ -237,11 +237,14 @@ export function App() {
                   scalingIsValid)) &&
               (setup.backendKind === "direct_https" || setup.privateHostname),
           ) &&
+          (setup.backendKind !== "internal_https_lb" ||
+            Boolean(setup.proxySubnetCidr)) &&
           (setup.backendKind === "direct_https"
             ? setup.networkStrategy === "existing" && Boolean(setup.vpcName)
             : setup.networkStrategy === "dedicated" ||
               Boolean(setup.vpcName && setup.subnetName)) &&
           (setup.backendKind === "managed_sample" ||
+            setup.backendKind === "internal_https_lb" ||
             (setup.backendKind === "existing_http" &&
               setup.existingBackendUrl.startsWith("http://") &&
               setup.existingBackendConnectivityConfirmed) ||

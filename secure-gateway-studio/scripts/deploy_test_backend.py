@@ -95,7 +95,317 @@ server {
 
     location / {
         default_type text/html;
-        return 200 '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Secure Gateway Private Backend</title><style>body{margin:0;background:#0b0f19;color:#f1f5f9;font-family:system-ui,-apple-system,sans-serif;padding:2rem 1rem;display:flex;justify-content:center}.box{max-width:800px;width:100%;background:#131b2e;border:1px solid #22304d;border-radius:12px;padding:2rem}h1{margin-top:0;display:flex;justify-content:space-between;align-items:center;font-size:1.5rem;color:#38bdf8}.badge{background:#064e3b;color:#34d399;font-size:0.8rem;padding:0.3rem 0.8rem;border-radius:999px;border:1px solid #059669}.grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1.5rem 0}.stat{background:#070a12;border:1px solid #22304d;border-radius:8px;padding:1rem}small{color:#94a3b8}table{width:100%;border-collapse:collapse}td{padding:0.6rem 0;border-bottom:1px solid #1e293b}td:first-child{color:#94a3b8;width:35%}a{color:#38bdf8}</style></head><body><div class="box"><h1><span>🛡️ BeyondCorp Secure Gateway</span><span class="badge">● Private Ingress OK</span></h1><p style="color:#94a3b8">Private Compute Engine VM in Google Cloud (<code>secgw-test-vpc</code> / <code>asia-northeast1</code>)</p><div class="grid"><div class="stat"><small>Client Ingress IP</small><div style="font-size:1.2rem;font-weight:bold;color:#38bdf8;font-family:monospace;margin-top:0.3rem">$remote_addr</div><small>(SGW Source: 136.124.16.0/20)</small></div><div class="stat"><small>TLS Protocol & Cipher</small><div style="font-size:1.2rem;font-weight:bold;color:#34d399;font-family:monospace;margin-top:0.3rem">$ssl_protocol</div><small>$ssl_cipher</small></div></div><table><tr><td>Target Host</td><td><strong>$host</strong></td></tr><tr><td>Target Server Port</td><td>$server_port</td></tr><tr><td>VM Internal IP</td><td>10.10.0.2 (secgw-https-backend-01)</td></tr><tr><td>User-Agent</td><td><small>$http_user_agent</small></td></tr><tr><td>Timestamp</td><td>$time_iso8601</td></tr></table><p style="margin-top:1.5rem"><a href="/api/status">View Raw JSON Endpoint (/api/status)</a></p></div></body></html>\\n';
+        return 200 '<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🎉 Congratulations! - BeyondCorp Secure Gateway</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card: #131b2e;
+      --card-border: #22304d;
+      --accent: #38bdf8;
+      --green: #34d399;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --chip-bg: #1e293b;
+      --chip-border: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      padding: 2.5rem 1.25rem;
+      display: flex;
+      justify-content: center;
+      line-height: 1.5;
+    }
+    .wrapper {
+      max-width: 960px;
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 2.5rem;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+    }
+    .hero {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(56, 189, 248, 0.16));
+      border: 1.5px solid rgba(52, 211, 153, 0.45);
+      border-radius: 14px;
+      padding: 1.8rem;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .hero h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.85rem;
+      color: var(--green);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+    }
+    .hero p {
+      margin: 0;
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: #070a12;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 1.1rem;
+    }
+    .stat-card small {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stat-card .val {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      margin-top: 0.35rem;
+    }
+    .stat-card .sub {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    .section-title {
+      font-size: 1.25rem;
+      color: var(--accent);
+      margin: 2.5rem 0 1.2rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .arch-card {
+      background: #070a12;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.6rem;
+      margin-bottom: 1.6rem;
+    }
+    .arch-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 0.8rem;
+    }
+    .arch-card h3 {
+      margin: 0;
+      color: var(--green);
+      font-size: 1.15rem;
+    }
+    .arch-badge {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .arch-card p {
+      margin: 0 0 1.2rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .flow-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .flow-row {
+      display: grid;
+      grid-template-columns: 170px 1fr 200px;
+      gap: 1rem;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0.85rem 1.1rem;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+    .flow-row strong {
+      color: var(--accent);
+      font-size: 0.92rem;
+    }
+    .flow-row .desc {
+      color: var(--text);
+      line-height: 1.4;
+    }
+    .ip-chip {
+      background: var(--chip-bg);
+      border: 1px solid var(--chip-border);
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #38bdf8;
+      font-size: 0.82rem;
+      text-align: center;
+      white-space: nowrap;
+    }
+    table.meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+    }
+    table.meta-table td {
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #1e293b;
+      font-size: 0.92rem;
+    }
+    table.meta-table td:first-child {
+      color: var(--muted);
+      width: 32%;
+    }
+    a.api-btn {
+      display: inline-block;
+      margin-top: 1.5rem;
+      background: #0284c7;
+      color: #ffffff;
+      padding: 0.65rem 1.25rem;
+      border-radius: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    a.api-btn:hover {
+      background: #0369a1;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="hero">
+      <h1>🎉 Congratulations!</h1>
+      <p>BeyondCorp Secure Gateway 経由でプライベートバックエンドに正常に接続されました！</p>
+      <p style="font-size: 0.9rem; color: var(--muted); margin-top: 0.4rem;">
+        Chrome 拡張機能によるゼロトラスト認証・認可を通過し、Google Cloud VPC 内の安全な内部サーバーに到達しています。
+      </p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <small>Client Ingress IP (SGW 送信元)</small>
+        <div class="val">$remote_addr</div>
+        <div class="sub">Google 固定範囲: 136.124.16.0/20</div>
+      </div>
+      <div class="stat-card">
+        <small>Target Server Port</small>
+        <div class="val">Port $server_port ($ssl_protocol)</div>
+        <div class="sub">TLS Cipher: $ssl_cipher</div>
+      </div>
+      <div class="stat-card">
+        <small>VM Internal IP</small>
+        <div class="val">10.10.0.2</div>
+        <div class="sub">VPC: secgw-test-vpc (asia-northeast1)</div>
+      </div>
+    </div>
+
+    <div class="section-title">🌐 通信経路とアーキテクチャ詳細（IP アドレス対応）</div>
+
+    <!-- Option A Architecture Diagram -->
+    <div class="arch-card">
+      <div class="arch-card-header">
+        <h3>【Option A】直接プライベート HTTPS 接続アーキテクチャ</h3>
+        <span class="arch-badge">本環境で稼働中</span>
+      </div>
+      <p>Secure Gateway が VPC 内の既存 HTTPS アプリケーションへ直接ルーティングする最もシンプルな構成です（NAT/Router/Nginxプロキシ不要）。</p>
+      
+      <div class="flow-list">
+        <div class="flow-row">
+          <div><strong>1. クライアント端末</strong></div>
+          <div class="desc">管理対象 Chrome (Endpoint Verification + Secure Enterprise Browser)</div>
+          <div class="ip-chip">クライアント端末 IP</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>2. Google Cloud エッジ</strong></div>
+          <div class="desc">BeyondCorp Secure Gateway (CAA 認証・認可判定 ➔ VPC Egress)</div>
+          <div class="ip-chip">FQDN: $host</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>3. VPC インバウンド</strong></div>
+          <div class="desc">VPC ファイアウォール許可 (136.124.16.0/20 からの TCP 443 通信)</div>
+          <div class="ip-chip">送信元: 136.124.16.0/20</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>4. Cloud DNS 解決</strong></div>
+          <div class="desc">VPC 限定公開ゾーンで内部 IP に名前解決</div>
+          <div class="ip-chip">$host ➔ 10.10.0.2</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>5. プライベート VM</strong></div>
+          <div class="desc">Compute Engine VM (Nginx HTTPS 終端・Web サーバー)</div>
+          <div class="ip-chip">着信先: 10.10.0.2:443</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Option B Architecture Diagram -->
+    <div class="arch-card">
+      <div class="arch-card-header">
+        <h3>【Option B】内部ロードバランサー (ILB) HTTPS オフロード構成</h3>
+        <span class="arch-badge">HTTP アプリ保護用</span>
+      </div>
+      <p>バックエンドが HTTP (ポート 80) の場合に、Regional Internal Application Load Balancer で TLS 終端をオフロードする構成です。</p>
+      
+      <div class="flow-list">
+        <div class="flow-row">
+          <div><strong>1. クライアント端末</strong></div>
+          <div class="desc">Chrome Root Store で配布された Root CA 証明書を検証・信頼</div>
+          <div class="ip-chip">クライアント端末 IP</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>2. Secure Gateway</strong></div>
+          <div class="desc">ホスト名マッチング & VPC 転送</div>
+          <div class="ip-chip">送信元: 136.124.16.0/20</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>3. 内部ロードバランサー</strong></div>
+          <div class="desc">Regional Internal App LB (Envoy Proxy サブネットで TLS 復号)</div>
+          <div class="ip-chip">ILB IP: 10.10.0.100:443</div>
+        </div>
+        <div class="flow-row">
+          <div><strong>4. バックエンド アプリ</strong></div>
+          <div class="desc">プライベート HTTP アプリケーション (VM / コンテナ)</div>
+          <div class="ip-chip">内部 IP: 10.10.0.2:80 (HTTP)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">📋 現在のリクエスト メタデータ</div>
+    <table class="meta-table">
+      <tr><td>リクエスト ホスト名</td><td><strong>$host</strong></td></tr>
+      <tr><td>受信サーバー ポート</td><td>TCP $server_port ($ssl_protocol)</td></tr>
+      <tr><td>暗号スイート (Cipher)</td><td><code>$ssl_cipher</code></td></tr>
+      <tr><td>VM 内部ホスト名 / IP</td><td>secgw-https-backend-01 (10.10.0.2)</td></tr>
+      <tr><td>User-Agent</td><td><small>$http_user_agent</small></td></tr>
+      <tr><td>接続タイムスタンプ</td><td>$time_iso8601</td></tr>
+    </table>
+
+    <p><a class="api-btn" href="/api/status">📄 JSON 形式のステータス API を開く (/api/status)</a></p>
+  </div>
+</body>
+</html>\n';
     }
 }
 EOF

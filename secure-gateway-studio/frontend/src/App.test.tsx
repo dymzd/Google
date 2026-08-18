@@ -867,4 +867,32 @@ describe("Secure Gateway Studio mode screen", () => {
       ),
     ).toHaveLength(3);
   });
+
+  it("provides top-level Easy PoC navigation and a collapsible Secure Gateway Deployer menu", () => {
+    render(<App />);
+
+    // Easy PoC button is available at top level
+    const easyPocBtn = screen.getByRole("button", { name: /Easy PoC/i });
+    expect(easyPocBtn).toBeInTheDocument();
+
+    // Clicking Easy PoC navigates to CEP PoC Deployer page
+    fireEvent.click(easyPocBtn);
+    expect(screen.getByRole("heading", { name: /Chrome Enterprise Premium/i })).toBeInTheDocument();
+
+    // Secure Gateway Deployer dropdown trigger
+    const sgwDropdownTrigger = screen.getByRole("button", { name: /Secure Gateway Deployer/i });
+    expect(sgwDropdownTrigger).toBeInTheDocument();
+
+    // Clicking Secure Gateway Deployer opens the dropdown with the 4 SGW tabs
+    fireEvent.click(sgwDropdownTrigger);
+
+    expect(screen.getByRole("button", { name: /新規セットアップ|New setup/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /デプロイ|Deployments/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /エビデンス|Evidence/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ガイド|Guide/i })).toBeInTheDocument();
+
+    // Clicking a sub-item like Evidence switches to that view
+    fireEvent.click(screen.getByRole("button", { name: /エビデンス|Evidence/i }));
+    expect(screen.getByRole("heading", { name: /証跡とエビデンス|Evidence/i })).toBeInTheDocument();
+  });
 });

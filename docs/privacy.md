@@ -1,25 +1,25 @@
 ---
 title: Privacy Policy
 description: >-
-  Privacy policy for the Secure Gateway Studio Chrome extension. The extension
-  collects no user data and sends nothing to its developer.
+  Privacy policy for the Chrome Enterprise Premium PoC Deployer Chrome extension.
+  The extension collects no user data and sends nothing to its developer.
 ---
 
-# Privacy Policy — Secure Gateway Studio
+# Privacy Policy — Chrome Enterprise Premium PoC Deployer
 
-**Last updated: 18 August 2026**
-**Applies to: the Secure Gateway Studio Chrome extension, version 0.2.0 and later**
+**Last updated: 19 August 2026**
+**Applies to: the Chrome Enterprise Premium PoC Deployer Chrome extension (including Secure Gateway Studio), version 0.2.0 and later**
 
 ## Summary
 
-Secure Gateway Studio collects no personal data, transmits nothing to its
+Chrome Enterprise Premium PoC Deployer collects no personal data, transmits nothing to its
 developer, and has no server. It is an administrator tool that talks directly
 to Google's APIs using the credentials of the administrator who is signed in,
 and stores its working state in the browser profile on the device.
 
 ## Not an official Google product
 
-Secure Gateway Studio is an independent open-source project. It is **not built,
+Chrome Enterprise Premium PoC Deployer is an independent open-source project. It is **not built,
 endorsed, or supported by Google**, and it is not affiliated with Google LLC.
 "Google", "Google Workspace", "Google Cloud", "Chrome", and "Chrome Enterprise
 Premium" are trademarks of Google LLC.
@@ -29,7 +29,7 @@ responsible for what it changes in your tenant.
 
 ## Who operates this extension
 
-Secure Gateway Studio is published as open source at
+Chrome Enterprise Premium PoC Deployer is published as open source at
 <https://github.com/dymzd/Google>. There is no hosted service behind it and no
 account to create. The developer operates no infrastructure that the extension
 contacts.

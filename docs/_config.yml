@@ -1,9 +1,9 @@
 # Jekyll served the repository name as the site title, so the homepage rendered
 # an <h1> reading "Google" above the real one. On a page whose whole job is to
 # prove this app is not Google's, that was the worst possible default.
-title: Secure Gateway Studio
+title: Chrome Enterprise Premium PoC Deployer
 # Short on purpose: jekyll-seo-tag builds <title> as "title | description".
-description: Chrome Enterprise Premium deployment tool for Workspace administrators
+description: Fast-track deployment and evaluation tool for Chrome Enterprise Premium and BeyondCorp Security Gateway
 
 # Search Console ownership token, rendered into <head> by jekyll-seo-tag.
 # OAuth branding verification requires the homepage domain to be verified.
