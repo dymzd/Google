@@ -258,96 +258,68 @@ this a re-verification rather than a formality.
 | `chrome.management.profiles.readonly` | sensitive | Preflight signals: managed profile counts and last policy sync, shown before a plan is approved. Read only. |
 | `apps.licensing` | sensitive | Confirms Chrome Enterprise Premium licence availability before planning a deployment that requires it. |
 
-### Scope justification (paste into the single free-text box)
+### Scope justification
 
-Secure Gateway Studio is an administrator tool that configures Chrome
-Enterprise Premium and BeyondCorp Security Gateway inside the administrator's
-own Google Workspace tenant and Google Cloud project. It has no backend: the
-extension calls Google's public REST APIs directly from the user's browser,
-authorized by the token of the Workspace administrator who installed it. No
-data reaches the developer, and there is no server that could receive it.
+The console caps this box at **1000 characters**, so this is the version
+that fits. Paste it as-is; the per-scope table above stays as the working
+reference, not as submission text.
 
-WHY THESE SCOPES ARE NEEDED, AND HOW THEY ARE USED
+#### Single box (1000 characters, the cap is 1000)
 
-The product does three things, and each scope maps to one of them.
+    Secure Gateway Studio configures Chrome Enterprise Premium and BeyondCorp Security Gateway in the administrator's own Workspace tenant and Cloud project. No backend; nothing reaches the developer.
 
-1. Choose where a configuration will apply, and confirm the tenant can accept
-   it.
-   - admin.directory.orgunit is used to create the two organizational units
-     "CEP Users" and "CEP Browsers" beneath the pilot OU the administrator
-     selects, so that user-scoped and browser-scoped Chrome policies land in
-     separate units. It also reads the OU tree to populate the picker. Creation
-     is opt-in through a checkbox, and an existing OU with the same name is
-     reused rather than duplicated.
-   - admin.directory.group.readonly reads the group list to populate the picker
-     for choosing who may reach a deployed application.
-   - admin.directory.customer.readonly reads the tenant's primary domain. The
-     data-boundary policies this tool writes are expressed as domain patterns
-     (for example, restricting secondary sign-in to *@example.com), and a
-     policy built from anything other than the real primary domain silently
-     matches nothing.
-   - apps.licensing confirms Chrome Enterprise Premium licences are available
-     before planning a deployment that requires them.
+    Use: directory scopes fill the OU and group pickers, read the primary domain that domain-based policies are built from, and create the "CEP Users"/"CEP Browsers" sub-OUs those policies target. chrome.management.policy reads live schemas and applies policies to the chosen OU. cloud-identity.policies creates, lists and deletes the Chrome DLP rules, which also lets rollback remove them. cloud-platform builds the supporting infrastructure.
 
-2. Apply and verify the Chrome configuration.
-   - chrome.management.policy reads the tenant's live policy schemas and
-     applies policies to the selected organizational unit. Reading the schema
-     first is deliberate: a policy written into a field the tenant does not
-     advertise does nothing, silently, so the tool refuses rather than
-     pretending it succeeded.
-   - chrome.management.profiles.readonly reads managed profile counts and the
-     last policy sync time, shown to the administrator before a plan is
-     approved.
-   - cloud-identity.policies creates, lists, and deletes the Chrome DLP rules
-     and detectors that make up the evaluation. Listing is what makes the tool
-     idempotent, and delete is what makes its rollback able to remove
-     everything it created.
+    Narrower scopes: read-only variants are used wherever we only read. orgunit.readonly cannot create the sub-OUs; policies.readonly cannot create or delete rules; chrome.management.policy has no writable narrower form. Nothing narrower than cloud-platform spans the services used, so Cloud mutations instead run as an impersonated least-privilege service account.
 
-3. Build the supporting Google Cloud infrastructure.
-   - cloud-platform creates and reconciles resources across Compute Engine,
-     IAM, Cloud DNS, Secret Manager, Certificate Authority Service, BeyondCorp,
-     Access Context Manager, Service Usage, Cloud Billing, and Cloud Logging.
+#### If the form asks per scope
 
-WHY NARROWER SCOPES ARE NOT SUFFICIENT
+Some consent-screen flows ask once per scope instead. Each of these is
+independently under the limit.
 
-We use the narrowest scope that exists for every operation, and read-only
-variants wherever the tool only reads:
+**`admin.directory.orgunit`** (599 characters)
 
-   - admin.directory.group.readonly, admin.directory.customer.readonly and
-     chrome.management.profiles.readonly are already the read-only variants. We
-     deliberately do not request admin.directory.customer, which would allow
-     writes we never make.
-   - admin.directory.orgunit.readonly was what this extension requested until
-     this version. It is not sufficient any more, because creating the two sub
-     organizational units is a write. Google publishes no scope that permits
-     creating an organizational unit without also permitting other directory
-     writes.
-   - cloud-identity.policies.readonly is not sufficient, because the tool must
-     create the DLP rules and detectors and, just as importantly, delete them
-     again during rollback. Google publishes no scope limited to DLP policy
-     types.
-   - chrome.management.policy has no read-only counterpart that still permits
-     applying a policy, and applying policy is the core function of the
-     product.
-   - apps.licensing has no read-only variant.
-   - cloud-platform is the case where no narrower scope exists at all. The
-     deployment spans eight Google Cloud services, and Google does not publish
-     a scope that covers a subset of them. Rather than accept that breadth at
-     face value, the extension reduces it at the layer below OAuth: it creates
-     a dedicated deployer service account holding a project-scoped custom role,
-     and every mutation to Google Cloud is executed as that service account
-     through short-lived impersonated tokens, not with the administrator's own
-     authority. The administrator's token is used only to mint those tokens and
-     to call the Workspace APIs above, which do not accept service-account
-     identities.
+    Creates the two organizational units "CEP Users" and "CEP Browsers" beneath the pilot OU the administrator picks, so user-scoped and browser-scoped Chrome policies land in separate units. Also reads the OU tree to populate the picker. Creation is opt-in via a checkbox and reuses an existing OU of the same name.
 
-The extension requests no content scripts, no tabs, no webRequest and no
-cookies access, and never reads or modifies any web page. Its content security
-policy restricts all network access to https://*.googleapis.com and forbids
-remote code. The complete source is published at
-https://github.com/dymzd/Google under secure-gateway-studio/, and the packaged
-extension is byte-reproducible from it, so every claim above can be checked
-against the code rather than taken on trust.
+    This extension requested admin.directory.orgunit.readonly until this version. That is no longer sufficient, because creating an OU is a write. Google publishes no scope that permits creating an organizational unit without other directory writes, and we make none of those other writes.
+
+**`admin.directory.customer.readonly`** (392 characters)
+
+    Reads the tenant's primary domain. The data-boundary policies this tool writes are domain patterns (for example restricting secondary sign-in to *@example.com), and a policy built from anything other than the real primary domain silently matches nothing.
+
+    This is already the read-only variant. We deliberately do not request admin.directory.customer, which would permit writes we never make.
+
+**`cloud-identity.policies`** (419 characters)
+
+    Creates, lists and deletes the Chrome DLP rules and detectors that make up a Chrome Enterprise Premium evaluation. Listing is what makes the tool idempotent instead of duplicating rules on a second run; delete is what lets its rollback remove everything it created.
+
+    cloud-identity.policies.readonly is not sufficient: it permits neither the create nor the delete. Google publishes no scope limited to DLP policy types.
+
+**`cloud-platform`** (733 characters)
+
+    Creates and reconciles the infrastructure a Secure Gateway deployment needs, across Compute Engine, IAM, Cloud DNS, Secret Manager, Certificate Authority Service, BeyondCorp, Access Context Manager and Service Usage.
+
+    No narrower scope exists: Google publishes none covering a subset of those services. Rather than accept that breadth, the extension cuts it below the OAuth layer. It creates a dedicated deployer service account holding a project-scoped custom role, and every Cloud mutation executes as that account through short-lived impersonated tokens, never with the administrator's own authority. The admin token is used only to mint those tokens and to call the Workspace APIs, which do not accept service-account identities.
+
+**`chrome.management.policy`** (467 characters)
+
+    Reads the tenant's live Chrome policy schemas and applies policies to the organizational unit the administrator selects. This is the core function of the product.
+
+    Reading the schema first is deliberate: a policy written into a field the tenant does not advertise does nothing, silently, so the tool refuses and reports it rather than appearing to succeed.
+
+    There is no read-only variant that still permits applying a policy, and applying policy is the whole purpose.
+
+**`chrome.management.profiles.readonly`** (215 characters)
+
+    Reads managed profile counts and the last policy sync time, shown to the administrator during preflight so a plan can be reviewed against the tenant's real state before it is approved. Already the read-only variant.
+
+**`admin.directory.group.readonly`** (143 characters)
+
+    Populates the group picker used to choose who may reach a deployed application. Already the read-only variant; the tool never modifies a group.
+
+**`apps.licensing`** (210 characters)
+
+    Confirms Chrome Enterprise Premium licence availability before planning a deployment that requires it, so the administrator is told up front rather than at apply time. No read-only variant of this scope exists.
 
 ### Demo video
 
