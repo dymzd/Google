@@ -13,7 +13,7 @@ import {
 } from "./Icons";
 import { LanguageMenu } from "./LanguageMenu";
 
-export type AppView = "setup" | OperationsView | "guide";
+export type AppView = "setup" | OperationsView | "guide" | "cepDeployer";
 
 interface AppShellProps {
   children: ReactNode;
@@ -26,7 +26,7 @@ interface AppShellProps {
   onNavigate: (view: AppView) => void;
 }
 
-const navIcons = [CubeIcon, PlusCircleIcon, DocumentIcon];
+const navIcons = [CubeIcon, PlusCircleIcon, DocumentIcon, BookIcon, ShieldNetworkIcon];
 
 export function AppShell({
   children,
@@ -40,18 +40,20 @@ export function AppShell({
 }: AppShellProps) {
   const navItems: Array<{
     label: string;
-    view: "setup" | OperationsView;
+    view: AppView;
   }> = [
     { label: messages.nav.deployments, view: "deployments" },
     { label: messages.nav.newSetup, view: "setup" },
     { label: messages.nav.evidence, view: "evidence" },
+    { label: messages.nav.guide, view: "guide" },
+    { label: messages.nav.cepDeployer, view: "cepDeployer" },
   ];
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-mark" aria-label={messages.productName}>
-          <ShieldNetworkIcon size={60} />
+          <ShieldNetworkIcon size={44} />
         </div>
         <nav aria-label="Primary navigation" className="primary-nav">
           {navItems.map((item, index) => {
@@ -65,24 +67,11 @@ export function AppShell({
                 onClick={() => onNavigate(item.view)}
                 type="button"
               >
-                <Icon size={29} />
+                <Icon size={24} />
                 <span>{item.label}</span>
               </button>
             );
           })}
-        </nav>
-        <nav aria-label="Guide navigation" className="guide-nav">
-          <button
-            aria-current={activeView === "guide" ? "page" : undefined}
-            className={
-              activeView === "guide" ? "nav-item active" : "nav-item"
-            }
-            onClick={() => onNavigate("guide")}
-            type="button"
-          >
-            <BookIcon size={29} />
-            <span>{messages.nav.guide}</span>
-          </button>
         </nav>
       </aside>
 

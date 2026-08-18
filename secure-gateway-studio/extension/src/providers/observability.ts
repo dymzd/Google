@@ -14,11 +14,16 @@ import type { Transport } from "./executor.ts";
 export type LogCategory = "access" | "connection" | "admin" | "nginx";
 
 export interface LogEntry {
-  index: number;
+  insert_id: string;
   category: LogCategory;
-  timestamp: string;
+  timestamp: string | null;
   severity: string;
   summary: string;
+  principal: string | null;
+  method: string | null;
+  resource: string | null;
+  request_id: string | null;
+  payload: Record<string, unknown>;
 }
 
 export interface LogsResponse {
@@ -178,12 +183,19 @@ export class GatewayObservability {
       const status = json.status ?? json.upstream_status ?? "";
       summary = `${json.method ?? ""} ${json.uri ?? ""} ${status}`.trim();
     }
+    const authInfo = proto?.authenticationInfo as Record<string, unknown> | undefined;
+    const reqMeta = proto?.requestMetadata as Record<string, unknown> | undefined;
     return {
-      index,
+      insert_id: String(item.insertId ?? item.insert_id ?? `log-${index}`),
       category,
-      timestamp: String(item.timestamp ?? ""),
+      timestamp: typeof item.timestamp === "string" ? item.timestamp : null,
       severity: String(item.severity ?? "DEFAULT"),
       summary: summary.slice(0, 500) || "(no summary)",
+      principal: typeof authInfo?.principalEmail === "string" ? authInfo.principalEmail : null,
+      method: typeof proto?.methodName === "string" ? proto.methodName : null,
+      resource: typeof proto?.resourceName === "string" ? proto.resourceName : null,
+      request_id: typeof reqMeta?.callerIp === "string" ? reqMeta.callerIp : null,
+      payload: (proto ?? json ?? item) as Record<string, unknown>,
     };
   }
 }

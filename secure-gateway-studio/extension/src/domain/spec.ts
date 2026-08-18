@@ -23,7 +23,14 @@ export type ProductLocale = "en" | "ja";
 export type ChromePlatform = "macos" | "windows" | "linux" | "chromeos";
 export type NetworkStrategy = "dedicated" | "existing";
 export type CertificateStrategy = "enterprise_ca" | "public_trusted" | "local_poc";
-export type BackendKind = "managed_sample" | "existing_http" | "direct_https";
+export type BackendKind =
+  | "managed_sample"
+  | "existing_http"
+  | "direct_https"
+  // The internal Application Load Balancer path. Its absence here made
+  // every comparison against it dead code, so the extension planned an
+  // ALB deployment as though it were a plain one.
+  | "internal_https_lb";
 export type BackendLocation = "gcp" | "aws" | "azure" | "on_prem";
 export type PrincipalType = "user" | "group" | "domain";
 
@@ -58,6 +65,7 @@ export interface DeploymentSpec {
   vpc_name: string | null;
   subnet_name: string | null;
   subnet_cidr: string;
+  proxy_subnet_cidr: string;
   private_hostname: string;
   gateway_id: string;
   target_ou_id: string;
@@ -225,6 +233,7 @@ const DEFAULTS = {
   vpc_name: null,
   subnet_name: null,
   subnet_cidr: "10.42.0.0/24",
+  proxy_subnet_cidr: "10.42.1.0/24",
   private_hostname: "demo-server-http.internal",
   gateway_id: "default",
   customer_id: "my_customer",
@@ -263,7 +272,7 @@ function requirePattern(value: unknown, field: string, pattern: RegExp): string 
 }
 
 function optionalPattern(value: unknown, field: string, pattern: RegExp): string | null {
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;
   return requirePattern(value, field, pattern);
 }
 
@@ -307,6 +316,7 @@ export function parseDeploymentSpec(input: Record<string, unknown>): DeploymentS
     vpc_name: optionalPattern(raw.vpc_name, "vpc_name", RESOURCE_NAME),
     subnet_name: optionalPattern(raw.subnet_name, "subnet_name", RESOURCE_NAME),
     subnet_cidr: requirePattern(raw.subnet_cidr, "subnet_cidr", CIDR),
+    proxy_subnet_cidr: requirePattern(raw.proxy_subnet_cidr, "proxy_subnet_cidr", CIDR),
     private_hostname: normalisePrivateHostname(raw.private_hostname as string),
     gateway_id: requirePattern(raw.gateway_id, "gateway_id", RESOURCE_NAME),
     target_ou_id: requirePattern(raw.target_ou_id, "target_ou_id", OU_ID),
@@ -397,7 +407,12 @@ function enforceEnterpriseInvariants(spec: DeploymentSpec): void {
     fail("source_image must be a full immutable Compute Engine image name");
   }
 
-  if (spec.managed_chrome_access_level && !ACCESS_LEVEL.test(spec.managed_chrome_access_level)) {
+  if (
+    spec.managed_chrome_access_level &&
+    !spec.managed_chrome_access_level.startsWith("AUTO_CREATE_") &&
+    spec.managed_chrome_access_level !== "NONE" &&
+    !ACCESS_LEVEL.test(spec.managed_chrome_access_level)
+  ) {
     fail(
       "managed_chrome_access_level must be a full Access Context Manager access level name",
     );

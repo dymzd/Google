@@ -57,6 +57,7 @@ export class BootstrapError extends Error {
 interface IamBinding {
   role: string;
   members: string[];
+  condition?: { title?: string; description?: string; expression?: string };
 }
 
 interface IamPolicy {

@@ -1,7 +1,7 @@
 {
   "cases": [
     {
-      "configuration_hash": "3e451dd2ffad52d2c6b1b7f1f5f598f7621cc92b945a461102184d4e1de905e4",
+      "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
       "name": "path-b-minimal",
       "plan": {
         "can_apply": false,
@@ -142,7 +142,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "3e451dd2ffad52d2c6b1b7f1f5f598f7621cc92b945a461102184d4e1de905e4",
+        "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -381,6 +381,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -395,7 +396,7 @@
       }
     },
     {
-      "configuration_hash": "3e451dd2ffad52d2c6b1b7f1f5f598f7621cc92b945a461102184d4e1de905e4",
+      "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
       "name": "path-b-global-access-enabled",
       "plan": {
         "can_apply": false,
@@ -536,7 +537,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "3e451dd2ffad52d2c6b1b7f1f5f598f7621cc92b945a461102184d4e1de905e4",
+        "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -775,6 +776,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -789,7 +791,7 @@
       }
     },
     {
-      "configuration_hash": "3e451dd2ffad52d2c6b1b7f1f5f598f7621cc92b945a461102184d4e1de905e4",
+      "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
       "name": "path-b-global-access-disabled-blocks",
       "plan": {
         "can_apply": false,
@@ -930,7 +932,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "3e451dd2ffad52d2c6b1b7f1f5f598f7621cc92b945a461102184d4e1de905e4",
+        "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -1169,6 +1171,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -1183,7 +1186,7 @@
       }
     },
     {
-      "configuration_hash": "3c7af43aca783cb357d0167ed06bb69e9a4b52686c0293fe13ec1bd1a9e42c19",
+      "configuration_hash": "51ec14e4d402165273cf582574bbe7b15dfca67cc53a32d70a6bd6547d8c3451",
       "name": "path-b-egress-region-pins-region",
       "plan": {
         "can_apply": false,
@@ -1324,7 +1327,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "3c7af43aca783cb357d0167ed06bb69e9a4b52686c0293fe13ec1bd1a9e42c19",
+        "configuration_hash": "51ec14e4d402165273cf582574bbe7b15dfca67cc53a32d70a6bd6547d8c3451",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -1564,6 +1567,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -1578,7 +1582,7 @@
       }
     },
     {
-      "configuration_hash": "59df0b7154e8bd46282e16ca7d87cf953ba876cf70e4c29c1ae15768a491e730",
+      "configuration_hash": "a316c546b010bc1e3faa2eec8ffac596439307bdbd350d772275de6bc8f704d6",
       "name": "path-b-cross-project-upstream",
       "plan": {
         "can_apply": false,
@@ -1719,7 +1723,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "59df0b7154e8bd46282e16ca7d87cf953ba876cf70e4c29c1ae15768a491e730",
+        "configuration_hash": "a316c546b010bc1e3faa2eec8ffac596439307bdbd350d772275de6bc8f704d6",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -1958,6 +1962,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -1973,7 +1978,7 @@
       }
     },
     {
-      "configuration_hash": "58fa633b68441ed3bbc16abb7772c34f783b4459a5ed14bdc722a0d4b3caf438",
+      "configuration_hash": "a49a50d930c931c88bf20a4abcd2a7a4681b7de225a19bf6f17bc23eedaaceb0",
       "name": "path-b-fqdn-matcher-unresolvable",
       "plan": {
         "can_apply": false,
@@ -2114,7 +2119,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "58fa633b68441ed3bbc16abb7772c34f783b4459a5ed14bdc722a0d4b3caf438",
+        "configuration_hash": "a49a50d930c931c88bf20a4abcd2a7a4681b7de225a19bf6f17bc23eedaaceb0",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -2353,6 +2358,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -2367,7 +2373,7 @@
       }
     },
     {
-      "configuration_hash": "32b37f60249f3083fd141a8e1900d982c27af46d88880d491658f8bd3d049d20",
+      "configuration_hash": "540e85b56234fff3c93bd442b6e93ad4faa126e4cc420ac26038cb1efbe78a4d",
       "name": "path-a-poc-local-ca",
       "plan": {
         "can_apply": false,
@@ -2706,7 +2712,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "32b37f60249f3083fd141a8e1900d982c27af46d88880d491658f8bd3d049d20",
+        "configuration_hash": "540e85b56234fff3c93bd442b6e93ad4faa126e4cc420ac26038cb1efbe78a4d",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -3004,6 +3010,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -3017,7 +3024,7 @@
       }
     },
     {
-      "configuration_hash": "a10a6cc29108fe09c4d12c1d83e944876a69da8e68886a3097eb2b8c2a9efe39",
+      "configuration_hash": "ce7d4ce0cea407d68da6a16a89ec5f9fd50b83089ee1ea0c81473b530cae3a46",
       "name": "path-a-existing-vpc",
       "plan": {
         "can_apply": false,
@@ -3331,7 +3338,7 @@
             "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
           }
         ],
-        "configuration_hash": "a10a6cc29108fe09c4d12c1d83e944876a69da8e68886a3097eb2b8c2a9efe39",
+        "configuration_hash": "ce7d4ce0cea407d68da6a16a89ec5f9fd50b83089ee1ea0c81473b530cae3a46",
         "destructive_change_count": 0,
         "gates": [
           {
@@ -3622,6 +3629,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,

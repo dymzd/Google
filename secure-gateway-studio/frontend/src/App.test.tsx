@@ -356,11 +356,11 @@ describe("Secure Gateway Studio mode screen", () => {
   it("opens a bilingual bottom navigation guide for all seven setup steps", () => {
     render(<App />);
 
-    const guideNavigation = screen.getByRole("navigation", {
-      name: "Guide navigation",
+    const primaryNavigation = screen.getByRole("navigation", {
+      name: "Primary navigation",
     });
     fireEvent.click(
-      within(guideNavigation).getByRole("button", { name: "Guide" }),
+      within(primaryNavigation).getByRole("button", { name: "Guide" }),
     );
 
     expect(

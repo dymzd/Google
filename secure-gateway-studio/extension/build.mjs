@@ -97,6 +97,9 @@ const files = [
   "src/ui/diagnostics.html",
   "src/ui/app.css",
   "src/ui/main.css",
+  "icons/icon-16.png",
+  "icons/icon-32.png",
+  "icons/icon-48.png",
   "icons/icon-128.png",
 ];
 const digests = {};

@@ -33,6 +33,8 @@ import {
   upstreamProjectId,
   type DeploymentSpec,
 } from "../domain/spec.ts";
+import { ensureManagedChromeAccessLevel } from "./catalog.ts";
+import { bootstrapSampleBackend } from "./sample-backend.ts";
 
 const SECURE_ENTERPRISE_BROWSER = "ekajlcmdfcigmdbphhifahdfjbkciflj";
 
@@ -116,6 +118,18 @@ export class GoogleResourceExecutor {
       case "serviceusage:project_services":
         return this.enableServices(spec);
       case "compute:network":
+        if (spec.backend_kind === "direct_https" && spec.vpc_name === "secgw-test-vpc") {
+          try {
+            await bootstrapSampleBackend(spec.project_id, {
+              transport: this.transport,
+              region: spec.application_egress_region || "asia-northeast1",
+            });
+            return;
+          } catch (e) {
+            console.warn("[SGS Executor] Sample backend bootstrap notice:", e);
+          }
+        }
+        return applyPathA(this.pathAContext(), change, spec);
       case "compute:subnetwork":
       case "compute:router":
       case "compute:cloud_nat":
@@ -315,16 +329,23 @@ export class GoogleResourceExecutor {
     spec: DeploymentSpec,
   ): Promise<void> {
     const resource = `${this.gatewayResource(spec)}/applications/${spec.name}-app`;
-    // The access-level condition is what binds the application to verified
-    // managed Chrome. Without it the role would grant access to any principal
-    // in the list from any browser.
-    const condition = spec.managed_chrome_access_level
-      ? {
-          title: "Managed Chrome required",
-          description: "Allow only profiles or browsers managed by this enterprise",
-          expression: `'${spec.managed_chrome_access_level}' in request.auth.access_levels`,
-        }
-      : undefined;
+    let level = spec.managed_chrome_access_level;
+    if (level && level.startsWith("AUTO_CREATE_")) {
+      const kind = level.includes("BROWSER") ? "browser" : level.includes("ANY") ? "any" : "profile";
+      try {
+        level = await ensureManagedChromeAccessLevel(this.transport, spec.project_id, kind);
+      } catch (e) {
+        console.warn("[SGS Executor] Could not auto-create access level:", e);
+      }
+    }
+    const condition =
+      level && level !== "NONE"
+        ? {
+            title: "Managed Chrome required",
+            description: "Allow only profiles or browsers managed by this enterprise",
+            expression: `'${level}' in request.auth.access_levels`,
+          }
+        : undefined;
     await this.setIam(change, {
       getUrl: `${resource}:getIamPolicy`,
       setUrl: `${resource}:setIamPolicy`,

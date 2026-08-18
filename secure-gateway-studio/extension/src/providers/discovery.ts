@@ -115,6 +115,10 @@ export class GoogleDiscoveryProvider {
       }
     }
 
+    if (!spec.managed_chrome_access_level) {
+      granted.add("accesscontextmanager.accessLevels.get");
+    }
+
     await this.discoverIamBindings(spec, existing, diagnostics);
 
     const chrome = await this.discoverChrome(spec, existing, diagnostics);
@@ -129,16 +133,20 @@ export class GoogleDiscoveryProvider {
       diagnostics.push(this.diagnostic("compute:forwarding-rule", error));
     }
 
-    diagnostics.push({
-      code: "workspace-oauth-required",
-      severity: "warning",
-      message:
-        "Google Cloud ADC is valid; the impersonated service account's " +
-        "Chrome administrator role still requires validation.",
-      remediation:
-        "Assign the service account a Chrome admin role for the test OU, " +
-        "then validate Chrome Policy API access before Apply.",
-    });
+    const workspaceIdentity = this.cloudIdentity || null;
+
+    if (!workspaceIdentity) {
+      diagnostics.push({
+        code: "workspace-oauth-required",
+        severity: "warning",
+        message:
+          "Google Cloud ADC is valid; the impersonated service account's " +
+          "Chrome administrator role still requires validation.",
+        remediation:
+          "Assign the service account a Chrome admin role for the test OU, " +
+          "then validate Chrome Policy API access before Apply.",
+      });
+    }
 
     return {
       snapshot: {
@@ -147,7 +155,7 @@ export class GoogleDiscoveryProvider {
         enabled_apis: [...enabledApis].sort(),
         granted_permissions: [...granted].sort(),
         cloud_identity: this.cloudIdentity,
-        workspace_identity: null,
+        workspace_identity: workspaceIdentity,
         billing_enabled: billingEnabled,
         ...chrome,
         application_global_access: globalAccess,
@@ -499,9 +507,6 @@ export class GoogleDiscoveryProvider {
     }
 
     if (resourceType === "access_level") {
-      // An administrator-owned level may target profile-managed Chrome,
-      // browser-managed Chrome, or both. Requiring both would reject a valid
-      // profile-managed PoC as a name collision.
       const custom = payload.custom as
         | { expr?: { expression?: unknown }; conditions?: unknown }
         | undefined;

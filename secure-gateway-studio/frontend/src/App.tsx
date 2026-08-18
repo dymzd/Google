@@ -15,6 +15,7 @@ import {
   OperationsPage,
 } from "./features/operations/OperationsPage";
 import { GuidePage } from "./features/guide/GuidePage";
+import { CepDeployerPage } from "./features/cep/CepDeployerPage";
 import { getMessages } from "./i18n/messages";
 import {
   applyApprovedPlan,
@@ -533,6 +534,12 @@ export function App() {
         </WizardLayout>
       ) : activeView === "guide" ? (
         <GuidePage messages={messages} />
+      ) : activeView === "cepDeployer" ? (
+        <CepDeployerPage
+          customerId={setup.customerId}
+          messages={messages}
+          projectId={setup.projectId}
+        />
       ) : (
         <OperationsPage messages={messages} view={activeView} />
       )}

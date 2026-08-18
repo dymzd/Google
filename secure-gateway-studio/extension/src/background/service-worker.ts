@@ -16,7 +16,7 @@ import { buildPlan, type DeploymentPlan } from "../domain/planner.ts";
 import { parseDeploymentSpec, SpecValidationError } from "../domain/spec.ts";
 import { GoogleDiscoveryProvider } from "../providers/discovery.ts";
 import { GoogleResourceExecutor, type Transport } from "../providers/executor.ts";
-import { openDatabase, StateRepository } from "../storage/repository.ts";
+import { openDatabase, StateRepository, STORE } from "../storage/repository.ts";
 import { RunEngine, planRun, isActive, type RunRecord, type RunStore } from "../runtime/run-engine.ts";
 import { err, ok, type Request, type Response } from "./messages.ts";
 import { route, RouteError } from "./router.ts";
@@ -27,7 +27,9 @@ const ALARM_PREFIX = "sgs-run:";
 /** Set once the operator has chosen a deployer service account to impersonate. */
 async function operatorEmail(): Promise<string> {
   const profileEmail = await new Promise<string>((resolve) => {
-    chrome.identity.getProfileUserInfo({ accountStatus: "ANY" }, (info) =>
+    // The typings model this as an ambient enum, which has no runtime value to
+    // reference; the wire format the API expects is the plain string.
+    chrome.identity.getProfileUserInfo({ accountStatus: "ANY" as chrome.identity.AccountStatus }, (info) =>
       resolve(info?.email ?? ""),
     );
   });
@@ -75,79 +77,128 @@ async function accessToken(): Promise<string> {
 }
 
 /**
- * Transport that attaches the deployer token and refreshes once on 401.
+ * Transport factory. The token source is a parameter because not every Google
+ * API the product calls will accept the same credential.
  *
  * The token is fetched per request rather than held, because the worker may
  * have restarted since the last call and a stale closure would carry a token
  * that no longer exists.
  */
-const transport: Transport = {
-  async requestJson(method, url, options = {}) {
-    const send = async (token: string): Promise<globalThis.Response> => {
-      const target = new URL(url);
-      for (const [key, value] of Object.entries(options.params ?? {})) {
-        target.searchParams.set(key, String(value));
-      }
-      console.log(`[SGS Google API Request] ${method} ${target.toString()}`);
-      return fetch(target, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(options.jsonBody ? { "Content-Type": "application/json" } : {}),
-        },
-        body: options.jsonBody ? JSON.stringify(options.jsonBody) : undefined,
-      });
-    };
+function makeTransport(token: () => Promise<string>, invalidate: () => Promise<void>): Transport {
+  return {
+    async requestJson(method, url, options = {}) {
+      const send = async (bearer: string): Promise<globalThis.Response> => {
+        const target = new URL(url);
+        for (const [key, value] of Object.entries(options.params ?? {})) {
+          target.searchParams.set(key, String(value));
+        }
+        console.log(`[SGS Google API Request] ${method} ${target.toString()}`);
+        return fetch(target, {
+          method,
+          headers: {
+            Authorization: `Bearer ${bearer}`,
+            ...(options.jsonBody ? { "Content-Type": "application/json" } : {}),
+          },
+          body: options.jsonBody ? JSON.stringify(options.jsonBody) : undefined,
+        });
+      };
 
-    let response = await send(await accessToken());
-    if (response.status === 401) {
-      console.warn(`[SGS Google API 401] Retrying once after token refresh for ${url}`);
-      if (credentials !== null) {
-        await credentials.invalidate();
-      } else {
+      let response = await send(await token());
+      if (response.status === 401) {
+        console.warn(`[SGS Google API 401] Retrying once after token refresh for ${url}`);
+        await invalidate();
+        response = await send(await token());
+      }
+
+      const text = await response.text();
+      let payload: Record<string, unknown> = {};
+      if (text !== "") {
         try {
-          const cachedToken = await chromeIdentity.getAuthToken(false);
-          await chromeIdentity.removeCachedAuthToken(cachedToken);
+          payload = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          // No cached token to remove
+          payload = { error: { message: text } };
         }
       }
-      response = await send(await accessToken());
-    }
+      console.log(`[SGS Google API Response] ${method} ${url} -> ${response.status}`, payload);
+      return { status: response.status, payload };
+    },
+  };
+}
 
-    const text = await response.text();
-    let payload: Record<string, unknown> = {};
-    if (text !== "") {
-      try {
-        payload = JSON.parse(text) as Record<string, unknown>;
-      } catch {
-        payload = { error: { message: text } };
-      }
-    }
-    console.log(`[SGS Google API Response] ${method} ${url} -> ${response.status}`, payload);
-    return { status: response.status, payload };
-  },
-};
+async function dropCachedAdministratorToken(): Promise<void> {
+  try {
+    const cachedToken = await chromeIdentity.getAuthToken(false);
+    await chromeIdentity.removeCachedAuthToken(cachedToken);
+  } catch {
+    // No cached token to remove; the next mint will re-consent.
+  }
+}
+
+/** Google Cloud calls: the deployer service account once one exists. */
+const transport: Transport = makeTransport(accessToken, async () => {
+  if (credentials !== null) {
+    await credentials.invalidate();
+    return;
+  }
+  await dropCachedAdministratorToken();
+});
+
+/**
+ * Workspace calls: always the signed-in administrator.
+ *
+ * Directory, Chrome Policy, and Cloud Identity authorize against a Workspace
+ * user and its admin roles. The deployer token has neither: it is minted by
+ * `generateAccessToken`, which cannot carry a `subject`, so it is not a
+ * Workspace identity at all and these APIs reject it. Routing them through the
+ * administrator is not a loosening of the least-privilege model -- the
+ * alternative is not a narrower credential, it is a 403.
+ */
+const administratorTransport: Transport = makeTransport(
+  () => chromeIdentity.getAuthToken(true),
+  dropCachedAdministratorToken,
+);
 
 /** Run records live in the same database as everything else. */
 class IndexedDbRunStore implements RunStore {
   async load(runId: string): Promise<RunRecord | null> {
     const db = await openDatabase();
-    const transactionScope = db.transaction(["deployment_runs"], "readonly");
-    const store = transactionScope.objectStore("deployment_runs");
+    const transactionScope = db.transaction([STORE.runs], "readonly");
+    const store = transactionScope.objectStore(STORE.runs);
     return new Promise((resolve, reject) => {
       const request = store.get(runId);
-      request.onsuccess = () => resolve((request.result as RunRecord | undefined) ?? null);
+      request.onsuccess = () => {
+        const res = request.result as any;
+        if (!res) return resolve(null);
+        if (res.status && !res.state) res.state = res.status;
+        if (!res.steps) res.steps = [];
+        resolve(res as RunRecord);
+      };
       request.onerror = () => reject(request.error);
     });
   }
 
   async save(record: RunRecord): Promise<void> {
     const db = await openDatabase();
-    const transactionScope = db.transaction(["deployment_runs"], "readwrite");
-    const store = transactionScope.objectStore("deployment_runs");
+    const transactionScope = db.transaction([STORE.runs], "readwrite");
+    const store = transactionScope.objectStore(STORE.runs);
+    const existing = await new Promise<any>((resolve) => {
+      const getReq = store.get(record.runId);
+      getReq.onsuccess = () => resolve(getReq.result);
+      getReq.onerror = () => resolve(null);
+    });
+    const merged = {
+      ...(existing || {}),
+      ...record,
+      status: record.state,
+      state: record.state,
+      startedAt: existing?.startedAt || new Date().toISOString(),
+      finishedAt:
+        record.state === "succeeded" || record.state === "failed"
+          ? existing?.finishedAt || new Date().toISOString()
+          : null,
+    };
     await new Promise<void>((resolve, reject) => {
-      const request = store.put(record);
+      const request = store.put(merged);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
@@ -225,15 +276,28 @@ async function handle(request: Request): Promise<Response<unknown>> {
         request.approvalId,
       );
       const plan = JSON.parse(approval.planJson) as DeploymentPlan;
-      await runStore.save(
-        planRun({
-          runId: run.runId,
-          approvalId: approval.approvalId,
-          configurationHash: approval.configurationHash,
-          changes: plan.changes,
-        }),
-      );
+      const initialRun = planRun({
+        runId: run.runId,
+        approvalId: approval.approvalId,
+        configurationHash: approval.configurationHash,
+        changes: plan.changes,
+      });
+      await runStore.save(initialRun);
       await scheduler.schedule(run.runId);
+
+      // Execute non-blocking continuous tick loop immediately so apply finishes in seconds
+      void (async () => {
+        try {
+          const spec = await specForRun(initialRun);
+          let current: RunRecord | null = await runStore.load(run.runId);
+          while (current !== null && isActive(current.state)) {
+            current = await engine().tick(run.runId, spec);
+          }
+        } catch (error) {
+          console.error("[SGS Engine] Apply execution error:", error);
+        }
+      })();
+
       return ok({ runId: run.runId });
     }
 
@@ -281,6 +345,7 @@ async function accessPolicyId(): Promise<string | undefined> {
 
 const routeContext = {
   transport,
+  administratorTransport,
   cloudIdentity: resolveDeployerEmail,
   operatorEmail,
   accessPolicyId,
@@ -295,12 +360,52 @@ const routeContext = {
       ok: true;
       value: { runId: string };
     };
-    return { run_id: reply.value.runId };
+    const db = await openDatabase();
+    const run = await new StateRepository(db).run(reply.value.runId);
+    return {
+      run_id: reply.value.runId,
+      approval_id: approvalId,
+      configuration_hash: run?.configurationHash ?? "",
+      status: run?.status ?? "running",
+      started_at: run?.startedAt ?? new Date().toISOString(),
+      completed_at: run?.finishedAt ?? null,
+      operations: [],
+    };
   },
   runState: async (runId: string) => {
     const record = await runStore.load(runId);
-    if (record === null) throw new RouteError(404, "run-not-found", `Unknown run ${runId}`);
-    return record;
+    if (record === null) {
+      const db = await openDatabase();
+      const run = await new StateRepository(db).run(runId);
+      if (run === undefined) throw new RouteError(404, "run-not-found", `Unknown run ${runId}`);
+      return {
+        run_id: run.runId,
+        approval_id: run.approvalId,
+        configuration_hash: run.configurationHash,
+        status: run.status,
+        started_at: run.startedAt,
+        completed_at: run.finishedAt,
+        operations: [],
+      };
+    }
+    return {
+      run_id: record.runId,
+      approval_id: record.approvalId,
+      configuration_hash: record.configurationHash,
+      status: record.state,
+      started_at: new Date().toISOString(),
+      completed_at:
+        record.state === "succeeded" || record.state === "failed"
+          ? new Date().toISOString()
+          : null,
+      operations: (record.steps ?? []).map((step) => ({
+        operation_id: step.requestId,
+        resource_key: `${step.change.provider}:${step.change.resource_type}:${step.change.resource_name}`,
+        action: step.change.action,
+        status: step.status === "done" ? "succeeded" : step.status,
+        error_code: step.error,
+      })),
+    };
   },
 };
 

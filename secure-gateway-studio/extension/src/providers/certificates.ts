@@ -121,7 +121,9 @@ export async function generateKeyAndCsr(
     await crypto.subtle.sign(
       { name: "RSASSA-PKCS1-v1_5" },
       keyPair.privateKey,
-      certificationRequestInfo,
+      // TypeScript models Uint8Array as generic over ArrayBufferLike; WebCrypto
+      // wants a view over a plain ArrayBuffer, which this always is at runtime.
+      certificationRequestInfo as Uint8Array<ArrayBuffer>,
     ),
   );
 

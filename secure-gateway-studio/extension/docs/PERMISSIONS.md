@@ -40,7 +40,8 @@ Google API endpoint; none is a wildcard over `*://*/*`.
 | `accesscontextmanager.googleapis.com` | Read the managed-Chrome access level bound as an IAM condition |
 | `chromepolicy.googleapis.com` | Force-install the gateway and Endpoint Verification extensions in the test OU |
 | `chromemanagement.googleapis.com` | Managed-browser and profile signals |
-| `admin.googleapis.com` | Organizational-unit and group pickers (read-only) |
+| `admin.googleapis.com` | Organizational-unit and group pickers; the CEP deployer also creates its sub OUs and reads the tenant's primary domain here |
+| `cloudidentity.googleapis.com` | CEP deployer DLP rules and detectors |
 | `licensing.googleapis.com` | Chrome Enterprise Premium license checks |
 | `compute.googleapis.com` | Path A offload tier: network, subnet, firewall, load balancer, instance group |
 | `dns.googleapis.com` | Path A private DNS record |
@@ -49,18 +50,32 @@ Google API endpoint; none is a wildcard over `*://*/*`.
 | `cloudbilling.googleapis.com` | Confirm the project is billing-enabled before planning |
 | `logging.googleapis.com` | Sanitized post-deployment log views |
 
-Path B (direct private HTTPS) uses only the first ten. The Compute, DNS, Secret
+Path B (direct private HTTPS) uses only the first ten (Cloud Identity aside, which is reached only by the CEP deployer). The Compute, DNS, Secret
 Manager, and CA Service hosts are reachable but unused until a Path A
 deployment is planned.
 
 ## OAuth scopes
 
-Unchanged from the local application; see `backend/src/sgstudio/providers/google_rest.py`.
+Otherwise as in the local application; see
+`backend/src/sgstudio/providers/google_rest.py`.
 `cloud-platform` is required because the product creates and reconciles
 infrastructure across several services, and Google does not offer a narrower
 scope spanning them. The mitigation is that mutations execute as the
 impersonated deployer service account, which holds a project custom role rather
 than the administrator's authority.
+
+Three scopes are specific to the CEP PoC Deployer:
+
+| Scope | Why |
+|---|---|
+| `admin.directory.orgunit` | Creating the `CEP Users` and `CEP Browsers` sub OUs. This replaces the former `.readonly` variant, which the write scope includes. |
+| `admin.directory.customer.readonly` | Resolving the tenant's primary domain, which the data-boundary policies are written from. |
+| `cloud-identity.policies` | Creating and deleting DLP rules and detectors. The mutation methods are in beta; a refused call reports the module as skipped rather than failing the deployment. |
+
+All three were added after the initial release. Chrome re-prompts for consent when
+the requested scope set grows, and the OAuth client in Google Cloud must list
+them before that prompt can succeed — an existing installation will fail
+authentication until the client is updated.
 
 ## Content Security Policy
 

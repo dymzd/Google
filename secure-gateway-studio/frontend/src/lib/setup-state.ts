@@ -155,15 +155,21 @@ export function toDeploymentSpec(
     offload_min_replicas: Number(setup.offloadMinReplicas),
     offload_max_replicas: Number(setup.offloadMaxReplicas),
     offload_cpu_target: Number(setup.offloadCpuTarget),
-    vpc_name: setup.networkStrategy === "existing" ? setup.vpcName : null,
-    subnet_name: setup.networkStrategy === "existing" ? setup.subnetName : null,
-    proxy_subnet_cidr: setup.proxySubnetCidr,
-    private_hostname: setup.privateHostname,
+    vpc_name: setup.networkStrategy === "existing" ? setup.vpcName.trim() || null : null,
+    subnet_name:
+      setup.networkStrategy === "existing" && setup.backendKind !== "direct_https"
+        ? setup.subnetName.trim() || null
+        : null,
+    proxy_subnet_cidr: setup.proxySubnetCidr.trim() || "10.42.1.0/24",
+    private_hostname: setup.privateHostname.trim() || "secgw-backend.internal",
     gateway_id: "default",
     target_ou_id: setup.targetOuId,
     customer_id: setup.customerId,
     managed_chrome_access_level:
-      setup.managedChromeAccessLevel.trim() || null,
+      !setup.managedChromeAccessLevel ||
+      setup.managedChromeAccessLevel === "NONE"
+        ? null
+        : setup.managedChromeAccessLevel.trim() || null,
     chrome_enterprise_premium_license_confirmed:
       setup.chromeEnterprisePremiumLicenseConfirmed,
     workspace_services_confirmed: setup.workspaceServicesConfirmed,
@@ -174,15 +180,15 @@ export function toDeploymentSpec(
       setup.backendKind === "managed_sample" ||
       setup.backendKind === "internal_https_lb"
         ? null
-        : setup.existingBackendUrl,
+        : setup.existingBackendUrl.trim() || null,
     existing_backend_location:
       setup.backendKind === "managed_sample" ||
       setup.backendKind === "internal_https_lb"
         ? null
         : setup.existingBackendLocation,
     application_egress_region:
-      setup.backendKind === "direct_https" && setup.applicationEgressRegion
-        ? setup.applicationEgressRegion
+      setup.backendKind === "direct_https" && setup.applicationEgressRegion.trim()
+        ? setup.applicationEgressRegion.trim()
         : null,
     existing_backend_connectivity_confirmed:
       setup.backendKind !== "managed_sample" &&

@@ -183,8 +183,8 @@ const HOSTNAME = "demo-server-http.internal";
   const verified = await crypto.subtle.verify(
     { name: "RSASSA-PKCS1-v1_5" },
     keyPair.publicKey,
-    signature,
-    signedRegion,
+    signature as Uint8Array<ArrayBuffer>,
+    signedRegion as Uint8Array<ArrayBuffer>,
   );
   check("CSR signature verifies over CertificationRequestInfo", verified);
 

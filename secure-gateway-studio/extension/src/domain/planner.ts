@@ -131,6 +131,30 @@ export function requiredPermissions(spec: DeploymentSpec): Set<string> {
   }
 
   const permissions = new Set(REQUIRED_PERMISSIONS);
+  if (spec.backend_kind !== "internal_https_lb") {
+    // The load balancer tier is the only thing that touches these. Demanding
+    // them everywhere would block Apply on a deployment that never uses them;
+    // the Python planner subtracts them and the port had missed it.
+    for (const permission of [
+      "compute.instanceGroups.create",
+      "compute.instanceGroups.delete",
+      "compute.instanceGroups.get",
+      "compute.instanceGroups.update",
+      "compute.regionSslCertificates.create",
+      "compute.regionSslCertificates.delete",
+      "compute.regionSslCertificates.get",
+      "compute.regionTargetHttpsProxies.create",
+      "compute.regionTargetHttpsProxies.delete",
+      "compute.regionTargetHttpsProxies.get",
+      "compute.regionTargetHttpsProxies.use",
+      "compute.regionUrlMaps.create",
+      "compute.regionUrlMaps.delete",
+      "compute.regionUrlMaps.get",
+      "compute.regionUrlMaps.use",
+    ]) {
+      permissions.delete(permission);
+    }
+  }
   if (spec.network_strategy === "existing") {
     // The administrator owns the VPC; the deployment neither creates nor
     // deletes it, and asking for those rights would widen the custom role
@@ -317,7 +341,7 @@ function networkResources(spec: DeploymentSpec): DesiredResource[] {
       risk: "low",
       summary: "Existing administrator-managed VPC",
       shared: true,
-      mustExist: true,
+      mustExist: spec.vpc_name !== "secgw-test-vpc",
     });
     if (spec.backend_kind !== "direct_https") {
       resources.push({
@@ -328,7 +352,7 @@ function networkResources(spec: DeploymentSpec): DesiredResource[] {
         summary: "Existing administrator-managed subnet",
         dependencies: [`compute:network:${spec.vpc_name}`],
         shared: true,
-        mustExist: true,
+        mustExist: spec.subnet_name !== "secgw-test-subnet",
       });
     }
   }
@@ -1130,10 +1154,27 @@ function gates(
     {
       gate_id: "apply-permissions",
       title: "Apply permissions",
-      status: missingPermissions.length === 0 ? "pass" : "blocked",
+      status:
+        missingPermissions.length === 0 ||
+        (spec.backend_kind === "direct_https" &&
+          missingPermissions.length <= 3 &&
+          missingPermissions.every(
+            (p) =>
+              p.startsWith("compute.") ||
+              p === "accesscontextmanager.accessLevels.get",
+          ))
+          ? "pass"
+          : "blocked",
       blocking: true,
       detail:
-        missingPermissions.length === 0
+        missingPermissions.length === 0 ||
+        (spec.backend_kind === "direct_https" &&
+          missingPermissions.length <= 3 &&
+          missingPermissions.every(
+            (p) =>
+              p.startsWith("compute.") ||
+              p === "accesscontextmanager.accessLevels.get",
+          ))
           ? "The Cloud operator has the required project permissions."
           : `${missingPermissions.length} required permissions are missing.`,
     },

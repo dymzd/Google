@@ -10,11 +10,18 @@
  *   administrator token (chrome.identity)
  *     -> iamcredentials.generateAccessToken
  *       -> deployer service-account token (short-lived)
- *         -> every Google API call
+ *         -> every Google *Cloud* API call
  *
  * Dropping the second hop would hand the administrator's own authority to
  * every request, which is a real reduction in blast radius from the local
  * application. Losing that was the main cost the migration had to avoid.
+ *
+ * Workspace APIs are the exception, and not by choice: Directory, Chrome
+ * Policy, and Cloud Identity authorize against a Workspace user and its admin
+ * roles. `generateAccessToken` cannot carry a `subject`, so the token it mints
+ * is not a Workspace identity and those APIs reject it outright. They run as
+ * the administrator instead -- see `administratorTransport` in the service
+ * worker. The alternative is not a narrower credential, it is a 403.
  *
  * Tokens live in memory only. `providers/google_rest.py` rejects long-lived
  * service-account key ADC; the equivalent rule here is that nothing
@@ -26,7 +33,13 @@
 export const DEFAULT_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/admin.directory.group.readonly",
-  "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+  // Write, not readonly: the CEP deployer creates the "CEP Users" and
+  // "CEP Browsers" sub OUs. Read access is included in the write scope.
+  "https://www.googleapis.com/auth/admin.directory.orgunit",
+  // Resolves the tenant's primary domain for the data-boundary policies.
+  "https://www.googleapis.com/auth/admin.directory.customer.readonly",
+  // DLP rules and detectors through the Cloud Identity policy API.
+  "https://www.googleapis.com/auth/cloud-identity.policies",
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/chrome.management.policy",
   "https://www.googleapis.com/auth/chrome.management.profiles.readonly",
@@ -83,7 +96,8 @@ export const chromeIdentity: IdentityBackend = {
           return;
         }
         console.log("[SGS Auth] chrome.identity.getAuthToken succeeded");
-        resolve(typeof token === "string" ? token : token.token);
+        // Older Chrome hands back a bare string, newer a `{ token }` object.
+        resolve(typeof token === "string" ? token : (token as { token: string }).token);
       });
     });
   },

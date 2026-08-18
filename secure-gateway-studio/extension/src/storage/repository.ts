@@ -257,7 +257,11 @@ export class StateRepository {
       transaction.objectStore(STORE.runs).getAll(),
     )) as DeploymentRunRecord[];
     await transactionDone(transaction);
-    return records.sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+    return records.sort((left, right) => {
+      const rightDate = right.startedAt ?? "";
+      const leftDate = left.startedAt ?? "";
+      return rightDate.localeCompare(leftDate);
+    });
   }
 
   /** Persist a prepared plan so approval can bind to exactly these bytes. */
@@ -434,6 +438,26 @@ export class StateRepository {
     return records;
   }
 
+  async markRunDeleted(runId: string): Promise<void> {
+    const transaction = this.db.transaction([STORE.runs], "readwrite");
+    const store = transaction.objectStore(STORE.runs);
+    const run = (await request(store.get(runId))) as DeploymentRunRecord | undefined;
+    if (run) {
+      await request(store.put({ ...run, status: "deleted" }));
+    }
+    await transactionDone(transaction);
+  }
+
+  async markAllRunsDeleted(): Promise<void> {
+    const transaction = this.db.transaction([STORE.runs], "readwrite");
+    const store = transaction.objectStore(STORE.runs);
+    const runs = (await request(store.getAll())) as DeploymentRunRecord[];
+    for (const run of runs) {
+      await request(store.put({ ...run, status: "deleted" }));
+    }
+    await transactionDone(transaction);
+  }
+
   async recordTeardown(record: Record<string, unknown>): Promise<void> {
     const transaction = this.db.transaction([STORE.teardowns], "readwrite");
     await request(transaction.objectStore(STORE.teardowns).put(record));
@@ -457,6 +481,29 @@ export class StateRepository {
     )) as AuditEventRecord[];
     await transactionDone(transaction);
     return events;
+  }
+
+  /** Append a standalone audit event with cryptographic chaining. */
+  async recordAuditEvent(event: {
+    deploymentId: string | null;
+    eventType: string;
+    actor: string;
+    payload: Record<string, unknown>;
+  }): Promise<void> {
+    const transaction = this.db.transaction([STORE.audit], "readwrite");
+    const audit = transaction.objectStore(STORE.audit);
+    const previousHash = await this.chainHead(audit);
+    const auditEvent = buildAuditEvent({
+      eventId: this.clock.uuid(),
+      deploymentId: event.deploymentId,
+      eventType: event.eventType,
+      actor: event.actor,
+      payload: event.payload,
+      createdAt: this.clock.now().toISOString(),
+      previousHash,
+    });
+    await request(audit.add(auditEvent));
+    await transactionDone(transaction);
   }
 
   /**
