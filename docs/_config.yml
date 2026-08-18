@@ -5,9 +5,9 @@ title: Secure Gateway Studio
 # Short on purpose: jekyll-seo-tag builds <title> as "title | description".
 description: Chrome Enterprise Premium deployment tool for Workspace administrators
 
-# Paste the token from Search Console (Ownership verification, HTML tag method)
-# between the quotes. jekyll-seo-tag renders it into <head>.
-google_site_verification: ""
+# Search Console ownership token, rendered into <head> by jekyll-seo-tag.
+# OAuth branding verification requires the homepage domain to be verified.
+google_site_verification: "KPLcoHPuwZwhqrmoM0CXo62OLUak0xZBJ5VYBLa1pts"
 
 theme: minima
 plugins:
