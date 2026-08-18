@@ -10,6 +10,16 @@ developer, and has no server. It is an administrator tool that talks directly
 to Google's APIs using the credentials of the administrator who is signed in,
 and stores its working state in the browser profile on the device.
 
+## Not an official Google product
+
+Secure Gateway Studio is an independent open-source project. It is **not built,
+endorsed, or supported by Google**, and it is not affiliated with Google LLC.
+"Google", "Google Workspace", "Google Cloud", "Chrome", and "Chrome Enterprise
+Premium" are trademarks of Google LLC.
+
+It is provided as is, with no warranty and no support commitment. You are
+responsible for what it changes in your tenant.
+
 ## Who operates this extension
 
 Secure Gateway Studio is published as open source at
@@ -112,4 +122,17 @@ See [`docs/VERIFYING_THE_BUILD.md`](docs/VERIFYING_THE_BUILD.md).
 
 ## Contact
 
-Open an issue at <https://github.com/dymzd/Google/issues>.
+**About this extension** — open an issue at
+<https://github.com/dymzd/Google/issues>. This is a best-effort channel with no
+response time commitment, and it is the only channel for the extension.
+
+**About Chrome Enterprise Premium, Secure Gateway, licensing, or anything else
+that is a Google product** — contact your Google account team, meaning your
+Field Sales Representative or Customer Success Manager. Google supports its own
+products; it does not support this extension, and questions about the extension
+sent to Google will not reach the developer.
+
+**About data this extension holds on you** — there is none. The developer
+receives nothing, so there is no data subject request to make. Everything the
+extension stores is on your device and in your own Google tenant, both under
+your control.

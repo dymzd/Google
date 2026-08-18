@@ -11,6 +11,24 @@ managed Chrome platforms, and either a dedicated or existing VPC. Production
 remains visible but disabled; the backend implementation is retained for a
 future production-ready release.
 
+## Not an official Google product
+
+This is an independent open-source project. It is **not built, endorsed, or
+supported by Google**, and it is not affiliated with Google LLC. "Google",
+"Google Workspace", "Google Cloud", "Chrome", and "Chrome Enterprise Premium"
+are trademarks of Google LLC.
+
+It is provided as is, with no warranty and no support commitment. It changes
+Chrome policy and cloud infrastructure in your own tenant, so evaluate it in a
+non-production organizational unit first and review every plan before approving
+it.
+
+For questions about Chrome Enterprise Premium, Secure Gateway, or licensing,
+contact your Google account team -- your Field Sales Representative or Customer
+Success Manager. Google supports its own products; this is not one of them. For
+problems with this tool, open a GitHub issue: best effort, no response time
+commitment.
+
 ## Current release posture
 
 The implementation is a PoC-focused release candidate. Its local security,

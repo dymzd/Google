@@ -58,6 +58,28 @@ The store listing is not the blocker. These are.
     verifying Chrome Enterprise Premium deployments against your own Google
     Cloud project and Google Workspace tenant.
 
+    NOT AN OFFICIAL GOOGLE PRODUCT
+
+    This extension is an independent open-source project. It is not built,
+    endorsed, or supported by Google, and it is not affiliated with Google LLC.
+    "Google", "Google Workspace", "Google Cloud", "Chrome" and "Chrome
+    Enterprise Premium" are trademarks of Google LLC.
+
+    It is provided as is, with no warranty and no support commitment of any
+    kind. You are responsible for what it changes in your tenant. Evaluate it
+    in a non-production organizational unit first, review the plan before
+    approving it, and keep the rollback path in mind.
+
+    WHERE TO GET HELP
+
+    - Questions about Chrome Enterprise Premium, Secure Gateway, or your
+      licences: contact your Google account team -- your Field Sales
+      Representative or Customer Success Manager. They support the Google
+      products; this extension is not one of them.
+    - Problems with this extension itself: open an issue at
+      https://github.com/dymzd/Google/issues. Best effort only, with no
+      response time commitment.
+
     It is not a service. There is no account to create, no server operated by
     the developer, and no data sent anywhere except to Google's own APIs using
     your own administrator credentials.
@@ -428,10 +450,15 @@ attract review questions.
 
 ## 7. Review notes (the free-text box)
 
-    This extension is an administrator tool. It has no backend: it calls
-    Google's public REST APIs directly, authorized by the OAuth token of the
-    Google Workspace administrator who installs it, and writes only to that
-    administrator's own Google Cloud project and Workspace tenant.
+    This extension is an independent open-source project. It is not an official
+    Google product and is not affiliated with or endorsed by Google. The
+    listing states this in the first section of the description, and the name
+    does not imply otherwise.
+
+    It is an administrator tool. It has no backend: it calls Google's public
+    REST APIs directly, authorized by the OAuth token of the Google Workspace
+    administrator who installs it, and writes only to that administrator's own
+    Google Cloud project and Workspace tenant.
 
     It requests no content scripts, no tabs, no webRequest and no cookies
     access, and never reads or modifies a web page. Its CSP is
