@@ -39,8 +39,25 @@ If you are configuring or running any of the scripts, take a look at the [Config
 ## Usage
 These scripts are intended for use by administrators, security engineers, and IT professionals who manage Google Workspace, Google Cloud, or Google Admin Console environments.
 
+## Disclaimer
+These scripts and tools are an independent open-source project. They are **not
+built, endorsed, or supported by Google**, and are not affiliated with Google
+LLC. "Google", "Google Workspace", "Google Cloud", "Chrome", and "Chrome
+Enterprise Premium" are trademarks of Google LLC.
+
+Everything here is provided as is, with no warranty and no support commitment.
+Several of these tools change configuration in a live Google Workspace tenant or
+Google Cloud project. Test in a non-production organizational unit first. The
+author accepts no responsibility for problems arising from their use.
+
 ## Support
-Users are welcome to report issues or seek assistance through GitHub issues. 
+For questions about Google Workspace, Chrome Enterprise Premium, Secure Gateway,
+or licensing, contact your Google account team — your Field Sales Representative
+or Customer Success Manager. Google supports its own products; these tools are
+not among them.
+
+For problems with the tools in this repository, open a GitHub issue. Best effort
+only, with no response time commitment.
 
 ## License
 All scripts in this repository are licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
