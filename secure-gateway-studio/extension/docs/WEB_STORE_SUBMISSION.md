@@ -21,11 +21,10 @@ The store listing is not the blocker. These are.
         `.readonly` variant)
       - `https://www.googleapis.com/auth/admin.directory.customer.readonly`
       - `https://www.googleapis.com/auth/cloud-identity.policies`
-- [ ] **Publish the privacy policy** at a public URL (see `PRIVACY_POLICY.md`
-      in the extension directory). Required because the extension requests
-      sensitive scopes. GitHub Pages is the practical choice; see
-      "Hosting the privacy policy" below for why the other GitHub URLs are a
-      worse bet.
+- [ ] **Enable GitHub Pages and verify the domain in Search Console.** The
+      homepage and privacy policy must sit on a domain you have verified, and
+      `github.com` cannot be verified. This gates branding verification, which
+      sensitive scopes make mandatory. See "4b. Branding".
 - [ ] **Start OAuth verification** if the client is not already verified.
       `admin.directory.orgunit` is a sensitive scope and its review is separate
       from, and usually slower than, the Web Store review.
@@ -342,37 +341,93 @@ Cover, in order:
 
 | Field | Value |
 |---|---|
-| Application homepage | `https://github.com/dymzd/Google/tree/main/secure-gateway-studio` |
-| Privacy policy | host `PRIVACY_POLICY.md` publicly and paste the URL |
-| Terms of service | optional; the repository licence covers use |
+| Application homepage | `https://dymzd.github.io/Google/` |
+| Privacy policy | `https://dymzd.github.io/Google/privacy.html` |
+| Terms of service | optional; the MIT licence covers use |
+
+Both must be on a domain verified in Search Console, which rules out
+`github.com`. See "4b. Branding" below.
 
 ---
 
-### Hosting the privacy policy
+## 4b. Branding (Google Auth Platform)
 
-Any public URL is acceptable in principle, but the three GitHub options are not
-equally safe:
+Requesting sensitive scopes makes branding verification mandatory, and this page
+is where a submission most often stalls. The blocker is not the logo, it is the
+**Authorized domains** field.
 
-| Option | Store review | OAuth verification | Notes |
-|---|---|---|---|
-| **GitHub Pages** (`dymzd.github.io/Google/privacy`) | fine | fine | Renders as a real page, and the domain can be verified in Search Console as a URL-prefix property, which OAuth verification asks for. **Use this.** |
-| Repository blob (`github.com/dymzd/Google/blob/main/...`) | usually fine | risky | It is a code-viewer page wrapped in GitHub's UI, on a domain you cannot verify ownership of. Reviewers have rejected this. |
-| Raw (`raw.githubusercontent.com/...`) | risky | risky | Serves as `text/plain`, so it reads as a file rather than a policy page. Avoid. |
+### The domain trap
 
-To publish with Pages:
+Every URL on this page — homepage, privacy policy, terms — must sit on a domain
+listed under **Authorized domains**, and every authorized domain must be one you
+have verified in [Google Search Console](https://search.google.com/search-console).
 
-1. Repository Settings, then Pages, and set the source to the `main` branch.
-2. Copy `secure-gateway-studio/extension/PRIVACY_POLICY.md` to `docs/privacy.md`
-   at the repository root (Pages serves `/docs`), or enable Pages on the whole
-   branch and link to the file directly.
-3. Confirm the published URL loads in a private window, with no sign-in.
-4. Add that same domain as a URL-prefix property in Google Search Console and
-   verify it. OAuth verification checks that the homepage and privacy policy
-   are on a domain associated with the project.
+`github.com` cannot be verified, because it is not yours. Any URL of the form
+`https://github.com/dymzd/Google/...` is therefore unusable here, however
+convenient it is. `raw.githubusercontent.com` is unusable for the same reason.
 
-Whichever you choose, the homepage URL and the privacy policy URL should sit on
-the same domain. Mixing `github.com` for one and `github.io` for the other is a
-common cause of a verification round-trip.
+The way through is GitHub Pages: `dymzd.github.io` is a domain whose content
+you control, so Search Console can verify it, and `github.io` is on the Public
+Suffix List, which makes `dymzd.github.io` a registrable domain in its own
+right rather than a subdomain of somebody else's.
+
+If the console refuses `dymzd.github.io` in the Authorized domains field, the
+fallback is a domain you own outright, pointed at the same Pages site. Nothing
+else about this page changes.
+
+### Enabling the pages
+
+`docs/index.md` and `docs/privacy.md` are already in the repository. To publish
+them:
+
+1. Repository **Settings → Pages**.
+2. Source: **Deploy from a branch**, branch `main`, folder **`/docs`**.
+3. Wait for the build, then confirm both load in a private window with no
+   sign-in:
+   - `https://dymzd.github.io/Google/`
+   - `https://dymzd.github.io/Google/privacy.html`
+
+### Verifying the domain
+
+1. Open Search Console and add a **URL prefix** property for
+   `https://dymzd.github.io/Google/`.
+2. Choose the **HTML file** method, commit the verification file it gives you
+   to `docs/`, wait for Pages to redeploy, then click Verify. The HTML tag
+   method also works if you would rather add it to `docs/index.md` front matter.
+3. Once verified, the same Google account can enter the domain under Authorized
+   domains.
+
+Verify with the **same Google account that owns the Cloud project**. A property
+verified by another account does not count.
+
+### Field by field
+
+| Field | Value |
+|---|---|
+| App name | `Secure Gateway Studio` |
+| User support email | a monitored address — see the warning below |
+| App logo | `extension/icons/oauth-logo-120.png` (120x120, PNG, 7.8 KB) |
+| Application home page | `https://dymzd.github.io/Google/` |
+| Application privacy policy link | `https://dymzd.github.io/Google/privacy.html` |
+| Application terms of service link | leave empty; the MIT licence covers use |
+| Authorized domains | `dymzd.github.io` |
+| Developer contact information | your own address; Google uses it for project notices, and it is not shown to users |
+
+### Two things to check before submitting
+
+**The support email.** The screenshot shows `admin@test-domain.dev`. If that is
+a scratch domain, replace it: it is displayed on the consent screen to every
+user, reviewers do check that it resolves, and a test-looking address on a
+tool that rewrites enterprise policy invites a rejection. It must also be
+either the address that owns the Cloud project or a Google Group that address
+owns.
+
+**The app name.** `Secure Gateway Studio` is fine — it does not contain
+"Google", "Chrome", or any Google mark, which the branding policy forbids in an
+app name. Do not be tempted to add "for Chrome Enterprise" to make it clearer;
+that is the change that would fail review.
+
+---
 
 ## 5. Screenshots and images
 
