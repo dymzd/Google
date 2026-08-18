@@ -23,7 +23,9 @@ The store listing is not the blocker. These are.
       - `https://www.googleapis.com/auth/cloud-identity.policies`
 - [ ] **Publish the privacy policy** at a public URL (see `PRIVACY_POLICY.md`
       in the extension directory). Required because the extension requests
-      sensitive scopes.
+      sensitive scopes. GitHub Pages is the practical choice; see
+      "Hosting the privacy policy" below for why the other GitHub URLs are a
+      worse bet.
 - [ ] **Start OAuth verification** if the client is not already verified.
       `admin.directory.orgunit` is a sensitive scope and its review is separate
       from, and usually slower than, the Web Store review.
@@ -234,6 +236,97 @@ this a re-verification rather than a formality.
 | `chrome.management.profiles.readonly` | sensitive | Preflight signals: managed profile counts and last policy sync, shown before a plan is approved. Read only. |
 | `apps.licensing` | sensitive | Confirms Chrome Enterprise Premium licence availability before planning a deployment that requires it. |
 
+### Scope justification (paste into the single free-text box)
+
+Secure Gateway Studio is an administrator tool that configures Chrome
+Enterprise Premium and BeyondCorp Security Gateway inside the administrator's
+own Google Workspace tenant and Google Cloud project. It has no backend: the
+extension calls Google's public REST APIs directly from the user's browser,
+authorized by the token of the Workspace administrator who installed it. No
+data reaches the developer, and there is no server that could receive it.
+
+WHY THESE SCOPES ARE NEEDED, AND HOW THEY ARE USED
+
+The product does three things, and each scope maps to one of them.
+
+1. Choose where a configuration will apply, and confirm the tenant can accept
+   it.
+   - admin.directory.orgunit is used to create the two organizational units
+     "CEP Users" and "CEP Browsers" beneath the pilot OU the administrator
+     selects, so that user-scoped and browser-scoped Chrome policies land in
+     separate units. It also reads the OU tree to populate the picker. Creation
+     is opt-in through a checkbox, and an existing OU with the same name is
+     reused rather than duplicated.
+   - admin.directory.group.readonly reads the group list to populate the picker
+     for choosing who may reach a deployed application.
+   - admin.directory.customer.readonly reads the tenant's primary domain. The
+     data-boundary policies this tool writes are expressed as domain patterns
+     (for example, restricting secondary sign-in to *@example.com), and a
+     policy built from anything other than the real primary domain silently
+     matches nothing.
+   - apps.licensing confirms Chrome Enterprise Premium licences are available
+     before planning a deployment that requires them.
+
+2. Apply and verify the Chrome configuration.
+   - chrome.management.policy reads the tenant's live policy schemas and
+     applies policies to the selected organizational unit. Reading the schema
+     first is deliberate: a policy written into a field the tenant does not
+     advertise does nothing, silently, so the tool refuses rather than
+     pretending it succeeded.
+   - chrome.management.profiles.readonly reads managed profile counts and the
+     last policy sync time, shown to the administrator before a plan is
+     approved.
+   - cloud-identity.policies creates, lists, and deletes the Chrome DLP rules
+     and detectors that make up the evaluation. Listing is what makes the tool
+     idempotent, and delete is what makes its rollback able to remove
+     everything it created.
+
+3. Build the supporting Google Cloud infrastructure.
+   - cloud-platform creates and reconciles resources across Compute Engine,
+     IAM, Cloud DNS, Secret Manager, Certificate Authority Service, BeyondCorp,
+     Access Context Manager, Service Usage, Cloud Billing, and Cloud Logging.
+
+WHY NARROWER SCOPES ARE NOT SUFFICIENT
+
+We use the narrowest scope that exists for every operation, and read-only
+variants wherever the tool only reads:
+
+   - admin.directory.group.readonly, admin.directory.customer.readonly and
+     chrome.management.profiles.readonly are already the read-only variants. We
+     deliberately do not request admin.directory.customer, which would allow
+     writes we never make.
+   - admin.directory.orgunit.readonly was what this extension requested until
+     this version. It is not sufficient any more, because creating the two sub
+     organizational units is a write. Google publishes no scope that permits
+     creating an organizational unit without also permitting other directory
+     writes.
+   - cloud-identity.policies.readonly is not sufficient, because the tool must
+     create the DLP rules and detectors and, just as importantly, delete them
+     again during rollback. Google publishes no scope limited to DLP policy
+     types.
+   - chrome.management.policy has no read-only counterpart that still permits
+     applying a policy, and applying policy is the core function of the
+     product.
+   - apps.licensing has no read-only variant.
+   - cloud-platform is the case where no narrower scope exists at all. The
+     deployment spans eight Google Cloud services, and Google does not publish
+     a scope that covers a subset of them. Rather than accept that breadth at
+     face value, the extension reduces it at the layer below OAuth: it creates
+     a dedicated deployer service account holding a project-scoped custom role,
+     and every mutation to Google Cloud is executed as that service account
+     through short-lived impersonated tokens, not with the administrator's own
+     authority. The administrator's token is used only to mint those tokens and
+     to call the Workspace APIs above, which do not accept service-account
+     identities.
+
+The extension requests no content scripts, no tabs, no webRequest and no
+cookies access, and never reads or modifies any web page. Its content security
+policy restricts all network access to https://*.googleapis.com and forbids
+remote code. The complete source is published at
+https://github.com/dymzd/Google under secure-gateway-studio/, and the packaged
+extension is byte-reproducible from it, so every claim above can be checked
+against the code rather than taken on trust.
+
 ### Demo video
 
 Verification requires a recording that shows each sensitive scope in use.
@@ -260,6 +353,32 @@ Cover, in order:
 | Terms of service | optional; the repository licence covers use |
 
 ---
+
+### Hosting the privacy policy
+
+Any public URL is acceptable in principle, but the three GitHub options are not
+equally safe:
+
+| Option | Store review | OAuth verification | Notes |
+|---|---|---|---|
+| **GitHub Pages** (`dymzd.github.io/Google/privacy`) | fine | fine | Renders as a real page, and the domain can be verified in Search Console as a URL-prefix property, which OAuth verification asks for. **Use this.** |
+| Repository blob (`github.com/dymzd/Google/blob/main/...`) | usually fine | risky | It is a code-viewer page wrapped in GitHub's UI, on a domain you cannot verify ownership of. Reviewers have rejected this. |
+| Raw (`raw.githubusercontent.com/...`) | risky | risky | Serves as `text/plain`, so it reads as a file rather than a policy page. Avoid. |
+
+To publish with Pages:
+
+1. Repository Settings, then Pages, and set the source to the `main` branch.
+2. Copy `secure-gateway-studio/extension/PRIVACY_POLICY.md` to `docs/privacy.md`
+   at the repository root (Pages serves `/docs`), or enable Pages on the whole
+   branch and link to the file directly.
+3. Confirm the published URL loads in a private window, with no sign-in.
+4. Add that same domain as a URL-prefix property in Google Search Console and
+   verify it. OAuth verification checks that the homepage and privacy policy
+   are on a domain associated with the project.
+
+Whichever you choose, the homepage URL and the privacy policy URL should sit on
+the same domain. Mixing `github.com` for one and `github.io` for the other is a
+common cause of a verification round-trip.
 
 ## 5. Screenshots and images
 
