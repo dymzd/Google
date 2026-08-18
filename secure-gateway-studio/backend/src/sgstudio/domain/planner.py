@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
+from typing import Literal
 
+from sgstudio.domain.canonical import canonical_digest
 from sgstudio.domain.models import (
     BackendKind,
     CertificateStrategy,
@@ -186,13 +186,49 @@ REQUIRED_PERMISSIONS = {
 def canonical_configuration_hash(spec: DeploymentSpec) -> str:
     payload = spec.model_dump(mode="json", exclude_none=True)
     payload["platforms"] = sorted(payload["platforms"])
-    canonical = json.dumps(
-        payload,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
+    return canonical_digest(payload)
+
+
+def _global_access_status(
+    spec: DeploymentSpec, snapshot: DiscoverySnapshot
+) -> Literal["pass", "pending", "blocked"]:
+    if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
+        return "pass"
+    if spec.application_egress_region is not None:
+        return "pass"
+    if snapshot.application_global_access is True:
+        return "pass"
+    if snapshot.application_global_access is False:
+        return "blocked"
+    return "pending"
+
+
+def _global_access_detail(spec: DeploymentSpec, snapshot: DiscoverySnapshot) -> str:
+    if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
+        return "Only direct private HTTPS applications reach a regional load balancer."
+    if spec.application_egress_region is not None:
+        return (
+            "An explicit egress region pins Secure Gateway traffic to "
+            f"{spec.application_egress_region}, so Global Access is not required."
+        )
+    if snapshot.application_global_access is True:
+        rule = snapshot.application_forwarding_rule or "the matcher forwarding rule"
+        return f"Global Access is enabled on {rule}."
+    if snapshot.application_global_access is False:
+        rule = snapshot.application_forwarding_rule or "the matcher forwarding rule"
+        return (
+            f"Global Access is disabled on {rule} and no egress region is set. "
+            "A regional internal load balancer refuses traffic arriving from "
+            "another region, so Secure Gateway connections will time out. Either "
+            "enable Global Access on the frontend, or set an egress region that "
+            "matches the load balancer."
+        )
+    return (
+        f"{spec.application_hostname} did not resolve to a forwarding rule in this "
+        "project, so Global Access could not be checked. If the target is a "
+        "regional internal load balancer, confirm that Global Access is enabled "
+        "or set an egress region before Apply."
     )
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def required_apis(spec: DeploymentSpec) -> set[str]:
@@ -211,13 +247,7 @@ def certificate_configuration_hash(spec: DeploymentSpec) -> str:
         "ca_name": str(spec.ca_name) if spec.ca_name else None,
         "public_certificate_secret": spec.public_certificate_secret,
     }
-    canonical = json.dumps(
-        payload,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    return canonical_digest(payload)
 
 
 def required_permissions(spec: DeploymentSpec) -> set[str]:
@@ -232,6 +262,12 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             or permission.startswith("logging.")
             or permission == "accesscontextmanager.accessLevels.get"
             or permission in {"compute.networks.get", "compute.networks.use"}
+        } | {
+            # Path B owns no forwarding rule, but resolving the matcher address
+            # to one is how the Global Access gate avoids the guide's most
+            # common Path B failure. Path A already knows its rule by name and
+            # needs only `get`.
+            "compute.forwardingRules.list"
         }
     if spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB:
         permissions -= {
@@ -1560,6 +1596,21 @@ class DesiredStatePlanner:
                     "Apply. For direct HTTPS, allow 136.124.16.0/20 and configure its return "
                     "route. Cross-cloud VPN and Interconnect creation is outside this PoC."
                 ),
+            ),
+            DeploymentGate(
+                gate_id="global-access",
+                title="Regional load balancer global access",
+                status=_global_access_status(spec, snapshot),
+                # Blocking only when the forwarding rule was resolved and Global
+                # Access is definitively off. An FQDN matcher, a GKE ingress, or
+                # a non-GCP backend cannot be resolved, and those are supported
+                # Path B targets rather than failures.
+                blocking=(
+                    spec.backend_kind is BackendKind.DIRECT_HTTPS
+                    and spec.application_egress_region is None
+                    and snapshot.application_global_access is False
+                ),
+                detail=_global_access_detail(spec, snapshot),
             ),
             DeploymentGate(
                 gate_id="test-ou",

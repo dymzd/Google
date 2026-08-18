@@ -154,6 +154,16 @@ class DeploymentSpec(BaseModel):
         default=None,
         pattern=r"^[a-z]+-[a-z]+[0-9]$",
     )
+    # Path B only. The guide's worked example places the upstream VPC in a
+    # different project from the gateway, and grants the delegating service
+    # account roles/beyondcorp.upstreamAccess in *that* project. Left unset the
+    # deployment project is used, which is the single-project case.
+    upstream_vpc_project_id: str | None = Field(
+        default=None,
+        min_length=6,
+        max_length=30,
+        pattern=r"^[a-z][a-z0-9-]+$",
+    )
     ca_pool: str | None = Field(default=None, max_length=500)
     ca_name: str | None = Field(default=None, max_length=500)
     public_certificate_secret: str | None = Field(default=None, max_length=500)
@@ -249,6 +259,14 @@ class DeploymentSpec(BaseModel):
             and self.network_strategy is not NetworkStrategy.EXISTING
         ):
             raise ValueError("Direct HTTPS requires the existing VPC that reaches the app")
+        if (
+            self.upstream_vpc_project_id is not None
+            and self.backend_kind is not BackendKind.DIRECT_HTTPS
+        ):
+            raise ValueError(
+                "upstream_vpc_project_id applies only to direct private HTTPS, where "
+                "the VPC may belong to another project"
+            )
 
         if (
             self.backend_kind is not BackendKind.DIRECT_HTTPS
@@ -362,6 +380,11 @@ class DeploymentSpec(BaseModel):
         return self
 
     @property
+    def upstream_project_id(self) -> str:
+        """Project owning the upstream VPC; the deployment project by default."""
+        return self.upstream_vpc_project_id or self.project_id
+
+    @property
     def application_hostname(self) -> str:
         if self.backend_kind is BackendKind.DIRECT_HTTPS and self.existing_backend_url:
             return str(urlsplit(self.existing_backend_url).hostname).lower()
@@ -429,6 +452,12 @@ class DiscoverySnapshot(BaseModel):
     chrome_root_store_config_count: int | None = Field(default=None, ge=0)
     chrome_root_store_config_names: list[str] = Field(default_factory=list)
     chrome_root_store_enabled: bool | None = None
+    # Path B only. True or False when the matcher address resolved to a
+    # forwarding rule and its Global Access setting could be read; None when the
+    # target is not a discoverable GCP forwarding rule, which is legitimate for
+    # GKE ingresses, FQDN matchers, and non-GCP backends.
+    application_global_access: bool | None = None
+    application_forwarding_rule: str | None = None
 
 
 class PreflightDiagnostic(BaseModel):

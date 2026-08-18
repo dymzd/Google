@@ -1,0 +1,71 @@
+{
+  "manifest_version": 3,
+  "name": "Secure Gateway Studio",
+  "version": "0.1.6",
+  "description": "Plan and apply Chrome Enterprise Premium Secure Gateway deployments against your own Google Cloud project.",
+  "minimum_chrome_version": "142",
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": [
+    "identity",
+    "identity.email",
+    "storage",
+    "alarms",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://accesscontextmanager.googleapis.com/*",
+    "https://admin.googleapis.com/*",
+    "https://beyondcorp.googleapis.com/*",
+    "https://chromemanagement.googleapis.com/*",
+    "https://chromepolicy.googleapis.com/*",
+    "https://cloudbilling.googleapis.com/*",
+    "https://cloudidentity.googleapis.com/*",
+    "https://cloudresourcemanager.googleapis.com/*",
+    "https://compute.googleapis.com/*",
+    "https://dns.googleapis.com/*",
+    "https://iam.googleapis.com/*",
+    "https://iamcredentials.googleapis.com/*",
+    "https://licensing.googleapis.com/*",
+    "https://logging.googleapis.com/*",
+    "https://privateca.googleapis.com/*",
+    "https://secretmanager.googleapis.com/*",
+    "https://serviceusage.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "414812060045-iglmi996pf852aivcd417iqru5iug3ep.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/admin.directory.group.readonly",
+      "https://www.googleapis.com/auth/admin.directory.orgunit",
+      "https://www.googleapis.com/auth/admin.directory.customer.readonly",
+      "https://www.googleapis.com/auth/cloud-identity.policies",
+      "https://www.googleapis.com/auth/cloud-platform",
+      "https://www.googleapis.com/auth/chrome.management.policy",
+      "https://www.googleapis.com/auth/chrome.management.profiles.readonly",
+      "https://www.googleapis.com/auth/apps.licensing"
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src https://*.googleapis.com; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  },
+  "action": {
+    "default_title": "Secure Gateway Studio",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

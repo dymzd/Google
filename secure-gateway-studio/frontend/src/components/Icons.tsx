@@ -207,3 +207,22 @@ export function CodeIcon(props: IconProps) {
     </IconBase>
   );
 }
+
+export function CheckCircleIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" {...strokeProps} />
+      <path d="m8.5 12 2.3 2.3 4.7-4.7" {...strokeProps} />
+    </IconBase>
+  );
+}
+
+export function ExclamationCircleIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" {...strokeProps} />
+      <path d="M12 8v4M12 16h.01" {...strokeProps} />
+    </IconBase>
+  );
+}
+

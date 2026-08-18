@@ -5,11 +5,13 @@ on:
     paths:
       - "secure-gateway-studio/**"
       - "docs/CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md"
+      - "docs/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md"
       - ".github/workflows/secure-gateway-studio-ci.yml"
   push:
     paths:
       - "secure-gateway-studio/**"
       - "docs/CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md"
+      - "docs/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md"
       - ".github/workflows/secure-gateway-studio-ci.yml"
   workflow_dispatch:
 
@@ -43,6 +45,105 @@ jobs:
         run: uv run ruff check src tests
       - name: Test
         run: uv run pytest --cov=sgstudio --cov-report=term-missing --cov-fail-under=75
+
+  extension-parity:
+    name: Extension parity with the Python reference
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      # The domain parity checks all passed while the wizard could not get past
+      # its first step: nothing verified that the UI's endpoints were reachable.
+      # This is that check.
+      - name: Endpoint coverage
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-routes.ts
+      # Parity checks compare a working system against a reference; they say
+      # nothing about reaching the working state. A new operator has no deployer
+      # service account, and every step up to bootstrap has to work without one.
+      - name: Cold-start ordering
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-coldstart.ts
+      # Every approval binding, configuration hash, and audit chain entry is
+      # the digest of a canonical JSON string. The extension port must produce
+      # byte-identical output to the Python reference, or the two disagree
+      # silently rather than failing. The golden set is the shared contract.
+      - name: Canonicalisation parity
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-canonical.ts
+      # Approvals bind to configuration_hash. A spec that serialises differently
+      # in the extension produces plans the Python implementation refuses.
+      - name: Specification and configuration-hash parity
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-spec.ts
+      # Mutations must run as the least-privilege deployer service account, not
+      # as the signed-in administrator. Losing that hop would widen the blast
+      # radius relative to the local application.
+      - name: Authentication and impersonation contract
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-auth.ts
+      # Exported evidence is verified by whichever implementation reads it, so
+      # the chain written from IndexedDB must match the Python one exactly.
+      - name: Audit chain parity and tamper detection
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-audit.ts
+      - name: Planner parity (Path B)
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-planner.ts
+      # Request-sequence parity is what catches a reordered IAM read/write, a
+      # dropped etag, or the wrong project in an upstream network path.
+      - name: Executor request-sequence parity (Path B)
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-executor.ts
+      # A probe the extension skips is an existing resource it will try to
+      # create; a snapshot field it gets wrong changes whether a gate passes.
+      - name: Discovery request and snapshot parity (Path B)
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-discovery.ts
+      # Apply must complete exactly once even when the service worker is torn
+      # down mid-operation, which under Manifest V3 is routine rather than rare.
+      - name: Crash-resume behaviour
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-resume.ts
+      # The CSR is assembled from DER by hand rather than by a PKI library, so
+      # the check parses it back and verifies the signature: a malformed CSR
+      # would be rejected by CA Service at Apply, long after approval.
+      - name: Certificate and CSR encoding
+        working-directory: secure-gateway-studio
+        run: node --experimental-strip-types extension/scripts/verify-certificates.ts
+
+  generated-constants:
+    name: Generated constants are in sync
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: secure-gateway-studio/backend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install locked Python environment
+        run: |
+          python -m pip install --disable-pip-version-check uv==0.12.0
+          uv sync --locked --extra dev
+      # The API and permission sets are generated into the extension rather than
+      # transcribed. A hand-edit here would produce a deployer role wrong in
+      # exactly one way, surfacing during Apply rather than in a test.
+      - name: Regenerate and diff
+        run: |
+          uv run python tests/fixtures/planner/emit_constants.py
+          uv run python tests/fixtures/executor/emit_startup_scripts.py
+          git diff --exit-code ../extension/src/domain/constants.generated.ts
+          git diff --exit-code ../extension/src/providers/startup-scripts.generated.ts
 
   frontend:
     name: Frontend tests, build, and audit

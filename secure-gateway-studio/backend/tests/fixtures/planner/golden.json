@@ -1,0 +1,3649 @@
+{
+  "cases": [
+    {
+      "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
+      "name": "path-b-minimal",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "private-app-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default",
+              "compute:network:private-app-vpc",
+              "cloudresourcemanager:project_iam:secure-gateway-http-offload-upstream-access"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "Direct private HTTPS matcher 10.20.0.10:8443 through VPC private-app-vpc"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "Direct HTTPS creates no Nginx VM, so no source image is required.",
+            "gate_id": "immutable-image",
+            "status": "pass",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "The HTTPS application uses a publicly trusted certificate.",
+            "gate_id": "chrome-root-store",
+            "status": "pass",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Direct HTTPS creates no VM and requires no package egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The operator confirmed that the selected VPC resolves and routes 10.20.0.10:8443, permits ingress from 136.124.16.0/20, and provides a return path. Secure Gateway connects directly to the HTTPS app; no Nginx resources are created.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "10.20.0.10 did not resolve to a forwarding rule in this project, so Global Access could not be checked. If the target is a regional internal load balancer, confirm that Global Access is enabled or set an egress region before Apply.",
+            "gate_id": "global-access",
+            "status": "pending",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "12 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "25 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: private-app-vpc, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.forwardingRules.list",
+        "compute.networks.get",
+        "compute.networks.use",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": null,
+        "application_global_access": null,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "direct_https",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "public_trusted",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": true,
+        "existing_backend_location": "gcp",
+        "existing_backend_url": "https://10.20.0.10:8443",
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "chromeos",
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "vpc_name": "private-app-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
+      "name": "path-b-global-access-enabled",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "private-app-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default",
+              "compute:network:private-app-vpc",
+              "cloudresourcemanager:project_iam:secure-gateway-http-offload-upstream-access"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "Direct private HTTPS matcher 10.20.0.10:8443 through VPC private-app-vpc"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "Direct HTTPS creates no Nginx VM, so no source image is required.",
+            "gate_id": "immutable-image",
+            "status": "pass",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "The HTTPS application uses a publicly trusted certificate.",
+            "gate_id": "chrome-root-store",
+            "status": "pass",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Direct HTTPS creates no VM and requires no package egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The operator confirmed that the selected VPC resolves and routes 10.20.0.10:8443, permits ingress from 136.124.16.0/20, and provides a return path. Secure Gateway connects directly to the HTTPS app; no Nginx resources are created.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "Global Access is enabled on app-ilb-fr.",
+            "gate_id": "global-access",
+            "status": "pass",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "12 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "25 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: private-app-vpc, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.forwardingRules.list",
+        "compute.networks.get",
+        "compute.networks.use",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": "app-ilb-fr",
+        "application_global_access": true,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "direct_https",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "public_trusted",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": true,
+        "existing_backend_location": "gcp",
+        "existing_backend_url": "https://10.20.0.10:8443",
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "chromeos",
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "vpc_name": "private-app-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
+      "name": "path-b-global-access-disabled-blocks",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "private-app-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default",
+              "compute:network:private-app-vpc",
+              "cloudresourcemanager:project_iam:secure-gateway-http-offload-upstream-access"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "Direct private HTTPS matcher 10.20.0.10:8443 through VPC private-app-vpc"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "0ce2a515cd15bfeb85f34244e47f58cab730fac2e29eddf948abe3dcba066dd7",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "Direct HTTPS creates no Nginx VM, so no source image is required.",
+            "gate_id": "immutable-image",
+            "status": "pass",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "The HTTPS application uses a publicly trusted certificate.",
+            "gate_id": "chrome-root-store",
+            "status": "pass",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Direct HTTPS creates no VM and requires no package egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The operator confirmed that the selected VPC resolves and routes 10.20.0.10:8443, permits ingress from 136.124.16.0/20, and provides a return path. Secure Gateway connects directly to the HTTPS app; no Nginx resources are created.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": true,
+            "detail": "Global Access is disabled on app-ilb-fr and no egress region is set. A regional internal load balancer refuses traffic arriving from another region, so Secure Gateway connections will time out. Either enable Global Access on the frontend, or set an egress region that matches the load balancer.",
+            "gate_id": "global-access",
+            "status": "blocked",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "12 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "25 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: private-app-vpc, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.forwardingRules.list",
+        "compute.networks.get",
+        "compute.networks.use",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": "app-ilb-fr",
+        "application_global_access": false,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "direct_https",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "public_trusted",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": true,
+        "existing_backend_location": "gcp",
+        "existing_backend_url": "https://10.20.0.10:8443",
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "chromeos",
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "vpc_name": "private-app-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "51ec14e4d402165273cf582574bbe7b15dfca67cc53a32d70a6bd6547d8c3451",
+      "name": "path-b-egress-region-pins-region",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "private-app-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default",
+              "compute:network:private-app-vpc",
+              "cloudresourcemanager:project_iam:secure-gateway-http-offload-upstream-access"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "Direct private HTTPS matcher 10.20.0.10:8443 through VPC private-app-vpc"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "51ec14e4d402165273cf582574bbe7b15dfca67cc53a32d70a6bd6547d8c3451",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "Direct HTTPS creates no Nginx VM, so no source image is required.",
+            "gate_id": "immutable-image",
+            "status": "pass",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "The HTTPS application uses a publicly trusted certificate.",
+            "gate_id": "chrome-root-store",
+            "status": "pass",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Direct HTTPS creates no VM and requires no package egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The operator confirmed that the selected VPC resolves and routes 10.20.0.10:8443, permits ingress from 136.124.16.0/20, and provides a return path. Secure Gateway connects directly to the HTTPS app; no Nginx resources are created.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "An explicit egress region pins Secure Gateway traffic to asia-east1, so Global Access is not required.",
+            "gate_id": "global-access",
+            "status": "pass",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "12 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "25 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: private-app-vpc, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.forwardingRules.list",
+        "compute.networks.get",
+        "compute.networks.use",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": null,
+        "application_global_access": false,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "application_egress_region": "asia-east1",
+        "backend_kind": "direct_https",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "public_trusted",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": true,
+        "existing_backend_location": "gcp",
+        "existing_backend_url": "https://10.20.0.10:8443",
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "chromeos",
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "vpc_name": "private-app-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "a316c546b010bc1e3faa2eec8ffac596439307bdbd350d772275de6bc8f704d6",
+      "name": "path-b-cross-project-upstream",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "private-app-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default",
+              "compute:network:private-app-vpc",
+              "cloudresourcemanager:project_iam:secure-gateway-http-offload-upstream-access"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "Direct private HTTPS matcher 10.20.0.10:8443 through VPC private-app-vpc"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "a316c546b010bc1e3faa2eec8ffac596439307bdbd350d772275de6bc8f704d6",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "Direct HTTPS creates no Nginx VM, so no source image is required.",
+            "gate_id": "immutable-image",
+            "status": "pass",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "The HTTPS application uses a publicly trusted certificate.",
+            "gate_id": "chrome-root-store",
+            "status": "pass",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Direct HTTPS creates no VM and requires no package egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The operator confirmed that the selected VPC resolves and routes 10.20.0.10:8443, permits ingress from 136.124.16.0/20, and provides a return path. Secure Gateway connects directly to the HTTPS app; no Nginx resources are created.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "10.20.0.10 did not resolve to a forwarding rule in this project, so Global Access could not be checked. If the target is a regional internal load balancer, confirm that Global Access is enabled or set an egress region before Apply.",
+            "gate_id": "global-access",
+            "status": "pending",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "12 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "25 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: private-app-vpc, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.forwardingRules.list",
+        "compute.networks.get",
+        "compute.networks.use",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": null,
+        "application_global_access": null,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "direct_https",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "public_trusted",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": true,
+        "existing_backend_location": "gcp",
+        "existing_backend_url": "https://10.20.0.10:8443",
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "chromeos",
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "upstream_vpc_project_id": "shared-network-prj",
+        "vpc_name": "private-app-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "a49a50d930c931c88bf20a4abcd2a7a4681b7de225a19bf6f17bc23eedaaceb0",
+      "name": "path-b-fqdn-matcher-unresolvable",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "private-app-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default",
+              "compute:network:private-app-vpc",
+              "cloudresourcemanager:project_iam:secure-gateway-http-offload-upstream-access"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "Direct private HTTPS matcher app.corp.internal:8443 through VPC private-app-vpc"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "a49a50d930c931c88bf20a4abcd2a7a4681b7de225a19bf6f17bc23eedaaceb0",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "Direct HTTPS creates no Nginx VM, so no source image is required.",
+            "gate_id": "immutable-image",
+            "status": "pass",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "The HTTPS application uses a publicly trusted certificate.",
+            "gate_id": "chrome-root-store",
+            "status": "pass",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Direct HTTPS creates no VM and requires no package egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The operator confirmed that the selected VPC resolves and routes app.corp.internal:8443, permits ingress from 136.124.16.0/20, and provides a return path. Secure Gateway connects directly to the HTTPS app; no Nginx resources are created.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "app.corp.internal did not resolve to a forwarding rule in this project, so Global Access could not be checked. If the target is a regional internal load balancer, confirm that Global Access is enabled or set an egress region before Apply.",
+            "gate_id": "global-access",
+            "status": "pending",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "12 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "25 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: private-app-vpc, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.forwardingRules.list",
+        "compute.networks.get",
+        "compute.networks.use",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": null,
+        "application_global_access": null,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "direct_https",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "public_trusted",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": true,
+        "existing_backend_location": "gcp",
+        "existing_backend_url": "https://app.corp.internal:8443",
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "chromeos",
+          "linux",
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "vpc_name": "private-app-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "540e85b56234fff3c93bd442b6e93ad4faa126e4cc420ac26038cb1efbe78a4d",
+      "name": "path-a-poc-local-ca",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-vpc",
+            "resource_type": "network",
+            "risk": "medium",
+            "summary": "Dedicated custom-mode VPC"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "compute:network:secure-gateway-http-offload-vpc"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-subnet",
+            "resource_type": "subnetwork",
+            "risk": "medium",
+            "summary": "Private subnet in asia-east1"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "compute:subnetwork:secure-gateway-http-offload-subnet"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-router",
+            "resource_type": "router",
+            "risk": "medium",
+            "summary": "Dedicated Cloud Router for private egress"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "compute:subnetwork:secure-gateway-http-offload-subnet",
+              "compute:router:secure-gateway-http-offload-router"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-nat",
+            "resource_type": "cloud_nat",
+            "risk": "medium",
+            "summary": "Private package egress with no VM external IPs"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "iam",
+            "resource_name": "secure-gateway-cd03d7-offload",
+            "resource_type": "service_account",
+            "risk": "low",
+            "summary": "Dedicated identity for the HTTPS offload VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-offload-ip",
+            "resource_type": "internal_address",
+            "risk": "medium",
+            "summary": "Stable private address for the HTTPS offload VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "secretmanager",
+            "resource_name": "secure-gateway-http-offload-tls",
+            "resource_type": "secret",
+            "risk": "high",
+            "summary": "TLS material readable only by the offload identity"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "secretmanager:secret:secure-gateway-http-offload-tls"
+            ],
+            "owned_after_apply": true,
+            "provider": "secretmanager",
+            "resource_name": "secure-gateway-http-offload-tls",
+            "resource_type": "secret_version",
+            "risk": "high",
+            "summary": "Validated certificate chain and private key payload"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "secretmanager:secret_version:secure-gateway-http-offload-tls"
+            ],
+            "owned_after_apply": true,
+            "provider": "local",
+            "resource_name": "secure-gateway-http-offload-poc-root",
+            "resource_type": "root_certificate_artifact",
+            "risk": "high",
+            "summary": "Public PoC root certificate for Admin console trust upload"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "secretmanager:secret:secure-gateway-http-offload-tls",
+              "iam:service_account:secure-gateway-cd03d7-offload"
+            ],
+            "owned_after_apply": true,
+            "provider": "secretmanager",
+            "resource_name": "secure-gateway-http-offload-tls-accessor",
+            "resource_type": "secret_iam",
+            "risk": "high",
+            "summary": "Grant Secret Accessor only to the offload service account"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "iam",
+            "resource_name": "secure-gateway-cd03d7-backend",
+            "resource_type": "service_account",
+            "risk": "low",
+            "summary": "Dedicated identity for the HTTP backend VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-backend-ip",
+            "resource_type": "internal_address",
+            "risk": "medium",
+            "summary": "Stable private address for the sample backend"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "iam:service_account:secure-gateway-cd03d7-backend",
+              "compute:internal_address:secure-gateway-http-offload-backend-ip"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-backend",
+            "resource_type": "instance",
+            "risk": "medium",
+            "summary": "Private HTTP sample backend with no external IP"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "iam:service_account:secure-gateway-cd03d7-offload",
+              "iam:service_account:secure-gateway-cd03d7-backend"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-backend-ingress",
+            "resource_type": "firewall_rule",
+            "risk": "high",
+            "summary": "Allow only the offload service identity to backend TCP 80"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "iam:service_account:secure-gateway-cd03d7-offload",
+              "secretmanager:secret:secure-gateway-http-offload-tls",
+              "secretmanager:secret_iam:secure-gateway-http-offload-tls-accessor",
+              "compute:internal_address:secure-gateway-http-offload-offload-ip"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-offload",
+            "resource_type": "instance",
+            "risk": "medium",
+            "summary": "Private Nginx HTTPS-to-HTTP offload VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "compute:instance:secure-gateway-http-offload-offload"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-gateway-ingress",
+            "resource_type": "firewall_rule",
+            "risk": "high",
+            "summary": "Allow 136.124.16.0/20 to offload TCP 443 only"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "dns",
+            "resource_name": "secure-gateway-http-offload-zone",
+            "resource_type": "private_zone",
+            "risk": "medium",
+            "summary": "Private DNS authority for demo-server-http.internal"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "dns:private_zone:secure-gateway-http-offload-zone",
+              "compute:internal_address:secure-gateway-http-offload-offload-ip"
+            ],
+            "owned_after_apply": true,
+            "provider": "dns",
+            "resource_name": "demo-server-http.internal",
+            "resource_type": "record_set",
+            "risk": "medium",
+            "summary": "Private A record pointing to the stable offload address"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "HTTPS application matcher demo-server-http.internal:443"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "540e85b56234fff3c93bd442b6e93ad4faa126e4cc420ac26038cb1efbe78a4d",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "PoC uses the current Debian 12 image family.",
+            "gate_id": "immutable-image",
+            "status": "pending",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "After Apply, upload the generated PoC root in Chrome Root Store and connect the configuration to the selected test OU. Public APIs cannot attest this handoff; verify it with the platform-specific T07 HTTPS test.",
+            "gate_id": "chrome-root-store",
+            "status": "pending",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud NAT is included in the desired state.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The managed sample backend is created inside the deployment VPC.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "Only direct private HTTPS applications reach a regional load balancer.",
+            "gate_id": "global-access",
+            "status": "pass",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "17 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "83 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "dns.googleapis.com",
+        "iam.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "iap.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "privateca.googleapis.com",
+        "secretmanager.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.addresses.create",
+        "compute.addresses.createInternal",
+        "compute.addresses.delete",
+        "compute.addresses.deleteInternal",
+        "compute.addresses.get",
+        "compute.addresses.use",
+        "compute.addresses.useInternal",
+        "compute.disks.create",
+        "compute.firewalls.create",
+        "compute.firewalls.delete",
+        "compute.firewalls.get",
+        "compute.globalOperations.get",
+        "compute.images.get",
+        "compute.images.useReadOnly",
+        "compute.instanceTemplates.useReadOnly",
+        "compute.instances.create",
+        "compute.instances.delete",
+        "compute.instances.get",
+        "compute.instances.getGuestAttributes",
+        "compute.instances.setLabels",
+        "compute.instances.setMetadata",
+        "compute.instances.setServiceAccount",
+        "compute.instances.setTags",
+        "compute.instances.start",
+        "compute.instances.stop",
+        "compute.networks.create",
+        "compute.networks.delete",
+        "compute.networks.get",
+        "compute.networks.updatePolicy",
+        "compute.networks.use",
+        "compute.regionOperations.get",
+        "compute.routers.create",
+        "compute.routers.delete",
+        "compute.routers.get",
+        "compute.routers.list",
+        "compute.routers.update",
+        "compute.subnetworks.create",
+        "compute.subnetworks.delete",
+        "compute.subnetworks.get",
+        "compute.subnetworks.use",
+        "compute.zoneOperations.get",
+        "dns.changes.create",
+        "dns.managedZones.create",
+        "dns.managedZones.delete",
+        "dns.managedZones.get",
+        "dns.networks.bindPrivateDNSZone",
+        "dns.resourceRecordSets.create",
+        "dns.resourceRecordSets.delete",
+        "dns.resourceRecordSets.get",
+        "iam.serviceAccounts.actAs",
+        "iam.serviceAccounts.create",
+        "iam.serviceAccounts.delete",
+        "iam.serviceAccounts.get",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "secretmanager.secrets.create",
+        "secretmanager.secrets.delete",
+        "secretmanager.secrets.get",
+        "secretmanager.secrets.getIamPolicy",
+        "secretmanager.secrets.setIamPolicy",
+        "secretmanager.secrets.update",
+        "secretmanager.versions.add",
+        "secretmanager.versions.disable",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": null,
+        "application_global_access": null,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": null,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "managed_sample",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "local_poc",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": false,
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "dedicated",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    },
+    {
+      "configuration_hash": "ce7d4ce0cea407d68da6a16a89ec5f9fd50b83089ee1ea0c81473b530cae3a46",
+      "name": "path-a-existing-vpc",
+      "plan": {
+        "can_apply": false,
+        "changes": [
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "serviceusage",
+            "resource_name": "required-apis",
+            "resource_type": "project_services",
+            "risk": "high",
+            "summary": "Enable the explicit Secure Gateway API allowlist"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "shared-vpc",
+            "resource_type": "network",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed VPC"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [
+              "compute:network:shared-vpc"
+            ],
+            "owned_after_apply": false,
+            "provider": "compute",
+            "resource_name": "offload-subnet",
+            "resource_type": "subnetwork",
+            "risk": "blocking",
+            "summary": "Existing administrator-managed subnet"
+          },
+          {
+            "action": "conflict",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "accesscontextmanager",
+            "resource_name": "accessPolicies/123456789/accessLevels/managed_chrome",
+            "resource_type": "access_level",
+            "risk": "blocking",
+            "summary": "Existing access level requiring a managed Chrome profile or browser"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "iam",
+            "resource_name": "secure-gateway-cd03d7-offload",
+            "resource_type": "service_account",
+            "risk": "low",
+            "summary": "Dedicated identity for the HTTPS offload VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-offload-ip",
+            "resource_type": "internal_address",
+            "risk": "medium",
+            "summary": "Stable private address for the HTTPS offload VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "secretmanager",
+            "resource_name": "secure-gateway-http-offload-tls",
+            "resource_type": "secret",
+            "risk": "high",
+            "summary": "TLS material readable only by the offload identity"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "secretmanager:secret:secure-gateway-http-offload-tls"
+            ],
+            "owned_after_apply": true,
+            "provider": "secretmanager",
+            "resource_name": "secure-gateway-http-offload-tls",
+            "resource_type": "secret_version",
+            "risk": "high",
+            "summary": "Validated certificate chain and private key payload"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "secretmanager:secret_version:secure-gateway-http-offload-tls"
+            ],
+            "owned_after_apply": true,
+            "provider": "local",
+            "resource_name": "secure-gateway-http-offload-poc-root",
+            "resource_type": "root_certificate_artifact",
+            "risk": "high",
+            "summary": "Public PoC root certificate for Admin console trust upload"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "secretmanager:secret:secure-gateway-http-offload-tls",
+              "iam:service_account:secure-gateway-cd03d7-offload"
+            ],
+            "owned_after_apply": true,
+            "provider": "secretmanager",
+            "resource_name": "secure-gateway-http-offload-tls-accessor",
+            "resource_type": "secret_iam",
+            "risk": "high",
+            "summary": "Grant Secret Accessor only to the offload service account"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "iam",
+            "resource_name": "secure-gateway-cd03d7-backend",
+            "resource_type": "service_account",
+            "risk": "low",
+            "summary": "Dedicated identity for the HTTP backend VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-backend-ip",
+            "resource_type": "internal_address",
+            "risk": "medium",
+            "summary": "Stable private address for the sample backend"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "iam:service_account:secure-gateway-cd03d7-backend",
+              "compute:internal_address:secure-gateway-http-offload-backend-ip"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-backend",
+            "resource_type": "instance",
+            "risk": "medium",
+            "summary": "Private HTTP sample backend with no external IP"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "iam:service_account:secure-gateway-cd03d7-offload",
+              "iam:service_account:secure-gateway-cd03d7-backend"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-backend-ingress",
+            "resource_type": "firewall_rule",
+            "risk": "high",
+            "summary": "Allow only the offload service identity to backend TCP 80"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "iam:service_account:secure-gateway-cd03d7-offload",
+              "secretmanager:secret:secure-gateway-http-offload-tls",
+              "secretmanager:secret_iam:secure-gateway-http-offload-tls-accessor",
+              "compute:internal_address:secure-gateway-http-offload-offload-ip"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-offload",
+            "resource_type": "instance",
+            "risk": "medium",
+            "summary": "Private Nginx HTTPS-to-HTTP offload VM"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "compute:instance:secure-gateway-http-offload-offload"
+            ],
+            "owned_after_apply": true,
+            "provider": "compute",
+            "resource_name": "secure-gateway-http-offload-gateway-ingress",
+            "resource_type": "firewall_rule",
+            "risk": "high",
+            "summary": "Allow 136.124.16.0/20 to offload TCP 443 only"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": true,
+            "provider": "dns",
+            "resource_name": "secure-gateway-http-offload-zone",
+            "resource_type": "private_zone",
+            "risk": "medium",
+            "summary": "Private DNS authority for demo-server-http.internal"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "dns:private_zone:secure-gateway-http-offload-zone",
+              "compute:internal_address:secure-gateway-http-offload-offload-ip"
+            ],
+            "owned_after_apply": true,
+            "provider": "dns",
+            "resource_name": "demo-server-http.internal",
+            "resource_type": "record_set",
+            "risk": "medium",
+            "summary": "Private A record pointing to the stable offload address"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "beyondcorp",
+            "resource_name": "default",
+            "resource_type": "security_gateway",
+            "risk": "high",
+            "summary": "Service Discovery-enabled Secure Gateway"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "default-service-discovery-users",
+            "resource_type": "gateway_iam",
+            "risk": "high",
+            "summary": "Grant Service Discovery use to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "cloudresourcemanager",
+            "resource_name": "secure-gateway-http-offload-upstream-access",
+            "resource_type": "project_iam",
+            "risk": "high",
+            "summary": "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app",
+            "resource_type": "application",
+            "risk": "high",
+            "summary": "HTTPS application matcher demo-server-http.internal:443"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:application:secure-gateway-http-offload-app",
+              "accesscontextmanager:access_level:accessPolicies/123456789/accessLevels/managed_chrome"
+            ],
+            "owned_after_apply": true,
+            "provider": "beyondcorp",
+            "resource_name": "secure-gateway-http-offload-app-access",
+            "resource_type": "application_iam",
+            "risk": "high",
+            "summary": "Grant application access to the approved principal set"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install the Secure Enterprise Browser extension in the test OU"
+          },
+          {
+            "action": "create",
+            "dependencies": [],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "callobklhcbilhphinckomhgkigmfocg",
+            "resource_type": "extension_install",
+            "risk": "high",
+            "summary": "Force-install Endpoint Verification for managed Chrome signals"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "beyondcorp:security_gateway:default"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "ekajlcmdfcigmdbphhifahdfjbkciflj",
+            "resource_type": "extension_configuration",
+            "risk": "high",
+            "summary": "Configure the gateway resource and Service Discovery routes"
+          },
+          {
+            "action": "create",
+            "dependencies": [
+              "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
+            ],
+            "owned_after_apply": false,
+            "provider": "chromepolicy",
+            "resource_name": "03-test-ou",
+            "resource_type": "service_discovery_proxy",
+            "risk": "high",
+            "summary": "Override an inherited legacy PAC in the test OU for Service Discovery"
+          }
+        ],
+        "configuration_hash": "ce7d4ce0cea407d68da6a16a89ec5f9fd50b83089ee1ea0c81473b530cae3a46",
+        "destructive_change_count": 0,
+        "gates": [
+          {
+            "blocking": false,
+            "detail": "PoC uses the current Debian 12 image family.",
+            "gate_id": "immutable-image",
+            "status": "pending",
+            "title": "Immutable hardened image"
+          },
+          {
+            "blocking": true,
+            "detail": "Cloud Billing API must confirm an active billing association.",
+            "gate_id": "billing-enabled",
+            "status": "blocked",
+            "title": "Cloud billing"
+          },
+          {
+            "blocking": false,
+            "detail": "No Chrome Enterprise Premium assignment was detected.",
+            "gate_id": "enterprise-license",
+            "status": "pending",
+            "title": "Chrome Enterprise Premium license"
+          },
+          {
+            "blocking": false,
+            "detail": "After Apply, upload the generated PoC root in Chrome Root Store and connect the configuration to the selected test OU. Public APIs cannot attest this handoff; verify it with the platform-specific T07 HTTPS test.",
+            "gate_id": "chrome-root-store",
+            "status": "pending",
+            "title": "Chrome Root Store trust distribution"
+          },
+          {
+            "blocking": false,
+            "detail": "Additional Google services and Google Cloud access are enabled for target users.",
+            "gate_id": "workspace-services",
+            "status": "pending",
+            "title": "Workspace service prerequisites"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome profile reporting could not be verified by API.",
+            "gate_id": "managed-chrome-profile",
+            "status": "pending",
+            "title": "Managed Chrome profile reporting"
+          },
+          {
+            "blocking": false,
+            "detail": "No enabled Secure Enterprise Browser client was reported yet.",
+            "gate_id": "secure-enterprise-browser-client",
+            "status": "pending",
+            "title": "Secure Enterprise Browser client"
+          },
+          {
+            "blocking": false,
+            "detail": "Apply will force-install Endpoint Verification in the test OU.",
+            "gate_id": "endpoint-verification",
+            "status": "pending",
+            "title": "Endpoint Verification signals"
+          },
+          {
+            "blocking": true,
+            "detail": "Compute instances must remain private.",
+            "gate_id": "no-external-ips",
+            "status": "pass",
+            "title": "No external IPs"
+          },
+          {
+            "blocking": true,
+            "detail": "The existing VPC must provide a verified private egress path.",
+            "gate_id": "private-egress",
+            "status": "pass",
+            "title": "Private package egress"
+          },
+          {
+            "blocking": true,
+            "detail": "The managed sample backend is created inside the deployment VPC.",
+            "gate_id": "backend-connectivity",
+            "status": "pass",
+            "title": "Existing backend private connectivity"
+          },
+          {
+            "blocking": false,
+            "detail": "Only direct private HTTPS applications reach a regional load balancer.",
+            "gate_id": "global-access",
+            "status": "pass",
+            "title": "Regional load balancer global access"
+          },
+          {
+            "blocking": false,
+            "detail": "Chrome policy changes require prior validation in a test OU.",
+            "gate_id": "test-ou",
+            "status": "pass",
+            "title": "Dedicated test OU"
+          },
+          {
+            "blocking": true,
+            "detail": "Impersonate the dedicated service account with the required GCP permissions.",
+            "gate_id": "cloud-identity",
+            "status": "pending",
+            "title": "Keyless deployer identity"
+          },
+          {
+            "blocking": true,
+            "detail": "Assign the impersonated service account the required direct Chrome admin role.",
+            "gate_id": "workspace-identity",
+            "status": "pending",
+            "title": "Chrome-authorized deployer"
+          },
+          {
+            "blocking": true,
+            "detail": "17 APIs must be enabled during Apply.",
+            "gate_id": "required-apis",
+            "status": "pass",
+            "title": "Required APIs"
+          },
+          {
+            "blocking": true,
+            "detail": "76 required permissions are missing.",
+            "gate_id": "apply-permissions",
+            "status": "blocked",
+            "title": "Apply permissions"
+          },
+          {
+            "blocking": true,
+            "detail": "Conflicts: shared-vpc, offload-subnet, accessPolicies/123456789/accessLevels/managed_chrome",
+            "gate_id": "resource-conflicts",
+            "status": "blocked",
+            "title": "Resource conflicts"
+          },
+          {
+            "blocking": true,
+            "detail": "An authorized operator must approve the final redacted plan.",
+            "gate_id": "human-approval",
+            "status": "pending",
+            "title": "Explicit approval"
+          }
+        ],
+        "mode": "poc",
+        "plan_version": 1
+      },
+      "required_apis": [
+        "accesscontextmanager.googleapis.com",
+        "admin.googleapis.com",
+        "beyondcorp.googleapis.com",
+        "chromemanagement.googleapis.com",
+        "chromepolicy.googleapis.com",
+        "cloudbilling.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "dns.googleapis.com",
+        "iam.googleapis.com",
+        "iamcredentials.googleapis.com",
+        "iap.googleapis.com",
+        "licensing.googleapis.com",
+        "logging.googleapis.com",
+        "privateca.googleapis.com",
+        "secretmanager.googleapis.com",
+        "serviceusage.googleapis.com"
+      ],
+      "required_permissions": [
+        "accesscontextmanager.accessLevels.get",
+        "beyondcorp.operations.get",
+        "beyondcorp.securityGateways.create",
+        "beyondcorp.securityGateways.delete",
+        "beyondcorp.securityGateways.get",
+        "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.setIamPolicy",
+        "beyondcorp.securityGateways.update",
+        "beyondcorp.sgApplications.create",
+        "beyondcorp.sgApplications.delete",
+        "beyondcorp.sgApplications.get",
+        "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.setIamPolicy",
+        "compute.addresses.create",
+        "compute.addresses.createInternal",
+        "compute.addresses.delete",
+        "compute.addresses.deleteInternal",
+        "compute.addresses.get",
+        "compute.addresses.use",
+        "compute.addresses.useInternal",
+        "compute.disks.create",
+        "compute.firewalls.create",
+        "compute.firewalls.delete",
+        "compute.firewalls.get",
+        "compute.globalOperations.get",
+        "compute.images.get",
+        "compute.images.useReadOnly",
+        "compute.instanceTemplates.useReadOnly",
+        "compute.instances.create",
+        "compute.instances.delete",
+        "compute.instances.get",
+        "compute.instances.getGuestAttributes",
+        "compute.instances.setLabels",
+        "compute.instances.setMetadata",
+        "compute.instances.setServiceAccount",
+        "compute.instances.setTags",
+        "compute.instances.start",
+        "compute.instances.stop",
+        "compute.networks.get",
+        "compute.networks.updatePolicy",
+        "compute.networks.use",
+        "compute.regionOperations.get",
+        "compute.routers.get",
+        "compute.routers.list",
+        "compute.subnetworks.get",
+        "compute.subnetworks.use",
+        "compute.zoneOperations.get",
+        "dns.changes.create",
+        "dns.managedZones.create",
+        "dns.managedZones.delete",
+        "dns.managedZones.get",
+        "dns.networks.bindPrivateDNSZone",
+        "dns.resourceRecordSets.create",
+        "dns.resourceRecordSets.delete",
+        "dns.resourceRecordSets.get",
+        "iam.serviceAccounts.actAs",
+        "iam.serviceAccounts.create",
+        "iam.serviceAccounts.delete",
+        "iam.serviceAccounts.get",
+        "logging.logEntries.list",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+        "secretmanager.secrets.create",
+        "secretmanager.secrets.delete",
+        "secretmanager.secrets.get",
+        "secretmanager.secrets.getIamPolicy",
+        "secretmanager.secrets.setIamPolicy",
+        "secretmanager.secrets.update",
+        "secretmanager.versions.add",
+        "secretmanager.versions.disable",
+        "serviceusage.operations.get",
+        "serviceusage.services.enable",
+        "serviceusage.services.get",
+        "serviceusage.services.list",
+        "serviceusage.services.use"
+      ],
+      "snapshot": {
+        "application_forwarding_rule": null,
+        "application_global_access": null,
+        "billing_enabled": null,
+        "chrome_enterprise_premium_license_count": null,
+        "chrome_extension_group_conflicts": [],
+        "chrome_root_store_config_count": null,
+        "chrome_root_store_config_names": [],
+        "chrome_root_store_enabled": null,
+        "cloud_identity": null,
+        "conflicting_resource_keys": [],
+        "enabled_apis": [],
+        "endpoint_verification_installed": null,
+        "endpoint_verification_version": null,
+        "existing_resource_keys": [],
+        "granted_permissions": [],
+        "latest_chrome_policy_sync": null,
+        "managed_chrome_profile_count": null,
+        "private_egress_available": true,
+        "profile_only_count": null,
+        "secure_enterprise_browser_installed": null,
+        "secure_enterprise_browser_version": null,
+        "workspace_identity": null
+      },
+      "spec": {
+        "allow_external_ips": false,
+        "backend_kind": "managed_sample",
+        "certificate_lifetime_days": 90,
+        "certificate_strategy": "local_poc",
+        "chrome_enterprise_premium_license_confirmed": false,
+        "customer_id": "my_customer",
+        "endpoint_verification_confirmed": false,
+        "existing_backend_connectivity_confirmed": false,
+        "gateway_id": "default",
+        "locale": "en",
+        "managed_chrome_access_level": "accessPolicies/123456789/accessLevels/managed_chrome",
+        "mode": "poc",
+        "name": "secure-gateway-http-offload",
+        "network_strategy": "existing",
+        "offload_cpu_target": 0.6,
+        "offload_max_replicas": 20,
+        "offload_min_replicas": 2,
+        "platforms": [
+          "macos",
+          "windows"
+        ],
+        "principals": [
+          {
+            "type": "group",
+            "value": "secure-access@example.com"
+          }
+        ],
+        "private_hostname": "demo-server-http.internal",
+        "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
+        "region": "asia-east1",
+        "require_cloud_nat": true,
+        "require_human_approval": true,
+        "schema_version": 1,
+        "secondary_zone": "asia-east1-a",
+        "subnet_cidr": "10.42.0.0/24",
+        "subnet_name": "offload-subnet",
+        "target_ou_id": "03-test-ou",
+        "test_ou_confirmed": true,
+        "vpc_name": "shared-vpc",
+        "workspace_services_confirmed": false,
+        "zone": "asia-east1-c"
+      }
+    }
+  ],
+  "note": "Generated by generate.py. Verified by backend/tests/test_planner_golden.py and by the extension planner test. Do not hand-edit."
+}

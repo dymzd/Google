@@ -188,27 +188,41 @@ export function OperationsPage({ messages, view }: OperationsPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {runs.map((run) => (
-                    <tr key={run.run_id}>
-                      <td><code>{run.run_id.slice(0, 12)}</code></td>
-                      <td>
-                        <span className={`status-pill status-${run.status}`}>
-                          {run.status}
-                        </span>
-                      </td>
-                      <td>{new Date(run.started_at).toLocaleString()}</td>
-                      <td>{run.operations.length}</td>
-                      <td>
-                        <button
-                          className="table-action"
-                          onClick={() => setSelectedRunId(run.run_id)}
-                          type="button"
-                        >
-                          {copy.manage}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {runs.map((run) => {
+                    const statusText =
+                      run.status === "succeeded"
+                        ? copy.statusSucceeded || "Success"
+                        : run.status === "deleted" || run.status === "torn_down" || run.status === "clean"
+                          ? copy.statusDeleted || "Deleted"
+                          : run.status === "running"
+                            ? copy.statusRunning || "Running"
+                            : run.status === "pending"
+                              ? copy.statusPending || "Pending"
+                              : run.status === "failed"
+                                ? copy.statusFailed || "Failed"
+                                : run.status;
+                    return (
+                      <tr key={run.run_id}>
+                        <td><code>{run.run_id.slice(0, 12)}</code></td>
+                        <td>
+                          <span className={`status-pill status-${run.status}`}>
+                            {statusText}
+                          </span>
+                        </td>
+                        <td>{new Date(run.started_at).toLocaleString()}</td>
+                        <td>{run.operations.length}</td>
+                        <td>
+                          <button
+                            className="table-action"
+                            onClick={() => setSelectedRunId(run.run_id)}
+                            type="button"
+                          >
+                            {copy.manage}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -219,7 +233,10 @@ export function OperationsPage({ messages, view }: OperationsPageProps) {
       {!loading && !error && view === "deployments" && selectedRunId ? (
         <DeploymentManager
           copy={copy}
-          onClose={() => setSelectedRunId(null)}
+          onClose={() => {
+            setSelectedRunId(null);
+            void listDeploymentRuns().then(setRuns);
+          }}
           runId={selectedRunId}
         />
       ) : null}

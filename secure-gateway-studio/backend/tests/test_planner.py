@@ -9,7 +9,9 @@ from sgstudio.domain.models import (
     BackendLocation,
     CertificateStrategy,
     ChromePlatform,
+    DeploymentGate,
     DeploymentMode,
+    DeploymentPlan,
     DeploymentSpec,
     DiscoverySnapshot,
     NetworkStrategy,
@@ -647,3 +649,119 @@ def test_existing_backend_connectivity_gate_records_confirmed_provider() -> None
     gate = next(item for item in plan.gates if item.gate_id == "backend-connectivity")
     assert gate.status == "pass"
     assert "azure backend" in gate.detail
+
+
+def _global_access_spec(**overrides: object) -> DeploymentSpec:
+    """A Path B spec whose matcher is a literal IP, so it can resolve to a rule."""
+    base: dict[str, object] = {
+        "mode": "poc",
+        "backend_kind": BackendKind.DIRECT_HTTPS,
+        "network_strategy": NetworkStrategy.EXISTING,
+        "vpc_name": "private-app-vpc",
+        "source_image": None,
+        "certificate_strategy": CertificateStrategy.PUBLIC_TRUSTED,
+        "existing_backend_url": "https://10.20.0.10:8443",
+        "existing_backend_location": BackendLocation.GCP,
+        "existing_backend_connectivity_confirmed": True,
+    }
+    base.update(overrides)
+    return production_spec(**base)  # type: ignore[arg-type]
+
+
+def _gate(plan: DeploymentPlan, gate_id: str) -> DeploymentGate:
+    return next(gate for gate in plan.gates if gate.gate_id == gate_id)
+
+
+def test_global_access_gate_blocks_when_disabled_and_no_egress_region() -> None:
+    # The guide names this as the most common Path B failure: a regional
+    # internal load balancer silently refuses cross-region traffic.
+    spec = _global_access_spec()
+    snapshot = DiscoverySnapshot(
+        application_global_access=False,
+        application_forwarding_rule="app-ilb-fr",
+    )
+
+    plan = DesiredStatePlanner().build_plan(spec, snapshot)
+    gate = _gate(plan, "global-access")
+
+    assert gate.status == "blocked"
+    assert gate.blocking is True
+    # can_apply is False for any unapproved plan, so assert the specific
+    # contribution: this gate is one of the reasons Apply is refused.
+    assert gate in [item for item in plan.gates if item.blocking and item.status != "pass"]
+    assert "app-ilb-fr" in gate.detail
+    assert "enable Global Access" in gate.detail
+
+
+def test_global_access_gate_passes_when_egress_region_pins_the_region() -> None:
+    spec = _global_access_spec(application_egress_region="asia-east1")
+    snapshot = DiscoverySnapshot(application_global_access=False)
+
+    gate = _gate(DesiredStatePlanner().build_plan(spec, snapshot), "global-access")
+
+    assert gate.status == "pass"
+    assert gate.blocking is False
+    assert "asia-east1" in gate.detail
+
+
+def test_global_access_gate_passes_when_enabled_on_the_rule() -> None:
+    spec = _global_access_spec()
+    snapshot = DiscoverySnapshot(
+        application_global_access=True,
+        application_forwarding_rule="app-ilb-fr",
+    )
+
+    gate = _gate(DesiredStatePlanner().build_plan(spec, snapshot), "global-access")
+
+    assert gate.status == "pass"
+    assert gate.blocking is False
+
+
+def test_global_access_gate_warns_without_blocking_when_unresolvable() -> None:
+    # An FQDN matcher, a GKE ingress, or a non-GCP backend cannot be resolved to
+    # a forwarding rule. Those are supported Path B targets, so the gate must
+    # surface the risk without refusing the deployment.
+    spec = _global_access_spec(existing_backend_url="https://app.corp.internal:8443")
+    plan = DesiredStatePlanner().build_plan(spec, DiscoverySnapshot())
+    gate = _gate(plan, "global-access")
+
+    assert gate.status == "pending"
+    assert gate.blocking is False
+    # Pending but non-blocking: it must not appear among the reasons Apply is
+    # refused, even though it is surfaced to the operator.
+    assert gate not in [item for item in plan.gates if item.blocking and item.status != "pass"]
+    assert "app.corp.internal" in gate.detail
+
+
+def test_global_access_gate_is_not_applicable_to_path_a() -> None:
+    gate = _gate(
+        DesiredStatePlanner().build_plan(production_spec(mode="poc"), DiscoverySnapshot()),
+        "global-access",
+    )
+
+    assert gate.status == "pass"
+    assert gate.blocking is False
+
+
+def test_path_b_requires_forwarding_rule_list_permission() -> None:
+    assert "compute.forwardingRules.list" in required_permissions(_global_access_spec())
+
+
+def test_cross_project_upstream_vpc_is_expressible() -> None:
+    # The guide's worked example places the VPC in a separate project. Until
+    # this landed, that example could not be reproduced by the app.
+    spec = _global_access_spec(upstream_vpc_project_id="shared-network-prj")
+
+    assert spec.upstream_project_id == "shared-network-prj"
+    assert spec.project_id != spec.upstream_project_id
+
+
+def test_upstream_project_defaults_to_the_deployment_project() -> None:
+    spec = _global_access_spec()
+
+    assert spec.upstream_project_id == spec.project_id
+
+
+def test_cross_project_upstream_is_rejected_outside_direct_https() -> None:
+    with pytest.raises(ValidationError, match="only to direct private HTTPS"):
+        production_spec(mode="poc", upstream_vpc_project_id="shared-network-prj")

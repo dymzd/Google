@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from sgstudio.domain.canonical import canonical_json
 from sgstudio.domain.models import (
     AcceptanceStatus,
     AcceptanceTestId,
@@ -369,7 +370,7 @@ class GoogleAcceptanceVerifier:
             test_id=test_id,
             status=(AcceptanceStatus.PASSED if passed else AcceptanceStatus.FAILED),
             summary=passed_summary if passed else failed_summary,
-            evidence=json.dumps(evidence, sort_keys=True, separators=(",", ":")),
+            evidence=canonical_json(evidence),
         )
 
     @classmethod

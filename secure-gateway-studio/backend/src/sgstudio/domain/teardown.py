@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Literal, Protocol
 
+from sgstudio.domain.canonical import canonical_digest
 from sgstudio.domain.execution import ProviderExecutionError
 from sgstudio.domain.models import (
     ChangeAction,
@@ -114,7 +113,7 @@ def build_teardown_plan(repository: StateRepository, run_id: str) -> TeardownPla
         item for item in reversed(details.resources) if item.teardown_action != "retain"
     ]
     retained = [item for item in details.resources if item.teardown_action == "retain"]
-    canonical = json.dumps(
+    plan_hash = canonical_digest(
         {
             "run_id": effective_run_id,
             "configuration_hash": effective_run.configuration_hash,
@@ -122,11 +121,8 @@ def build_teardown_plan(repository: StateRepository, run_id: str) -> TeardownPla
                 {"key": item.resource_key, "action": item.teardown_action}
                 for item in delete_resources
             ],
-        },
-        separators=(",", ":"),
-        sort_keys=True,
+        }
     )
-    plan_hash = hashlib.sha256(canonical.encode()).hexdigest()
     return TeardownPlan(
         run_id=effective_run_id,
         plan_hash=plan_hash,

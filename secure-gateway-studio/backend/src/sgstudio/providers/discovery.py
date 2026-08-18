@@ -5,6 +5,7 @@ import binascii
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import quote
@@ -280,6 +281,17 @@ class GoogleDiscoveryProvider:
             except GoogleApiError as error:
                 diagnostics.append(self._api_diagnostic("compute:private-egress", error))
 
+        application_global_access: bool | None = None
+        application_forwarding_rule: str | None = None
+        if spec.backend_kind is BackendKind.DIRECT_HTTPS:
+            try:
+                (
+                    application_global_access,
+                    application_forwarding_rule,
+                ) = self._application_global_access(spec)
+            except GoogleApiError as error:
+                diagnostics.append(self._api_diagnostic("compute:forwarding-rule", error))
+
         diagnostics.append(
             PreflightDiagnostic(
                 code="workspace-oauth-required",
@@ -318,6 +330,8 @@ class GoogleDiscoveryProvider:
                 chrome_root_store_config_count=chrome_root_store_config_count,
                 chrome_root_store_config_names=chrome_root_store_config_names,
                 chrome_root_store_enabled=chrome_root_store_enabled,
+                application_global_access=application_global_access,
+                application_forwarding_rule=application_forwarding_rule,
             ),
             diagnostics=diagnostics,
             credential_kind=self._credential_kind,
@@ -351,6 +365,75 @@ class GoogleDiscoveryProvider:
                 break
             page_token = next_page
         return enabled
+
+    def _application_global_access(
+        self, spec: DeploymentSpec
+    ) -> tuple[bool | None, str | None]:
+        """Resolve the Path B matcher address to a forwarding rule.
+
+        The guide flags Global Access as a common Path B failure: a regional
+        internal load balancer only accepts traffic from other regions when a
+        frontend has Global Access enabled, or when the application pins an
+        egress region. Nothing verified it, so the symptom first appeared at
+        T07 as an unexplained timeout.
+
+        Returns ``(allow_global_access, forwarding_rule_name)``. Both are None
+        when the matcher is not a discoverable forwarding rule -- an FQDN, a
+        GKE ingress, or a non-GCP backend -- which is a supported Path B target
+        and must not be treated as a failure.
+        """
+        host = spec.application_hostname
+        try:
+            address = ip_address(host)
+        except ValueError:
+            # An FQDN cannot be matched to a forwarding rule without private
+            # DNS resolution, which this application deliberately does not do.
+            return None, None
+
+        page_token: str | None = None
+        for _ in range(10):
+            params: dict[str, str | int] = {"maxResults": 500}
+            if page_token:
+                params["pageToken"] = page_token
+            _, payload = self._transport.request_json(
+                "GET",
+                (
+                    # The rule lives in the project owning the VPC, which for a
+                    # cross-project upstream is not the deployment project.
+                    f"https://compute.googleapis.com/compute/v1/projects/"
+                    f"{spec.upstream_project_id}/aggregated/forwardingRules"
+                ),
+                params=params,
+            )
+            items = payload.get("items")
+            if isinstance(items, dict):
+                for scope in items.values():
+                    if not isinstance(scope, dict):
+                        continue
+                    rules = scope.get("forwardingRules")
+                    if not isinstance(rules, list):
+                        continue
+                    for rule in rules:
+                        if not isinstance(rule, dict):
+                            continue
+                        rule_address = rule.get("IPAddress")
+                        if not isinstance(rule_address, str):
+                            continue
+                        try:
+                            if ip_address(rule_address) != address:
+                                continue
+                        except ValueError:
+                            continue
+                        name = rule.get("name")
+                        return (
+                            bool(rule.get("allowGlobalAccess", False)),
+                            name if isinstance(name, str) else None,
+                        )
+            next_page = payload.get("nextPageToken")
+            if not isinstance(next_page, str) or not next_page:
+                break
+            page_token = next_page
+        return None, None
 
     def _billing_enabled(self, project_id: str) -> bool:
         _, payload = self._transport.request_json(
@@ -1203,8 +1286,10 @@ class GoogleDiscoveryProvider:
             )
         yield ResourceProbe(
             f"compute:network:{network_name}",
-            f"https://compute.googleapis.com/compute/v1/projects/{project}/global/networks/"
-            f"{network_name}",
+            # For a cross-project Path B upstream the VPC is not in the
+            # deployment project; probe where it actually lives.
+            "https://compute.googleapis.com/compute/v1/projects/"
+            f"{spec.upstream_project_id}/global/networks/{network_name}",
         )
         if spec.backend_kind is BackendKind.DIRECT_HTTPS:
             gateway_parent = (

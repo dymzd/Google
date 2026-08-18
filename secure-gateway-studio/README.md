@@ -39,6 +39,24 @@ fixture test passed.
   Balancer, SSL
   health check, private DNS, Cloud NAT, and no VM external IPs.
 - Existing-VPC and dedicated-VPC strategies.
+- **CEP PoC Deployer** (extension build only): applies a Chrome Enterprise
+  Premium evaluation baseline — core threat-protection policies, forced Endpoint
+  Verification, content-inspection connectors, a selectable Context-Aware Access
+  level, and data-boundary policies — to one organizational unit, optionally creating
+  `CEP Users` and `CEP Browsers` sub OUs so user-scoped and browser-scoped
+  policies are separated. Every policy is validated against the tenant's live
+  Chrome Policy schema before it is written, and each module is applied as its
+  own batch so one unsupported policy does not fail the rest. Rollback returns
+  all of it to the parent OU, app-scoped extension policies included. Also
+  creates two least-privilege IAM roles and exports the same configuration as a
+  standalone Python script.
+  DLP detectors and starter DLP rules — including watermarking and screenshot
+  blocking, which are rule action parameters rather than Chrome policies — are
+  created through the Cloud Identity policy API (`settings/rule.dlp` and
+  `settings/detector.url_list`); its mutation methods are still in beta. A
+  refused call is reported as a skipped module with its reason while the rest of
+  the deployment still applies. Sensitive content storage, OCR, and automatic
+  CEP licensing remain Admin Console steps and are listed as such in the page.
 - Existing private HTTP backends in GCP, AWS, Azure, or on premises, with an
   explicit private-connectivity prerequisite and T02 runtime verification.
   This PoC does not collect third-party credentials or create Cloud VPN,
@@ -129,10 +147,18 @@ gcloud auth application-default login \
 gcloud auth application-default set-quota-project PROJECT_ID
 ```
 
-The backend requests only the Cloud Platform and Chrome Policy scopes. It does
-not call Admin Directory and does not require domain-wide delegation.
-Service-account JSON key ADC is rejected and key files must not be added to
-this repository.
+The backend requests the Cloud Platform, Chrome Policy, Chrome Management,
+Enterprise License Manager, and read-only Admin Directory scopes. Admin
+Directory is called for the organizational-unit and group pickers, using the
+impersonated service account's delegated authority; domain-wide delegation is
+not required. Service-account JSON key ADC is rejected and key files must not
+be added to this repository.
+
+`SGSTUDIO_ACCESS_POLICY_ID` must be set before first run. It is the numeric
+Access Context Manager policy ID, and both the access-level picker and the
+deployer bootstrap's Policy Reader binding depend on it; without it the
+access-level endpoint returns 428. Copy `.env.local.example` to `.env.local`
+and fill it in.
 
 ## Install and run
 
@@ -202,7 +228,18 @@ cd ../frontend
 pnpm test -- --run
 pnpm build
 pnpm audit --prod --audit-level high
+
+cd ../extension
+npm run typecheck
+npm run verify
 ```
+
+`npm run verify` type-checks the extension and then runs the parity and
+behaviour checks, including `verify-cep.ts`, which dispatches through `route()`
+— the same entry point the service worker uses — and asserts on the Google
+requests each CEP module produces. Route coverage checks compare declarations
+textually and cannot catch a handler that fails to run, which is why that one
+exercises the handlers directly.
 
 The current automated suite contains 141 backend tests and 22 frontend tests,
 with a 75% minimum backend coverage gate.

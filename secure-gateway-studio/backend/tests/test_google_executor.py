@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 from copy import deepcopy
 from dataclasses import replace
@@ -657,6 +658,8 @@ def test_instance_apply_rolls_back_when_runtime_readiness_never_arrives() -> Non
 
 
 def test_generated_startup_scripts_are_valid_bash() -> None:
+    if shutil.which("bash") is None:
+        pytest.skip("bash is not available on this platform")
     executor = GoogleResourceExecutor(FakeTransport(), poll_interval_seconds=0)
 
     for script in (

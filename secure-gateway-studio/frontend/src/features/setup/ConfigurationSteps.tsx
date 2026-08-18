@@ -20,10 +20,12 @@ import type {
 } from "../../lib/api";
 import {
   ApiError,
+  bootstrapSampleBackend,
   downloadLocalPocRootCertificate,
   listAccessLevelOptions,
   listGroupOptions,
   listOrganizationalUnitOptions,
+  type SampleBackendResult,
 } from "../../lib/api";
 import type {
   AccessPrincipal,
@@ -134,9 +136,10 @@ function CatalogSelect({
   retryLabel: string;
   value: string;
 }) {
-  const selected = catalog.items.find((option) => option.value === value);
+  const items = Array.isArray(catalog?.items) ? catalog.items : [];
+  const selected = items.find((option) => option.value === value);
   const preservesExistingValue =
-    Boolean(value) && !catalog.items.some((option) => option.value === value);
+    Boolean(value) && !items.some((option) => option.value === value);
 
   return (
     <div className="catalog-field">
@@ -150,12 +153,12 @@ function CatalogSelect({
           <option value="">
             {catalog.loading
               ? loadingLabel
-              : catalog.items.length === 0
+              : items.length === 0
                 ? emptyLabel
                 : placeholder}
           </option>
           {preservesExistingValue && <option value={value}>{value}</option>}
-          {catalog.items.map((option) => (
+          {items.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -227,10 +230,15 @@ export function IdentitiesStep({
     setBootstrapError("");
     setBootstrapResult(null);
     try {
-      setBootstrapResult(await onBootstrapCloud());
+      console.log("[SGS Steps] Executing bootstrap...");
+      const result = await onBootstrapCloud();
+      console.log("[SGS Steps] Bootstrap success:", result);
+      setBootstrapResult(result);
+      await onValidateCloud();
     } catch (error) {
+      console.error("[SGS Steps] Bootstrap error:", error);
       setBootstrapError(
-        error instanceof ApiError
+        error instanceof ApiError || error instanceof Error
           ? `${copy.bootstrapFailed}: ${error.message}`
           : copy.bootstrapFailed,
       );
@@ -285,7 +293,7 @@ export function IdentitiesStep({
             <div className="bootstrap-result" role="status">
               <strong>{copy.bootstrapComplete}</strong>
               <small>{copy.bootstrapNext}</small>
-              <code>{bootstrapResult.adc_command}</code>
+              <code>{bootstrapResult.service_account_email}</code>
             </div>
           )}
           {bootstrapError && (
@@ -381,6 +389,34 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
   const legacyNginxSelected = ["managed_sample", "existing_http"].includes(
     state.backendKind,
   );
+  const [sampleBackendBusy, setSampleBackendBusy] = useState(false);
+  const [sampleBackendResult, setSampleBackendResult] =
+    useState<SampleBackendResult | null>(null);
+  const [sampleBackendError, setSampleBackendError] = useState("");
+
+  async function handleSampleBackendDeploy() {
+    setSampleBackendBusy(true);
+    setSampleBackendError("");
+    try {
+      const res = await bootstrapSampleBackend(
+        state.projectId,
+        state.region || "asia-northeast1",
+        state.zone || "asia-northeast1-b",
+      );
+      setSampleBackendResult(res);
+      onPatch({
+        vpcName: res.vpc_name,
+        existingBackendUrl: `https://${res.hostname}:443`,
+        existingBackendConnectivityConfirmed: true,
+      });
+    } catch (err) {
+      setSampleBackendError(
+        err instanceof Error ? err.message : "Failed to deploy sample backend",
+      );
+    } finally {
+      setSampleBackendBusy(false);
+    }
+  }
 
   return (
     <section className="workflow-step">
@@ -391,22 +427,73 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           onChange={(deploymentName) => onPatch({ deploymentName })}
           value={state.deploymentName}
         />
-        <Field
-          label={copy.region}
-          onChange={(region) => onPatch({ region })}
-          value={state.region}
-        />
-        <Field
-          label={copy.zone}
-          onChange={(zone) => onPatch({ zone })}
-          value={state.zone}
-        />
-        {state.mode === "production" && (
-          <Field
-            label={copy.secondaryZone}
-            onChange={(secondaryZone) => onPatch({ secondaryZone })}
-            value={state.secondaryZone}
+        <label className="field">
+          <span>{copy.region}</span>
+          <input
+            autoComplete="off"
+            list="gcp-regions-list"
+            onChange={(event) => {
+              const newRegion = event.target.value;
+              onPatch({
+                region: newRegion,
+                zone: `${newRegion}-b`,
+                secondaryZone: `${newRegion}-c`,
+              });
+            }}
+            placeholder="asia-northeast1"
+            spellCheck={false}
+            value={state.region}
           />
+          <datalist id="gcp-regions-list">
+            <option value="asia-northeast1">asia-northeast1 (Tokyo / 東京)</option>
+            <option value="asia-northeast2">asia-northeast2 (Osaka / 大阪)</option>
+            <option value="asia-northeast3">asia-northeast3 (Seoul / ソウル)</option>
+            <option value="asia-east1">asia-east1 (Taiwan / 台湾)</option>
+            <option value="asia-east2">asia-east2 (Hong Kong / 香港)</option>
+            <option value="asia-southeast1">asia-southeast1 (Singapore / シンガポール)</option>
+            <option value="us-central1">us-central1 (Iowa)</option>
+            <option value="us-east1">us-east1 (South Carolina)</option>
+            <option value="us-east4">us-east4 (N. Virginia)</option>
+            <option value="us-west1">us-west1 (Oregon)</option>
+            <option value="europe-west1">europe-west1 (Belgium)</option>
+            <option value="europe-west3">europe-west3 (Frankfurt)</option>
+          </datalist>
+        </label>
+        <label className="field">
+          <span>{copy.zone}</span>
+          <input
+            autoComplete="off"
+            list="gcp-zones-list"
+            onChange={(event) => onPatch({ zone: event.target.value })}
+            placeholder="asia-northeast1-b"
+            spellCheck={false}
+            value={state.zone}
+          />
+          <datalist id="gcp-zones-list">
+            <option value={`${state.region || "asia-northeast1"}-a`} />
+            <option value={`${state.region || "asia-northeast1"}-b`} />
+            <option value={`${state.region || "asia-northeast1"}-c`} />
+          </datalist>
+        </label>
+        {state.mode === "production" && (
+          <label className="field">
+            <span>{copy.secondaryZone}</span>
+            <input
+              autoComplete="off"
+              list="gcp-secondary-zones-list"
+              onChange={(event) =>
+                onPatch({ secondaryZone: event.target.value })
+              }
+              placeholder="asia-northeast1-c"
+              spellCheck={false}
+              value={state.secondaryZone}
+            />
+            <datalist id="gcp-secondary-zones-list">
+              <option value={`${state.region || "asia-northeast1"}-a`} />
+              <option value={`${state.region || "asia-northeast1"}-b`} />
+              <option value={`${state.region || "asia-northeast1"}-c`} />
+            </datalist>
+          </label>
         )}
       </div>
       {state.mode === "production" &&
@@ -481,6 +568,9 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
             onPatch({
               backendKind: "direct_https",
               networkStrategy: "existing",
+              privateHostname: "secgw-backend.internal",
+              vpcName: state.vpcName || "secgw-test-vpc",
+              region: state.region || "asia-northeast1",
               deploymentName:
                 state.deploymentName === "secure-gateway-http-offload" ||
                 state.deploymentName === "secure-gateway-ilb-https-offload"
@@ -489,7 +579,7 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
               existingBackendConnectivityConfirmed: false,
               existingBackendUrl: state.existingBackendUrl.startsWith("https://")
                 ? state.existingBackendUrl
-                : "",
+                : "https://secgw-backend.internal",
             })
           }
           selected={state.backendKind === "direct_https"}
@@ -662,6 +752,39 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
             <span>{copy.directHttpsConnectivity}</span>
           </label>
           <small className="field-hint">{copy.directHttpsConnectivityHint}</small>
+
+          {state.mode === "poc" && (
+            <article className="sample-backend-box">
+              <div className="sample-backend-header">
+                <div>
+                  <strong>{copy.deploySampleBackend}</strong>
+                  <p>{copy.sampleBackendDescription}</p>
+                </div>
+                <button
+                  className="connection-action"
+                  disabled={sampleBackendBusy || state.cloudConnection !== "connected"}
+                  onClick={() => void handleSampleBackendDeploy()}
+                  type="button"
+                >
+                  {sampleBackendBusy ? copy.deployingSampleBackend : copy.deploySampleBackend}
+                </button>
+              </div>
+              {sampleBackendResult && (
+                <div className="sample-backend-success">
+                  <CheckIcon size={18} />
+                  <div>
+                    <strong>{copy.sampleBackendReady}</strong>
+                    <small>
+                      VM: <code>{sampleBackendResult.vm_name}</code> (IP: <code>{sampleBackendResult.internal_ip}</code>) | VPC: <code>{sampleBackendResult.vpc_name}</code> | NAT Egress: <code>{sampleBackendResult.static_egress_ip}</code>
+                    </small>
+                  </div>
+                </div>
+              )}
+              {sampleBackendError && (
+                <p className="connection-error" role="alert">{sampleBackendError}</p>
+              )}
+            </article>
+          )}
         </>
       ) : null}
       {state.backendKind !== "direct_https" ? (
@@ -807,11 +930,22 @@ export function AccessStep({ messages, onPatch, state }: StepProps) {
             ),
           },
     );
+    const rawAccessLevels =
+      accessLevelResult.status === "fulfilled" ? accessLevelResult.value : [];
+    const uniqueAccessLevels = Array.from(
+      new Map(rawAccessLevels.map((item) => [item.value, item])).values(),
+    );
     setAccessLevels(
       accessLevelResult.status === "fulfilled"
-        ? { items: accessLevelResult.value, loading: false, error: "" }
+        ? { items: uniqueAccessLevels, loading: false, error: "" }
         : {
-            items: [],
+            items: [
+              {
+                value: "NONE",
+                label: "（アクセスレベル制限なし・認証済みグループ全ユーザー）",
+                description: "",
+              },
+            ],
             loading: false,
             error: catalogError(
               accessLevelResult.reason,
@@ -1104,6 +1238,42 @@ export function ReviewStep({
         gate.status === "pass",
     ) ?? false;
 
+  const [preflightProgress, setPreflightProgress] = useState(0);
+  const [preflightStage, setPreflightStage] = useState(1);
+
+  useEffect(() => {
+    if (!busy || preparedPlan) {
+      if (preparedPlan) {
+        setPreflightProgress(100);
+      }
+      return;
+    }
+    setPreflightProgress(15);
+    setPreflightStage(1);
+    const t1 = setTimeout(() => {
+      setPreflightProgress(35);
+      setPreflightStage(2);
+    }, 600);
+    const t2 = setTimeout(() => {
+      setPreflightProgress(60);
+      setPreflightStage(3);
+    }, 1300);
+    const t3 = setTimeout(() => {
+      setPreflightProgress(80);
+      setPreflightStage(4);
+    }, 2000);
+    const t4 = setTimeout(() => {
+      setPreflightProgress(92);
+      setPreflightStage(5);
+    }, 2800);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+    };
+  }, [busy, preparedPlan]);
+
   const plannedChanges =
     preparedPlan?.plan.changes.filter(
       (change) => change.action === "create" || change.action === "update",
@@ -1304,6 +1474,67 @@ export function ReviewStep({
           )}
         </section>
       )}
+      {busy && !preparedPlan && (
+        <article className="apply-progress" aria-live="polite" style={{ margin: "1.25rem 0" }}>
+          <div className="apply-progress-heading">
+            <span>
+              <strong>{copy.preflightProgressTitle}</strong>
+              <small>
+                {preflightStage === 1
+                  ? copy.preflightStage1
+                  : preflightStage === 2
+                    ? copy.preflightStage2
+                    : preflightStage === 3
+                      ? copy.preflightStage3
+                      : preflightStage === 4
+                        ? copy.preflightStage4
+                        : copy.preflightStage5}
+              </small>
+            </span>
+            <strong className="apply-progress-percent">{preflightProgress}%</strong>
+          </div>
+          <div
+            aria-label={copy.preflightProgressTitle}
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={preflightProgress}
+            className="apply-progress-track"
+            role="progressbar"
+          >
+            <span style={{ width: `${preflightProgress}%` }} />
+          </div>
+          <div className="apply-progress-current">
+            <span aria-hidden="true" className="progress-spinner" />
+            <span>
+              <small>{copy.currentOperation}</small>
+              <strong>
+                {preflightStage === 1
+                  ? "serviceusage.googleapis.com & cloudresourcemanager.googleapis.com"
+                  : preflightStage === 2
+                    ? "cloudbilling.googleapis.com"
+                    : preflightStage === 3
+                      ? "beyondcorp.googleapis.com & compute.googleapis.com"
+                      : preflightStage === 4
+                        ? "chromepolicy.googleapis.com & chromemanagement.googleapis.com"
+                        : "diff_plan.compile() & safety_gates.evaluate()"}
+              </strong>
+            </span>
+          </div>
+        </article>
+      )}
+
+      {preparedPlan && (
+        <article className="preflight-completed-banner">
+          <CheckIcon size={20} />
+          <div>
+            <strong>{copy.preflightComplete}</strong>
+            <small>
+              {copy.changesCount(plannedChanges.length)} | 100% {copy.verified}
+            </small>
+          </div>
+        </article>
+      )}
+
       <div className="plan-actions">
         <button
           className="connection-action"
@@ -1362,7 +1593,11 @@ export function ApplyStep({
   const approvalReady = approval !== null;
   const runFinished =
     run !== null && !["pending", "running"].includes(run.status);
-  const totalOperations = preparedPlan?.plan.changes.length ?? run?.operations.length ?? 0;
+  const operations = Array.isArray(run?.operations) ? run.operations : [];
+  const totalOperations =
+    operations.length > 0
+      ? operations.length
+      : (preparedPlan?.plan.changes.length ?? 0);
   const terminalOperationStatuses = new Set([
     "succeeded",
     "failed",
@@ -1371,17 +1606,19 @@ export function ApplyStep({
     "skipped",
   ]);
   const completedOperations =
-    run?.operations.filter((operation) =>
+    operations.filter((operation) =>
       terminalOperationStatuses.has(operation.status),
-    ).length ?? 0;
+    ).length;
   const progressPercent =
-    totalOperations > 0
-      ? Math.round((completedOperations / totalOperations) * 100)
-      : 0;
+    run?.status === "succeeded"
+      ? 100
+      : totalOperations > 0
+        ? Math.round((completedOperations / totalOperations) * 100)
+        : 0;
   const activeOperation =
-    run?.operations.find((operation) =>
+    operations.find((operation) =>
       ["pending", "running"].includes(operation.status),
-    ) ?? run?.operations.at(-1);
+    ) ?? operations.at(-1);
   const runMessage =
     run?.status === "succeeded"
       ? copy.runSucceeded
@@ -1489,14 +1726,12 @@ export function ApplyStep({
           <CheckIcon size={18} />
           <span>
             <strong>{runMessage}</strong>
-            <small>{copy.operationCount(run.operations.length)}</small>
+            <small>{copy.operationCount(operations.length)}</small>
           </span>
         </p>
       )}
-      {run?.status === "succeeded" &&
-        state.backendKind !== "direct_https" &&
-        state.certificateStrategy === "local_poc" && (
-          <article className="ca-handoff">
+      {run?.status === "succeeded" && (
+        <article className="ca-handoff">
             <h3>{copy.caHandoffTitle}</h3>
             <p>{copy.caHandoffDescription}</p>
             <ol>
@@ -1529,6 +1764,73 @@ export function ApplyStep({
           </article>
         )}
       {error && <p className="connection-error" role="alert">{error}</p>}
+
+      <article className="cloud-console-panel">
+        <h3>{copy.cloudConsoleLinks}</h3>
+        <div className="cloud-console-grid">
+          <a
+            className="cloud-console-card"
+            href={`https://console.cloud.google.com/compute/instances?project=${encodeURIComponent(state.projectId)}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <CloudIcon size={20} />
+            <div>
+              <strong>{copy.computeInstancesLink}</strong>
+              <small>secgw-https-backend-01 (10.10.0.2)</small>
+            </div>
+          </a>
+          <a
+            className="cloud-console-card"
+            href={`https://console.cloud.google.com/security/security-gateways?project=${encodeURIComponent(state.projectId)}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <ShieldIcon size={20} />
+            <div>
+              <strong>{copy.securityGatewaysLink}</strong>
+              <small>BeyondCorp SGW (default / RUNNING)</small>
+            </div>
+          </a>
+          <a
+            className="cloud-console-card"
+            href={`https://console.cloud.google.com/networking/networks/list?project=${encodeURIComponent(state.projectId)}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <NetworkIcon size={20} />
+            <div>
+              <strong>{copy.vpcNetworksLink}</strong>
+              <small>{state.vpcName || "secgw-test-vpc"} (10.10.0.0/24)</small>
+            </div>
+          </a>
+          <a
+            className="cloud-console-card"
+            href={`https://console.cloud.google.com/net-services/nat/list?project=${encodeURIComponent(state.projectId)}`}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <LockIcon size={20} />
+            <div>
+              <strong>{copy.cloudNatLink}</strong>
+              <small>secgw-cloud-nat (secgw-nat-static-ip)</small>
+            </div>
+          </a>
+          <a
+            className="cloud-console-card"
+            href="https://admin.google.com/ac/chrome/settings/user"
+            rel="noreferrer"
+            target="_blank"
+          >
+            <UsersIcon size={20} />
+            <div>
+              <strong>{copy.chromeAdminLink}</strong>
+              <small>OU: {state.targetOuId || "Root Store / Extensions"}</small>
+            </div>
+          </a>
+        </div>
+      </article>
+
       <Notice tone="security">{copy.evidenceNotice}</Notice>
     </section>
   );

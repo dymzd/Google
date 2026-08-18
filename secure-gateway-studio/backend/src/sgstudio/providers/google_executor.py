@@ -1957,7 +1957,13 @@ PY
             if not isinstance(account, str):
                 raise ValueError("Gateway response is missing delegatingServiceAccount")
             self._gateway_service_account = account
-        resource = f"https://cloudresourcemanager.googleapis.com/v1/projects/{spec.project_id}"
+        # The binding belongs to the project that owns the upstream VPC, which
+        # is not necessarily the deployment project. The guide's worked example
+        # separates the two.
+        resource = (
+            "https://cloudresourcemanager.googleapis.com/v1/projects/"
+            f"{spec.upstream_project_id}"
+        )
         self._set_iam(
             change,
             get_url=f"{resource}:getIamPolicy",
@@ -1971,7 +1977,7 @@ PY
         upstream: dict[str, Any] = {
             "network": {
                 "name": (
-                    f"projects/{spec.project_id}/global/networks/"
+                    f"projects/{spec.upstream_project_id}/global/networks/"
                     f"{self._network_name(spec)}"
                 )
             }

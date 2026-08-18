@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import RLock
 
+from sgstudio.domain.canonical import canonical_digest, canonical_json
 from sgstudio.domain.models import (
     AcceptanceReadiness,
     AcceptanceRequirement,
@@ -336,7 +337,7 @@ class StateRepository:
         deployment_id = deployment_id or str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
         payload = spec.model_dump(mode="json")
-        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        serialized = canonical_json(payload)
 
         with self._lock, closing(self._connect()) as connection:
             configuration_hash = hashlib.sha256(serialized.encode()).hexdigest()
@@ -493,11 +494,7 @@ class StateRepository:
         if not approved_plan.can_apply:
             raise ValueError("Blocking deployment gates must pass before approval")
 
-        serialized_plan = json.dumps(
-            approved_plan.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        serialized_plan = canonical_json(approved_plan.model_dump(mode="json"))
         now = datetime.now(UTC)
         approval = ApprovedPlan(
             approval_id=str(uuid.uuid4()),
@@ -1674,7 +1671,7 @@ class StateRepository:
         created_at: str,
         previous_hash: str | None,
     ) -> str:
-        canonical = json.dumps(
+        return canonical_digest(
             {
                 "actor": actor,
                 "created_at": created_at,
@@ -1683,11 +1680,8 @@ class StateRepository:
                 "event_type": event_type,
                 "payload": json.loads(payload_json),
                 "previous_hash": previous_hash,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
+            }
         )
-        return hashlib.sha256(canonical.encode()).hexdigest()
 
     @staticmethod
     def _insert_audit_event(
@@ -1700,7 +1694,7 @@ class StateRepository:
     ) -> None:
         event_id = str(uuid.uuid4())
         created_at = datetime.now(UTC).isoformat()
-        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        payload_json = canonical_json(payload)
         previous_row = connection.execute(
             "SELECT event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1"
         ).fetchone()

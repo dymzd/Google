@@ -15,6 +15,7 @@ import {
   OperationsPage,
 } from "./features/operations/OperationsPage";
 import { GuidePage } from "./features/guide/GuidePage";
+import { CepDeployerPage } from "./features/cep/CepDeployerPage";
 import { getMessages } from "./i18n/messages";
 import {
   applyApprovedPlan,
@@ -370,6 +371,7 @@ export function App() {
   }
 
   async function handleValidateCloud() {
+    console.log("[SGS App] Starting cloud validation for projectId:", setup.projectId);
     patchSetup({
       cloudConnection: "checking",
       cloudConnectionError: "",
@@ -377,11 +379,13 @@ export function App() {
     });
     try {
       const validation = await validateGoogleCloudConnection(setup.projectId);
+      console.log("[SGS App] Cloud validation succeeded:", validation);
       patchSetup({
         cloudConnection: "connected",
         cloudIdentity: validation.principal_hint,
       });
     } catch (error) {
+      console.error("[SGS App] Cloud validation error:", error);
       patchSetup({
         cloudConnection: "error",
         cloudConnectionError: localizedConnectionError(error, "cloud"),
@@ -391,10 +395,19 @@ export function App() {
   }
 
   async function handleBootstrapCloud(): Promise<DeployerBootstrapResult> {
-    return bootstrapGoogleCloudDeployer(setup.projectId);
+    console.log("[SGS App] Starting deployer bootstrap for projectId:", setup.projectId);
+    try {
+      const res = await bootstrapGoogleCloudDeployer(setup.projectId);
+      console.log("[SGS App] Deployer bootstrap succeeded:", res);
+      return res;
+    } catch (error) {
+      console.error("[SGS App] Deployer bootstrap error:", error);
+      throw error;
+    }
   }
 
   async function handleValidateWorkspace() {
+    console.log("[SGS App] Starting workspace validation for customerId:", setup.customerId);
     patchSetup({
       workspaceConnection: "checking",
       workspaceConnectionError: "",
@@ -402,11 +415,13 @@ export function App() {
     });
     try {
       const validation = await validateWorkspaceConnection(setup.customerId);
+      console.log("[SGS App] Workspace validation succeeded:", validation);
       patchSetup({
         workspaceConnection: "connected",
         workspaceIdentity: validation.principal_hint,
       });
     } catch (error) {
+      console.error("[SGS App] Workspace validation error:", error);
       patchSetup({
         workspaceConnection: "error",
         workspaceConnectionError: localizedConnectionError(error, "workspace"),
@@ -519,6 +534,12 @@ export function App() {
         </WizardLayout>
       ) : activeView === "guide" ? (
         <GuidePage messages={messages} />
+      ) : activeView === "cepDeployer" ? (
+        <CepDeployerPage
+          customerId={setup.customerId}
+          messages={messages}
+          projectId={setup.projectId}
+        />
       ) : (
         <OperationsPage messages={messages} view={activeView} />
       )}

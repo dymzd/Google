@@ -1,0 +1,31 @@
+# Repository-wide ignores.
+#
+# secure-gateway-studio/.gitignore covers that project's build and virtualenv
+# artefacts; a .gitignore only applies to its own directory and below, so the
+# entries here are the ones that were reaching the index from the repository
+# root.
+
+# macOS / Windows shell metadata
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Package manager caches that must never be committed
+.pnpm-store/
+node_modules/
+
+# Coverage and test artefacts
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Local environment overrides
+.env
+.env.local

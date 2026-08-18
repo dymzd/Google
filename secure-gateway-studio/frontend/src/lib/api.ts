@@ -146,7 +146,10 @@ export interface DeploymentRun {
     | "failed"
     | "rolled_back"
     | "rollback_failed"
-    | "interrupted";
+    | "interrupted"
+    | "deleted"
+    | "torn_down"
+    | "clean";
   started_at: string;
   completed_at: string | null;
   operations: Array<{
@@ -182,6 +185,8 @@ export interface DeploymentDetails {
   application_hostname: string;
   application_port: number;
   resources: DeploymentResource[];
+  managed_chrome_access_level?: string | null;
+  target_group_email?: string | null;
   teardown_available: boolean;
 }
 
@@ -298,105 +303,14 @@ export interface AcceptanceReadiness {
   results: AcceptanceResult[];
 }
 
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
+import {
+  ApiError,
+  getBlob,
+  getJson,
+  postJson,
+} from "./transport";
 
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
-
-async function postJson<TResponse>(
-  path: string,
-  body: unknown,
-): Promise<TResponse> {
-  const sessionNonce = await getSessionNonce();
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Requested-With": "SecureGatewayStudio",
-      "X-SGS-Session": sessionNonce,
-    },
-    body: JSON.stringify(body),
-    credentials: "omit",
-  });
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    let code = "request-failed";
-    try {
-      const payload = (await response.json()) as {
-        detail?: string | { code?: string; message?: string };
-      };
-      if (typeof payload.detail === "string") message = payload.detail;
-      if (payload.detail && typeof payload.detail === "object") {
-        if (typeof payload.detail.code === "string") code = payload.detail.code;
-        if (typeof payload.detail.message === "string") {
-          message = payload.detail.message;
-        }
-      }
-    } catch {
-      // Keep the safe generic message for non-JSON responses.
-    }
-    throw new ApiError(response.status, code, message);
-  }
-  return (await response.json()) as TResponse;
-}
-
-let sessionNoncePromise: Promise<string> | null = null;
-
-function getSessionNonce(): Promise<string> {
-  if (sessionNoncePromise === null) {
-    sessionNoncePromise = fetch("/api/v1/health", {
-      method: "GET",
-      headers: { "X-Requested-With": "SecureGatewayStudio" },
-      credentials: "omit",
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new ApiError(
-            response.status,
-            "session-bootstrap-failed",
-            `Session bootstrap failed (${response.status})`,
-          );
-        }
-        const payload = (await response.json()) as { session_nonce?: string };
-        if (!payload.session_nonce) {
-          throw new ApiError(
-            500,
-            "session-bootstrap-failed",
-            "The local API did not return a session nonce",
-          );
-        }
-        return payload.session_nonce;
-      })
-      .catch((error) => {
-        sessionNoncePromise = null;
-        throw error;
-      });
-  }
-  return sessionNoncePromise;
-}
-
-async function getJson<TResponse>(path: string): Promise<TResponse> {
-  const sessionNonce = await getSessionNonce();
-  const response = await fetch(path, {
-    method: "GET",
-    headers: {
-      "X-Requested-With": "SecureGatewayStudio",
-      "X-SGS-Session": sessionNonce,
-    },
-    credentials: "omit",
-  });
-  if (!response.ok) {
-    throw new ApiError(response.status, "request-failed", `Request failed (${response.status})`);
-  }
-  return (await response.json()) as TResponse;
-}
+export { ApiError };
 
 export function validateGoogleCloudConnection(
   projectId: string,
@@ -415,6 +329,38 @@ export function bootstrapGoogleCloudDeployer(
   });
 }
 
+export interface SampleBackendResult {
+  status: "ready" | "created" | "error";
+  log?: string[];
+  vm_name: string;
+  vpc_name: string;
+  subnet_name: string;
+  internal_ip: string;
+  hostname: string;
+  static_egress_ip: string;
+  region: string;
+  zone: string;
+  error?: string;
+}
+
+export function bootstrapSampleBackend(
+  projectId: string,
+  region?: string,
+  zone?: string,
+): Promise<SampleBackendResult> {
+  return postJson("/api/v1/bootstrap/sample-backend", {
+    project_id: projectId,
+    region,
+    zone,
+  });
+}
+
+export function diagnoseGcp(
+  projectId: string,
+): Promise<{ timestamp: string; project_id: string; report: Record<string, any> }> {
+  return postJson("/api/v1/admin/diagnose-gcp", { project_id: projectId });
+}
+
 export function validateWorkspaceConnection(
   customerId: string,
 ): Promise<ConnectionValidation> {
@@ -423,26 +369,34 @@ export function validateWorkspaceConnection(
   });
 }
 
-export function listOrganizationalUnitOptions(
+export async function listOrganizationalUnitOptions(
   customerId: string,
 ): Promise<SetupOption[]> {
-  return postJson("/api/v1/setup-options/organizational-units", {
-    customer_id: customerId,
-  });
+  const res = await postJson<{ options?: SetupOption[] } | SetupOption[]>(
+    "/api/v1/setup-options/organizational-units",
+    { customer_id: customerId },
+  );
+  return Array.isArray(res) ? res : res?.options ?? [];
 }
 
-export function listGroupOptions(customerId: string): Promise<SetupOption[]> {
-  return postJson("/api/v1/setup-options/groups", {
-    customer_id: customerId,
-  });
+export async function listGroupOptions(
+  customerId: string,
+): Promise<SetupOption[]> {
+  const res = await postJson<{ options?: SetupOption[] } | SetupOption[]>(
+    "/api/v1/setup-options/groups",
+    { customer_id: customerId },
+  );
+  return Array.isArray(res) ? res : res?.options ?? [];
 }
 
-export function listAccessLevelOptions(
+export async function listAccessLevelOptions(
   projectId: string,
 ): Promise<SetupOption[]> {
-  return postJson("/api/v1/setup-options/access-levels", {
-    project_id: projectId,
-  });
+  const res = await postJson<{ options?: SetupOption[] } | SetupOption[]>(
+    "/api/v1/setup-options/access-levels",
+    { project_id: projectId },
+  );
+  return Array.isArray(res) ? res : res?.options ?? [];
 }
 
 export function preparePlan(
@@ -482,29 +436,13 @@ export function getDeploymentRun(runId: string): Promise<DeploymentRun> {
   return getJson(`/api/v1/runs/${encodeURIComponent(runId)}`);
 }
 
-export async function downloadLocalPocRootCertificate(
+export function downloadLocalPocRootCertificate(
   deploymentName: string,
 ): Promise<Blob> {
-  const sessionNonce = await getSessionNonce();
-  const response = await fetch(
+  return getBlob(
     `/api/v1/certificates/local-poc/${encodeURIComponent(deploymentName)}`,
-    {
-      method: "GET",
-      headers: {
-        "X-Requested-With": "SecureGatewayStudio",
-        "X-SGS-Session": sessionNonce,
-      },
-      credentials: "omit",
-    },
+    "certificate-download-failed",
   );
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      "certificate-download-failed",
-      `Certificate download failed (${response.status})`,
-    );
-  }
-  return response.blob();
 }
 
 export function listDeploymentRuns(): Promise<DeploymentRun[]> {
@@ -590,3 +528,146 @@ export function recordOperatorAcceptance(
     { ...request, confirmation: "RECORD" },
   );
 }
+
+export interface UpdateAccessLevelResult {
+  success: boolean;
+  access_level: string;
+  run_id: string;
+}
+
+export function updateAccessLevel(
+  runId: string,
+  accessLevel: string,
+  principals?: string[],
+): Promise<UpdateAccessLevelResult> {
+  return postJson<UpdateAccessLevelResult>(`/api/v1/runs/${encodeURIComponent(runId)}/update-access-level`, {
+    access_level: accessLevel,
+    principals,
+  });
+}
+
+export interface CleanStateResult {
+  status: string;
+  log: string[];
+}
+
+export function cleanState(projectId: string): Promise<CleanStateResult> {
+  return postJson<CleanStateResult>("/api/v1/admin/clean-state", {
+    project_id: projectId,
+  });
+}
+
+/** Modules the CEP deployer can apply. */
+export type CepModule =
+  | "core"
+  | "extensions"
+  | "connectors"
+  | "contextAwareAccess"
+  | "dlpDetectors"
+  | "dlpRules"
+  | "dataBoundary";
+
+export type CepDataBoundaryMode = "copy_paste" | "block_non_corp" | "none";
+
+export type CepDlpRuleId = "national_id" | "payment_card" | "access_level" | "watermark";
+
+/** What a rule does when it matches. `off` means do not create it. */
+export type CepDlpAction = "off" | "auditOnly" | "warnUser" | "blockContent";
+
+export interface CepProvisionConfig {
+  customer_id: string;
+  project_id?: string;
+  /** Bare organizational unit id. */
+  target_ou_id: string;
+  /** `orgUnitPath` of the same unit, needed to create sub OUs beneath it. */
+  target_ou_path?: string;
+  create_sub_ous?: boolean;
+  core_policies?: boolean;
+  force_extensions?: boolean;
+  connectors?: boolean;
+  /**
+   * `NONE`, an `AUTO_CREATE_*` sentinel, or the resource name of an existing
+   * access level. Same vocabulary as the deployment wizard's access step.
+   */
+  access_level?: string;
+  /** Cloud Identity policy API; mutations are still in beta. */
+  dlp_detectors?: boolean;
+  dlp_rules?: boolean;
+  /** ISO country code selecting which national identifier the rules scan for. */
+  dlp_region?: string;
+  /** Per-rule action; a rule set to `off` is not created. */
+  dlp_rule_actions?: Partial<Record<CepDlpRuleId, CepDlpAction>>;
+  data_boundary_mode?: CepDataBoundaryMode;
+  internal_urls?: string[];
+}
+
+export interface CepRollbackConfig {
+  customer_id: string;
+  project_id?: string;
+  target_ou_id: string;
+  target_ou_path?: string;
+  verify_match?: boolean;
+  rollback_modules?: CepModule[];
+  /** Only an `AUTO_CREATE_*` level is deleted; a selected one is left alone. */
+  access_level?: string;
+}
+
+export interface CepCustomRoleConfig {
+  project_id: string;
+  customer_id: string;
+  role_type: "administrator" | "auditor" | "both";
+  assigned_user_email?: string;
+}
+
+export interface CepTraceItem {
+  label: string;
+  method: string;
+  url: string;
+  status: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface CepProvisionResult {
+  success: boolean;
+  message: string;
+  created_items: string[];
+  skipped_items: string[];
+  debug_trace: CepTraceItem[];
+}
+
+export interface CepRoleResult {
+  success: boolean;
+  message: string;
+  roles: string[];
+  debug_trace: CepTraceItem[];
+}
+
+export function provisionCepPolicies(
+  config: CepProvisionConfig,
+): Promise<CepProvisionResult> {
+  return postJson<CepProvisionResult>("/api/v1/cep/provision", config);
+}
+
+export function rollbackCepPolicies(
+  config: CepRollbackConfig,
+): Promise<CepProvisionResult> {
+  return postJson<CepProvisionResult>("/api/v1/cep/rollback", config);
+}
+
+export function createCepCustomRoles(
+  config: CepCustomRoleConfig,
+): Promise<CepRoleResult> {
+  return postJson<CepRoleResult>("/api/v1/cep/roles", config);
+}
+
+export function generateCepScript(
+  config: CepProvisionConfig,
+): Promise<{ script: string; filename: string }> {
+  return postJson<{ script: string; filename: string }>(
+    "/api/v1/cep/script",
+    config,
+  );
+}
+
+

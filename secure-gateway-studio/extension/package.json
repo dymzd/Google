@@ -1,0 +1,19 @@
+{
+  "name": "@secure-gateway-studio/extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Manifest V3 extension replacing the local FastAPI agent.",
+  "scripts": {
+    "build": "node build.mjs",
+    "package": "node build.mjs && python package.py",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && node --experimental-strip-types scripts/verify-routes.ts && node --experimental-strip-types scripts/verify-coldstart.ts && node --experimental-strip-types scripts/verify-canonical.ts && node --experimental-strip-types scripts/verify-spec.ts && node --experimental-strip-types scripts/verify-auth.ts && node --experimental-strip-types scripts/verify-audit.ts && node --experimental-strip-types scripts/verify-planner.ts && node --experimental-strip-types scripts/verify-executor.ts && node --experimental-strip-types scripts/verify-discovery.ts && node --experimental-strip-types scripts/verify-resume.ts && node --experimental-strip-types scripts/verify-certificates.ts && node --experimental-strip-types scripts/verify-cep.ts"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.0.287",
+    "@types/node": "^22.20.1",
+    "esbuild": "0.25.0",
+    "typescript": "^5.9.2"
+  }
+}

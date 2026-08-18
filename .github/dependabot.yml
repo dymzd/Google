@@ -22,6 +22,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # pnpm refuses a lockfile containing releases younger than its
+    # minimumReleaseAge policy, so Dependabot's proposals were being rejected
+    # at install and frontend security patches could not merge. Holding each
+    # proposal until the release has aged keeps the two policies compatible.
+    # Confirm this clears the configured cutoff on the first run after merge;
+    # the policy value is not set in this repository.
+    cooldown:
+      default-days: 14
+      semver-major-days: 30
+      semver-minor-days: 14
+      semver-patch-days: 14
     groups:
       frontend-runtime:
         dependency-type: "production"
