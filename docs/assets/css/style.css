@@ -1,0 +1,202 @@
+/* Modern Enterprise Typography & Reset */
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #334155;
+  background-color: #f8fafc;
+  line-height: 1.65;
+}
+
+/* Headings */
+h1 {
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  margin-bottom: 1.25rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Paragraphs & Text */
+p {
+  margin-bottom: 1.25rem;
+  color: #475569;
+}
+
+/* Hyperlinks */
+a {
+  color: #0284c7;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+a:hover {
+  color: #0369a1;
+  text-decoration: underline;
+}
+
+/* Ultra-Modern Data Tables */
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1.75rem 0;
+  background: #ffffff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  border: 1px solid #e2e8f0;
+  font-size: 0.875rem;
+}
+
+/* Auto wrapper for table scrolling on mobile */
+.table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.5rem 0;
+  border-radius: 12px;
+}
+
+thead th {
+  background-color: #f8fafc;
+  color: #334155;
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 14px 18px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+tbody tr:nth-child(even) {
+  background-color: #fafbfc;
+}
+
+tbody tr:hover {
+  background-color: #f0f9ff;
+}
+
+tbody td {
+  padding: 14px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Code Pills inside tables & text */
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  background-color: #f1f5f9;
+  color: #0f172a;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  font-weight: 500;
+}
+
+td code {
+  background-color: #f0f7ff;
+  color: #0369a1;
+  border-color: #bae6fd;
+  word-break: break-all;
+}
+
+/* Pre / Code Blocks */
+pre {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-radius: 10px;
+  padding: 1.25rem !important;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  border: 1px solid #1e293b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+pre code {
+  background: transparent !important;
+  color: inherit !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 0.85rem;
+}
+
+/* Lists */
+ul, ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1.25rem;
+  color: #475569;
+}
+
+li {
+  margin-bottom: 0.5rem;
+}
+
+li strong {
+  color: #0f172a;
+}
+
+/* Horizontal Rule */
+hr {
+  border: 0;
+  height: 1px;
+  background: #e2e8f0;
+  margin: 2.5rem 0;
+}
+
+/* Blockquotes / Callouts */
+blockquote {
+  border-left: 4px solid #0284c7;
+  background: #f0f9ff;
+  padding: 1rem 1.25rem;
+  border-radius: 0 8px 8px 0;
+  margin: 1.5rem 0;
+  color: #0369a1;
+}
+
+blockquote p {
+  margin-bottom: 0;
+  color: #0369a1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.25rem; }
+  table { font-size: 0.8rem; }
+  thead th, tbody td { padding: 10px 12px; }
+}

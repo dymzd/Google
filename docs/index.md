@@ -1,91 +1,169 @@
 ---
+layout: default
 title: Chrome Enterprise Premium PoC Deployer
 description: >-
-  Chrome Enterprise Premium PoC Deployer is a Chrome extension for Google Workspace
+  Chrome Enterprise Premium PoC Deployer is an administrator tool for Google Workspace
   and Google Cloud administrators. It provides turnkey planning, deployment, verification,
   and rollback for Chrome Enterprise Premium (CEP) and BeyondCorp Security Gateway (SGW).
 ---
 
-# Chrome Enterprise Premium PoC Deployer
+<div class="mb-12 text-center sm:text-left">
+  <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-700 text-xs font-semibold uppercase tracking-wider mb-4 shadow-sm">
+    <span class="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
+    Enterprise Administrator Tool &bull; Apache 2.0 Open Source
+  </div>
+  <h1 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">
+    Chrome Enterprise Premium<br class="hidden sm:block">
+    <span class="bg-gradient-to-r from-sky-600 to-indigo-600 bg-clip-text text-transparent">PoC Deployer</span>
+  </h1>
+  <p class="text-lg text-slate-600 max-w-3xl mt-4 leading-relaxed">
+    Fast-track the evaluation, configuration, and verification of <strong>Chrome Enterprise Premium (CEP)</strong> and <strong>BeyondCorp Security Gateway (SGW)</strong> across Google Workspace tenants and Google Cloud projects.
+  </p>
+  <div class="flex flex-wrap items-center gap-3 mt-6">
+    <a href="#two-core-deployment-modules" class="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-md shadow-sky-500/20 transition-all">Explore Modules</a>
+    <a href="{{ '/privacy.html' | relative_url }}" class="px-5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm border border-slate-200 shadow-sm transition-all">Privacy Policy</a>
+    <a href="https://github.com/dymzd/Google" target="_blank" class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm shadow-sm transition-all flex items-center gap-2">
+      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+      Source Code
+    </a>
+  </div>
+</div>
 
-**Chrome Enterprise Premium PoC Deployer** is an administrator tool (packaged as a Chrome extension) designed to streamline the evaluation, configuration, and verification of **Chrome Enterprise Premium (CEP)** and **BeyondCorp Security Gateway (SGW)** across Google Workspace tenants and Google Cloud projects.
+<h2 id="two-core-deployment-modules">Two Core Deployment Modules</h2>
 
-It is the application registered on the Google Cloud OAuth consent screen and distributed in the Chrome Web Store as **Chrome Enterprise Premium PoC Deployer**.
+<p class="text-slate-600 mb-6">
+  The extension integrates two specialized automation engines to cover both endpoint policy configuration and cloud zero-trust networking:
+</p>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 my-8 not-prose">
+  <!-- Module 1: CEP -->
+  <div class="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-md shadow-slate-100 hover:shadow-lg transition-all flex flex-col justify-between">
+    <div>
+      <div class="w-12 h-12 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-lg mb-4">
+        CEP
+      </div>
+      <h3 class="text-xl font-bold text-slate-900 mb-2">1. CEP PoC Deployer</h3>
+      <p class="text-xs font-semibold uppercase tracking-wider text-sky-600 mb-4">Chrome Enterprise Premium Module</p>
+      <p class="text-sm text-slate-600 leading-relaxed mb-4">
+        Accelerates the evaluation of Chrome's advanced security policies without manual configuration in the Admin Console:
+      </p>
+      <ul class="space-y-2 text-sm text-slate-600">
+        <li class="flex items-start gap-2">
+          <span class="text-sky-500 font-bold">&check;</span>
+          <span><strong>Automated OU Setup:</strong> Dedicated test OUs (<code>CEP Users</code>, <code>CEP Browsers</code>) to isolate pilot evaluations.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-sky-500 font-bold">&check;</span>
+          <span><strong>Threat Protection:</strong> Real-time URL checks, malware deep inspection, and password protections.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-sky-500 font-bold">&check;</span>
+          <span><strong>Context-Aware Access (CAA):</strong> Device posture verification and Endpoint Verification requirements.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-sky-500 font-bold">&check;</span>
+          <span><strong>Starter DLP Rules:</strong> Tailored data protection policies matching tenant primary domains.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Module 2: SGW -->
+  <div class="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-md shadow-slate-100 hover:shadow-lg transition-all flex flex-col justify-between">
+    <div>
+      <div class="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg mb-4">
+        SGW
+      </div>
+      <h3 class="text-xl font-bold text-slate-900 mb-2">2. SGW Deployer</h3>
+      <p class="text-xs font-semibold uppercase tracking-wider text-indigo-600 mb-4">BeyondCorp Security Gateway Module</p>
+      <p class="text-sm text-slate-600 leading-relaxed mb-4">
+        Automates private zero-trust application access for managed Chrome browsers in Google Cloud:
+      </p>
+      <ul class="space-y-2 text-sm text-slate-600">
+        <li class="flex items-start gap-2">
+          <span class="text-indigo-500 font-bold">&check;</span>
+          <span><strong>3 Gateway Architectures:</strong> Path A (Load Balancer & Nginx offload), Path B (Direct HTTPS), Path C (Cloud Run).</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-indigo-500 font-bold">&check;</span>
+          <span><strong>Least-Privilege Security:</strong> Provisions scoped service accounts and custom project IAM roles.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-indigo-500 font-bold">&check;</span>
+          <span><strong>Infrastructure Automation:</strong> VPC subnets, firewall rules, private DNS zones, and Private CA certificate issuance.</span>
+        </li>
+        <li class="flex items-start gap-2">
+          <span class="text-indigo-500 font-bold">&check;</span>
+          <span><strong>Audit & Verification:</strong> Pre-flight checks, live health probes, and SHA-256 evidence generation.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
 
 ---
 
-## Two Core Deployment Modules
+## 5-Stage Orchestration Cycle
 
-The tool is organized into two distinct functional engines:
+All deployments follow a strict, auditable lifecycle designed to guarantee zero unintended changes:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│           Chrome Enterprise Premium PoC Deployer            │
-├──────────────────────────────┬──────────────────────────────┤
-│    1. CEP PoC Deployer       │      2. SGW Deployer         │
-│ (Chrome Enterprise Premium)  │ (BeyondCorp Security Gateway)│
-├──────────────────────────────┼──────────────────────────────┤
-│ • Automated OU Structure     │ • Zero-Trust Private App GW  │
-│ • Threat & Malware Policies  │ • 3 Gateway Architectures    │
-│ • Context-Aware Access (CAA) │ • Custom IAM Roles & SA      │
-│ • Data Boundary Policies     │ • Private DNS & TLS Certs    │
-│ • Starter DLP Rule Sets      │ • Upstream Health Checks     │
-└──────────────────────────────┴──────────────────────────────┘
-```
-
-### 1. CEP PoC Deployer (Chrome Enterprise Premium Module)
-Accelerates the evaluation of Chrome's advanced security features without manual, error-prone configuration across multiple admin consoles:
-* **Organizational Unit (OU) Lifecycle**: Automatically provisions dedicated test OUs (e.g., `CEP Users`, `CEP Browsers`) to isolate pilot testing from production users.
-* **Threat & Data Protection**: Sets Chrome policies for real-time URL scanning, malware deep scanning, password reuse detection, and security telemetry.
-* **Context-Aware Access (CAA)**: Configures device posture signals and Endpoint Verification requirements.
-* **Data Boundary & Starter DLP**: Deploys data-loss-prevention policies and content-inspection rules tailored to your tenant's primary domain.
-
-### 2. SGW Deployer (BeyondCorp Security Gateway Module / Secure Gateway Studio)
-Automates the zero-trust application access architecture for managed Chrome browsers:
-* **Gateway Architecture Options**:
-  * **Path A (Full Enterprise Offload)**: Internal Regional Application Load Balancer, Nginx TLS-to-HTTP offload tier, VPC subnets, firewall rules, and Private DNS.
-  * **Path B (Direct Private HTTPS)**: Direct BeyondCorp routing to internal HTTPS endpoints.
-  * **Path C (Cloud Run / Modern Workloads)**: Serverless container integration.
-* **Least-Privilege Security**: Provisions a scoped deployer service account and tailored project IAM custom roles, ensuring operations never run with excessive administrator privileges.
-* **Certificate Management**: Manages private CA issuance and Secret Manager TLS bundles for internal applications.
-
----
-
-## How It Works: The 5-Stage Orchestration Cycle
-
-All deployments follow a strict, auditable 5-stage lifecycle:
-
-1. **Plan**: Inspects the current state of your Workspace tenant and Google Cloud project. Generates a line-by-line diff of proposed changes with zero writes.
-2. **Approve**: Displays the exact plan for explicit administrator review. Nothing is modified until approved.
-3. **Apply**: Executes approved mutations using Google's public REST APIs with the signed-in administrator's credentials or impersonated scoped service accounts.
-4. **Verify**: Runs end-to-end acceptance tests to confirm policies are live and generates a tamper-evident SHA-256 cryptographic audit chain.
-5. **Rollback & Teardown**: Reverts policies to their parent OU settings and cleanly removes only the resources created during the PoC.
+<div class="grid grid-cols-1 sm:grid-cols-5 gap-3 my-6 not-prose">
+  <div class="p-4 rounded-xl bg-white border border-slate-200 text-center">
+    <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold text-sm mx-auto mb-2 flex items-center justify-center">1</div>
+    <div class="font-bold text-sm text-slate-900">Plan</div>
+    <div class="text-xs text-slate-500 mt-1">Read-only diff of proposed changes</div>
+  </div>
+  <div class="p-4 rounded-xl bg-white border border-slate-200 text-center">
+    <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold text-sm mx-auto mb-2 flex items-center justify-center">2</div>
+    <div class="font-bold text-sm text-slate-900">Approve</div>
+    <div class="text-xs text-slate-500 mt-1">Explicit admin confirmation required</div>
+  </div>
+  <div class="p-4 rounded-xl bg-white border border-slate-200 text-center">
+    <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold text-sm mx-auto mb-2 flex items-center justify-center">3</div>
+    <div class="font-bold text-sm text-slate-900">Apply</div>
+    <div class="text-xs text-slate-500 mt-1">API writes via admin credentials</div>
+  </div>
+  <div class="p-4 rounded-xl bg-white border border-slate-200 text-center">
+    <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold text-sm mx-auto mb-2 flex items-center justify-center">4</div>
+    <div class="font-bold text-sm text-slate-900">Verify</div>
+    <div class="text-xs text-slate-500 mt-1">SHA-256 audit chain confirmation</div>
+  </div>
+  <div class="p-4 rounded-xl bg-white border border-slate-200 text-center">
+    <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold text-sm mx-auto mb-2 flex items-center justify-center">5</div>
+    <div class="font-bold text-sm text-slate-900">Rollback</div>
+    <div class="text-xs text-slate-500 mt-1">Complete teardown of created resources</div>
+  </div>
+</div>
 
 ---
 
 ## Detailed API Calls & Host Permissions
 
-The extension calls Google APIs directly from the browser runtime (`https://*.googleapis.com`). No third-party servers or external services are involved.
+The extension calls Google APIs directly from the local browser runtime (`https://*.googleapis.com`). No intermediate proxy or external server is contacted.
 
-| API Host Endpoint | Used By | Purpose & Action Performed |
+<div class="table-wrapper">
+
+| Google API Host Endpoint | Component | Purpose & Operation Performed |
 |---|---|---|
-| `admin.googleapis.com` | CEP & SGW | Reads organizational units and domain details (`admin.directory.customer.readonly`), creates PoC sub-OUs (`admin.directory.orgunit`), and lists pilot groups. |
+| `admin.googleapis.com` | CEP & SGW | Reads organizational units and tenant domain (`admin.directory.customer.readonly`), creates test sub-OUs (`admin.directory.orgunit`), and lists user groups. |
 | `cloudidentity.googleapis.com` | CEP | Manages DLP policies and rule detectors (`cloud-identity.policies`) for Chrome content inspection. |
-| `chromepolicy.googleapis.com` | CEP & SGW | Sets and resolves target OU policies (Threat Protection, Endpoint Verification, Extension Settings). |
-| `chromemanagement.googleapis.com` | CEP | Verifies managed browser enrollment status and telemetry reporting. |
-| `accesscontextmanager.googleapis.com` | CEP & SGW | Reads and binds Context-Aware Access levels and device policy conditions. |
+| `chromepolicy.googleapis.com` | CEP & SGW | Applies Chrome policies (Threat Protection, Extension Settings, Endpoint Verification) to target test OUs. |
+| `chromemanagement.googleapis.com` | CEP | Verifies managed browser enrollment and security telemetry reporting. |
+| `accesscontextmanager.googleapis.com` | CEP & SGW | Reads and binds Context-Aware Access levels and device posture criteria. |
 | `iamcredentials.googleapis.com` | SGW | Generates short-lived credentials (`generateAccessToken`) for the scoped deployer service account. |
 | `iam.googleapis.com` | SGW | Creates the deployer service account and configures custom IAM project roles. |
-| `cloudresourcemanager.googleapis.com` | SGW | Resolves GCP project/organization IDs and binds IAM policies. |
+| `cloudresourcemanager.googleapis.com` | SGW | Resolves GCP project/organization IDs and binds project IAM policies. |
 | `serviceusage.googleapis.com` | SGW | Enables required Google Cloud service APIs (BeyondCorp, Compute, DNS, etc.) in the project. |
 | `beyondcorp.googleapis.com` | SGW | Configures Security Gateways, App Connections, and Client Gateways. |
 | `compute.googleapis.com` | SGW (Path A) | Provisions VPC subnets, firewall rules, instance templates, and internal load balancers. |
 | `dns.googleapis.com` | SGW (Path A) | Manages private DNS zones and records for internal application resolution. |
 | `secretmanager.googleapis.com` | SGW | Stores and rotates TLS certificates and private keys. |
 | `privateca.googleapis.com` | SGW | Issues PoC certificates from Google Cloud Certificate Authority Service. |
-| `cloudbilling.googleapis.com` | SGW | Checks that the Google Cloud project has an active billing account prior to deployment. |
+| `cloudbilling.googleapis.com` | SGW | Verifies that the Google Cloud project has an active billing account prior to deployment. |
 | `licensing.googleapis.com` | CEP | Confirms active Chrome Enterprise Premium subscription licenses. |
 | `logging.googleapis.com` | SGW | Fetches diagnostic and audit logs for verification and evidence export. |
+
+</div>
 
 ---
 
@@ -93,7 +171,9 @@ The extension calls Google APIs directly from the browser runtime (`https://*.go
 
 In compliance with the Google API Services User Data Policy, only scopes strictly necessary for operation are requested:
 
-| OAuth Scope | Primary Component | Justification & Principle of Least Privilege |
+<div class="table-wrapper">
+
+| OAuth Scope | Primary Engine | Justification & Principle of Least Privilege |
 |---|---|---|
 | `.../auth/admin.directory.orgunit` | CEP Deployer | Required to automatically create, configure, and clean up isolated test OUs (`CEP Users`, `CEP Browsers`) so production users are unaffected. |
 | `.../auth/admin.directory.customer.readonly` | CEP Deployer | Required to read the tenant's primary domain name, which is necessary to formulate domain-specific data boundary policies. |
@@ -106,13 +186,26 @@ In compliance with the Google API Services User Data Policy, only scopes strictl
 | `.../auth/cloud-platform` | SGW Deployer | Used to orchestrate multi-service GCP infrastructure (BeyondCorp, Compute, IAM, DNS). Mutations run through impersonated least-privilege service accounts. |
 | `.../auth/userinfo.email` | Core | Displays the signed-in administrator email in the local audit log and evidence bundle. |
 
+</div>
+
 ---
 
 ## Architecture & Privacy Guarantee
 
-* **100% Client-Side / Zero-Backend**: The extension runs entirely in your local browser runtime. It has no backend server and transmits no telemetry or user data to the developer or any third party.
-* **In-Memory Credential Handling**: OAuth access tokens remain strictly in volatile memory. They are never written to disk or logged.
-* **Local Audit Store**: All drafts, plans, and SHA-256 audit evidence are kept in your browser's local `IndexedDB` storage and are exportable as JSON at any time.
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 my-6 not-prose">
+  <div class="p-5 rounded-xl bg-white border border-slate-200 shadow-sm">
+    <div class="text-sky-600 font-bold text-base mb-1">100% Client-Side</div>
+    <div class="text-xs text-slate-500 leading-relaxed">Runs entirely in your local browser runtime. Zero backend, zero telemetry, and zero third-party servers.</div>
+  </div>
+  <div class="p-5 rounded-xl bg-white border border-slate-200 shadow-sm">
+    <div class="text-sky-600 font-bold text-base mb-1">In-Memory Tokens</div>
+    <div class="text-xs text-slate-500 leading-relaxed">OAuth access tokens remain strictly in volatile memory. Never written to disk or storage.</div>
+  </div>
+  <div class="p-5 rounded-xl bg-white border border-slate-200 shadow-sm">
+    <div class="text-sky-600 font-bold text-base mb-1">Local Audit Store</div>
+    <div class="text-xs text-slate-500 leading-relaxed">All evidence and SHA-256 logs stay in your browser IndexedDB and are exportable as JSON anytime.</div>
+  </div>
+</div>
 
 For full privacy commitments, see the [Privacy Policy](privacy.html).
 
@@ -128,5 +221,5 @@ It is **not built, endorsed, or supported by Google LLC**, and is not an officia
 
 ## Support & Issue Reporting
 
-* **For Tool Issues & Feature Requests**: Open an issue on our [GitHub Issues page](https://github.com/dymzd/Google/issues).
-* **For Google Product Licensing & Official Support**: Contact your Google account representative (FSR / CE / CSM) or visit the [Google Cloud Support Center](https://cloud.google.com/support).
+* **Tool Issues & Feature Requests**: Open an issue on our [GitHub Issues page](https://github.com/dymzd/Google/issues).
+* **Google Product Licensing & Support**: Contact your Google account representative (FSR / CE / CSM) or visit the [Google Cloud Support Center](https://cloud.google.com/support).
