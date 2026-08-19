@@ -38,9 +38,9 @@ async function operatorEmail(): Promise<string> {
     return profileEmail;
   }
 
-  // Fallback: request OAuth token and resolve email from Google tokeninfo
+  // Fallback: check if already consented silently (interactive: false)
   try {
-    const token = await chromeIdentity.getAuthToken(true);
+    const token = await chromeIdentity.getAuthToken(false);
     const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
     if (res.ok) {
       const payload = (await res.json()) as { email?: string };
@@ -50,7 +50,7 @@ async function operatorEmail(): Promise<string> {
       }
     }
   } catch (err) {
-    console.error("[SGS Auth] Failed to resolve operator email via tokeninfo:", err);
+    console.log("[SGS Auth] Operator email not yet consented (silent check):", err);
   }
   return "";
 }

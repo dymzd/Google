@@ -21,9 +21,15 @@ const ACCESS_LEVELS = [
 ];
 
 function renderPage() {
-  return render(
+  const rendered = render(
     <CepDeployerPage customerId="C012345" messages={messages} projectId="my-test-proj" />,
   );
+  // Simulate clicking the verify button to load OUs in tests
+  const verifyBtn = screen.queryByText(/Verify Google Account & Load OUs/i);
+  if (verifyBtn) {
+    fireEvent.click(verifyBtn);
+  }
+  return rendered;
 }
 
 function emptyResult(overrides: Partial<api.CepProvisionResult> = {}): api.CepProvisionResult {

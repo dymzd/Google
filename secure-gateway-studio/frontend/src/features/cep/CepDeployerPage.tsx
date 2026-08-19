@@ -163,59 +163,42 @@ export function CepDeployerPage({
   const [lastResult, setLastResult] = useState<CepProvisionResult | null>(null);
   const [copiedSnippet, setCopiedSnippet] = useState<string>("");
 
-  useEffect(() => {
-    let active = true;
-    async function loadOus() {
-      try {
-        const options = await listOrganizationalUnitOptions(customerId || "my_customer");
-        if (!active) return;
-        setOrganizationalUnits(options);
-        setOuError(options.length === 0);
-        if (options.length > 0) setSelectedOu(options[0].value);
-      } catch {
-        // The previous version fell back to `my_customer`, which is not a valid
-        // policy target, so Apply failed later with an opaque Google error.
-        if (active) setOuError(true);
-      }
-    }
-    void loadOus();
-    return () => {
-      active = false;
-    };
-  }, [customerId]);
+  const [ouLoaded, setOuLoaded] = useState<boolean>(false);
+  const [loadingOus, setLoadingOus] = useState<boolean>(false);
 
-  useEffect(() => {
-    let active = true;
-    async function loadAccessLevels() {
-      if (!projectId) {
-        setAccessLevels([]);
-        setAccessLevelError(true);
-        return;
+  const handleLoadOus = async () => {
+    setLoadingOus(true);
+    setOuError(false);
+    try {
+      const options = await listOrganizationalUnitOptions(customerId || "my_customer");
+      setOrganizationalUnits(options);
+      setOuError(options.length === 0);
+      if (options.length > 0) {
+        setSelectedOu(options[0].value);
+        setOuLoaded(true);
       }
-      try {
-        const options = await listAccessLevelOptions(projectId);
-        if (!active) return;
-        // The endpoint prepends its own sentinels for the deployment wizard;
-        // this page renders localized ones, so keep only the real levels.
-        const existing = options.filter(
-          (option) =>
-            option.value !== ACCESS_LEVEL_NONE &&
-            !AUTO_CREATE_SENTINELS.includes(option.value),
-        );
-        setAccessLevels(existing);
-        setAccessLevelError(false);
-      } catch {
-        if (active) {
-          setAccessLevels([]);
-          setAccessLevelError(true);
+      if (projectId) {
+        try {
+          const accessOptions = await listAccessLevelOptions(projectId);
+          const existing = accessOptions.filter(
+            (option) =>
+              option.value !== ACCESS_LEVEL_NONE &&
+              !AUTO_CREATE_SENTINELS.includes(option.value),
+          );
+          setAccessLevels(existing);
+          setAccessLevelError(false);
+        } catch {
+          // ignore access level error on initial load
         }
       }
+    } catch (err) {
+      console.error("[CEP Page] Failed to load OUs on verify:", err);
+      setOuError(true);
+      setOuLoaded(true);
+    } finally {
+      setLoadingOus(false);
     }
-    void loadAccessLevels();
-    return () => {
-      active = false;
-    };
-  }, [projectId]);
+  };
 
   const selectedUnit = organizationalUnits.find((unit) => unit.value === selectedOu);
   const anyModuleSelected =
@@ -503,13 +486,49 @@ export function CepDeployerPage({
         <h2 id="cep-ou-title">{m.targetOuCardTitle}</h2>
         <p>{m.targetOuCardSubtitle}</p>
 
-        {ouError ? (
-          <p className="cep-inline-error" role="alert">
-            {m.ouLoadFailed}
-          </p>
+        {!ouLoaded ? (
+          <div className="cep-verify-box" style={{ marginBottom: "1rem" }}>
+            <button
+              className="cep-btn cep-btn-primary"
+              disabled={loadingOus}
+              onClick={() => void handleLoadOus()}
+              type="button"
+            >
+              {loadingOus ? "Verifying Google Account & Loading OUs..." : "🔑 Verify Google Account & Load OUs"}
+            </button>
+            <p style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.5rem" }}>
+              Click above to authenticate with Google OAuth and load your organizational units.
+            </p>
+          </div>
+        ) : ouError ? (
+          <div>
+            <p className="cep-inline-error" role="alert">
+              {m.ouLoadFailed}
+            </p>
+            <button
+              className="cep-btn cep-btn-secondary"
+              disabled={loadingOus}
+              onClick={() => void handleLoadOus()}
+              style={{ marginTop: "0.5rem" }}
+              type="button"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <div className="cep-field">
-            <label htmlFor="cep-target-ou">{m.selectTargetOu}</label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+              <label htmlFor="cep-target-ou">{m.selectTargetOu}</label>
+              <button
+                className="text-action"
+                disabled={loadingOus}
+                onClick={() => void handleLoadOus()}
+                style={{ fontSize: "0.75rem" }}
+                type="button"
+              >
+                {loadingOus ? "Reloading..." : "↻ Refresh OUs"}
+              </button>
+            </div>
             <select
               id="cep-target-ou"
               onChange={(event) => setSelectedOu(event.target.value)}
