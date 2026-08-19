@@ -141,8 +141,6 @@ All deployments follow a strict, auditable lifecycle designed to guarantee zero 
 
 The extension calls Google APIs directly from the local browser runtime (`https://*.googleapis.com`). No intermediate proxy or external server is contacted.
 
-<div class="table-wrapper">
-
 | Google API Host Endpoint | Component | Purpose & Operation Performed |
 |---|---|---|
 | `admin.googleapis.com` | CEP & SGW | Reads organizational units and tenant domain (`admin.directory.customer.readonly`), creates test sub-OUs (`admin.directory.orgunit`), and lists user groups. |
@@ -163,15 +161,11 @@ The extension calls Google APIs directly from the local browser runtime (`https:
 | `licensing.googleapis.com` | CEP | Confirms active Chrome Enterprise Premium subscription licenses. |
 | `logging.googleapis.com` | SGW | Fetches diagnostic and audit logs for verification and evidence export. |
 
-</div>
-
 ---
 
 ## OAuth Scopes Justification
 
 In compliance with the Google API Services User Data Policy, only scopes strictly necessary for operation are requested:
-
-<div class="table-wrapper">
 
 | OAuth Scope | Primary Engine | Justification & Principle of Least Privilege |
 |---|---|---|
@@ -185,8 +179,6 @@ In compliance with the Google API Services User Data Policy, only scopes strictl
 | `.../auth/apps.licensing` | CEP | Verifies the tenant possesses Chrome Enterprise Premium licenses. |
 | `.../auth/cloud-platform` | SGW Deployer | Used to orchestrate multi-service GCP infrastructure (BeyondCorp, Compute, IAM, DNS). Mutations run through impersonated least-privilege service accounts. |
 | `.../auth/userinfo.email` | Core | Displays the signed-in administrator email in the local audit log and evidence bundle. |
-
-</div>
 
 ---
 

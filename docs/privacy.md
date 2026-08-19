@@ -73,16 +73,12 @@ kind. The extension's content security policy restricts network access to
 
 All of it stays in your Chrome profile on your device:
 
-<div class="table-wrapper">
-
 | Data | Storage | Why |
 |---|---|---|
 | Deployment drafts, plans, approvals | IndexedDB | So a configuration survives closing the tab |
 | Run checkpoints and operation records | IndexedDB | So an apply interrupted by a service-worker restart can resume |
 | SHA-256 audit chain of what changed | IndexedDB | Evidence of what was planned, approved, and applied |
 | Deployer service account reference | `chrome.storage.local` | So later operations know which account to impersonate |
-
-</div>
 
 **Access tokens are held in memory only.** They are never written to storage,
 never logged, and never placed in an audit event or an evidence export. A
