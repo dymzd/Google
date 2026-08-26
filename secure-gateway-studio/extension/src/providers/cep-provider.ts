@@ -21,28 +21,29 @@
  *     did not undo the force-installed extension, and the script ignored every
  *     toggle. `CEP_POLICIES` below is now the only place a policy is declared.
  *
- * DLP detectors and rules are a second surface entirely: Cloud Identity
- * policies, where the DLP shape is carried in a free-form `setting.value`
- * struct rather than in the discovery document -- which is why grepping that
- * document for "dlp" finds nothing and suggests, wrongly, that no API exists.
+ * DLP rules are a second surface entirely: Cloud Identity policies, where the
+ * DLP shape is carried in a free-form `setting.value` struct rather than in the
+ * discovery document. Only supported `settings/rule.dlp` mutations are sent;
+ * unsupported URL-list detector settings are never created.
  *
  * Two things about that API are easy to get wrong and are handled below: it
  * answers HTTP 200 with an error code in the body, and an empty sub-object
  * anywhere in the request is rejected outright.
  */
 
-import { ensureManagedChromeAccessLevel } from "./catalog.ts";
+import { ensureManagedChromeAccessLevelDetailed } from "./catalog.ts";
 import type { Transport } from "./executor.ts";
+import { validateLicenseAssignment } from "./licensing.ts";
+import { canonicalJson } from "../domain/canonical.ts";
 
 const CHROME_POLICY = "https://chromepolicy.googleapis.com/v1";
 const DIRECTORY = "https://admin.googleapis.com/admin/directory/v1";
-const IAM = "https://iam.googleapis.com/v1";
-const CRM = "https://cloudresourcemanager.googleapis.com/v1";
 const ACM = "https://accesscontextmanager.googleapis.com/v1";
-/** DLP rules and detectors. Mutations are v1beta1; reads are GA on v1. */
+const CRM = "https://cloudresourcemanager.googleapis.com/v1";
+/** DLP rule mutations and reconciliation reads use the v1beta1 Policies API. */
 const CLOUD_IDENTITY = "https://cloudidentity.googleapis.com/v1beta1";
 
-/** Display-name prefix that marks a rule or detector as ours to roll back. */
+/** Display-name prefix used only for reporting candidates; it is not ownership proof. */
 const DLP_PREFIX = "CEP PoC - ";
 
 export type CepDlpRuleId =
@@ -54,10 +55,19 @@ export type CepDlpRuleId =
   | "watermark"
   | "genai_block";
 
-/** What a rule does when it matches. `off` means do not create it. */
-export type CepDlpAction = "off" | "auditOnly" | "warnUser" | "blockContent";
+/** Chrome actions supported by the Cloud Identity Policy API. `off` omits the rule. */
+export type CepDlpAction = "off" | "warnUser" | "blockContent";
 
 export type CepDlpOperation = "upload" | "download" | "paste" | "print" | "watermark";
+
+function selectionToAccessLevelKind(
+  selection: string,
+): "profile" | "browser" | "any" | null {
+  if (selection === "AUTO_CREATE_CHROME_ANY") return "any";
+  if (selection === "AUTO_CREATE_PROFILE_MANAGED") return "profile";
+  if (selection === "AUTO_CREATE_BROWSER_MANAGED") return "browser";
+  return null;
+}
 
 export interface CepDlpMatrixRuleConfig {
   upload?: CepDlpAction;
@@ -98,8 +108,64 @@ export const CEP_DLP_REGIONS = Object.entries(NATIONAL_ID_INFOTYPES).map(
   ([value, entry]) => ({ value, label: entry.label, infoTypes: entry.infoTypes }),
 );
 
-/** The policy API allows one list per second per customer. */
-const LIST_MIN_INTERVAL_MS = 1100;
+/** Cloud Identity Policies allows one aggregate query per second per customer/project. */
+const POLICY_MIN_INTERVAL_MS = 1100;
+const POLICY_MAX_ATTEMPTS = 4;
+const DLP_RECONCILIATION_MAX_ATTEMPTS = 8;
+
+interface PolicyRateLimitClock {
+  now(): number;
+  sleep(milliseconds: number): Promise<void>;
+}
+
+const SYSTEM_POLICY_CLOCK: PolicyRateLimitClock = {
+  now: () => Date.now(),
+  sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+};
+
+class CloudIdentityPolicyRateLimiter {
+  private readonly clock: PolicyRateLimitClock;
+  private nextAllowedAt = 0;
+  private tail: Promise<void> = Promise.resolve();
+
+  constructor(clock: PolicyRateLimitClock) {
+    this.clock = clock;
+  }
+
+  async run<T>(request: () => Promise<T>, retryDelayMs = 0): Promise<T> {
+    const previous = this.tail;
+    let release: () => void = () => void 0;
+    this.tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      const now = this.clock.now();
+      const target = Math.max(this.nextAllowedAt, now + retryDelayMs);
+      if (target > now) await this.clock.sleep(target - now);
+      return await request();
+    } finally {
+      this.nextAllowedAt = this.clock.now() + POLICY_MIN_INTERVAL_MS;
+      release();
+    }
+  }
+}
+
+type TransportWithPolicyClock = Transport & {
+  cepPolicyRateLimitClock?: PolicyRateLimitClock;
+};
+
+const POLICY_LIMITERS = new WeakMap<object, CloudIdentityPolicyRateLimiter>();
+
+function policyRateLimiter(transport: Transport): CloudIdentityPolicyRateLimiter {
+  const key = transport as object;
+  const existing = POLICY_LIMITERS.get(key);
+  if (existing !== undefined) return existing;
+  const clock = (transport as TransportWithPolicyClock).cepPolicyRateLimitClock ?? SYSTEM_POLICY_CLOCK;
+  const limiter = new CloudIdentityPolicyRateLimiter(clock);
+  POLICY_LIMITERS.set(key, limiter);
+  return limiter;
+}
 
 /** Endpoint Verification, the posture-signal extension CEP reads from. */
 const ENDPOINT_VERIFICATION = "callobklhcbilhphinckomhgkigmfocg";
@@ -129,6 +195,11 @@ export interface CepProvisionConfig {
   target_ou_id: string;
   /** `orgUnitPath` of the same unit; required to create sub OUs beneath it. */
   target_ou_path?: string;
+  /**
+   * Exact current `orgUnitPath` typed by the operator immediately before a
+   * write. Provision routes reject an omitted, stale, or root-OU value.
+   */
+  target_ou_confirmation?: string;
   create_sub_ous?: boolean;
   core_policies?: boolean;
   force_extensions?: boolean;
@@ -160,8 +231,11 @@ export interface CepCustomRoleConfig {
 
 export interface CepLicenseAssignConfig {
   customer_id: string;
+  project_id: string;
   target_ou_id: string;
   target_ou_path?: string;
+  /** Exact current `orgUnitPath` typed before this licence mutation. */
+  target_ou_confirmation?: string;
   product_id?: string;
   sku_id?: string;
 }
@@ -178,17 +252,32 @@ export interface CepLicenseAssignResult {
   debug_trace: CepTraceItem[];
 }
 
+/**
+ * License assignment is intentionally a small-OU pilot operation. The bounds
+ * below keep one runtime.onMessage event far below Chrome's MV3 event lifetime:
+ * one OU read + four Directory pages + at most three Licensing calls for each
+ * of ten users, all with a five-second deadline (175 seconds total network
+ * wait inside the provider). Route-level identity/target reads are bounded
+ * separately before this provider is entered.
+ */
+export const CEP_LICENSE_PILOT_USER_LIMIT = 10;
+export const CEP_LICENSE_DIRECTORY_PAGE_LIMIT = 4;
+export const CEP_LICENSE_REQUEST_TIMEOUT_MS = 5_000;
+export const CEP_LICENSE_PROVIDER_MAX_NETWORK_WAIT_MS =
+  (1 + CEP_LICENSE_DIRECTORY_PAGE_LIMIT + 3 * CEP_LICENSE_PILOT_USER_LIMIT) *
+  CEP_LICENSE_REQUEST_TIMEOUT_MS;
+
 export interface CepRollbackConfig {
   customer_id: string;
   target_ou_id: string;
   target_ou_path?: string;
-  /** Compare live state before deleting anything we created. Default on. */
+  /** Retained compatibility flag; cleanup is read-only without durable ownership. */
   verify_match?: boolean;
   /** Restrict the rollback to these modules. Empty or absent means all. */
   rollback_modules?: CepModule[];
   /**
-   * What provision was given. Only an `AUTO_CREATE_*` level is ours to delete;
-   * a level the operator selected belongs to them and is left alone.
+   * What provision was given. AUTO_CREATE candidates are resolved for review,
+   * but no level is deleted without durable run ownership.
    */
   access_level?: string;
   project_id?: string;
@@ -220,16 +309,141 @@ export interface CepRoleResult {
 
 export class CepApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  readonly definitelyRejected: boolean;
+  constructor(status: number, message: string, definitelyRejected = false) {
     super(message);
     this.name = "CepApiError";
     this.status = status;
+    this.definitelyRejected = definitelyRejected;
   }
 }
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+export class CepTargetValidationError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = "CepTargetValidationError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export interface ResolvedCepTargetOu {
+  id: string;
+  path: string;
+  name: string;
+}
+
+function errorStatus(error: unknown): number | null {
+  if (error instanceof CepApiError) return error.status;
+  if (typeof error !== "object" || error === null) return null;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && Number.isInteger(status) ? status : null;
+}
+
+function isDefiniteCepMutationRejection(error: unknown): boolean {
+  if (error instanceof CepApiError && error.definitelyRejected) return true;
+  const status = errorStatus(error);
+  return status !== null && status >= 400 && status < 500 &&
+    status !== 408 && status !== 429;
+}
+
+function strictNextPageToken(
+  payload: Record<string, unknown>,
+  context: string,
+): string | null {
+  if (!("nextPageToken" in payload) || payload.nextPageToken === "") return null;
+  if (typeof payload.nextPageToken !== "string") {
+    throw new Error(
+      `${context}: nextPageToken must be an omitted field, an empty string, or a string token`,
+    );
+  }
+  return payload.nextPageToken;
+}
+
+function normalizedCloudIdentityPolicyQuery(
+  value: Record<string, unknown>,
+): { query: string; orgUnit: string } | null {
+  const allowed = new Set(["query", "orgUnit", "group", "sortOrder"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return null;
+  if (
+    typeof value.query !== "string" || value.query === "" ||
+    typeof value.orgUnit !== "string" || !/^orgUnits\/[A-Za-z0-9._~-]+$/.test(value.orgUnit)
+  ) {
+    return null;
+  }
+  if (value.group !== undefined && value.group !== "") return null;
+  if (
+    value.sortOrder !== undefined &&
+    (typeof value.sortOrder !== "number" || !Number.isSafeInteger(value.sortOrder))
+  ) {
+    return null;
+  }
+  return { query: value.query, orgUnit: value.orgUnit };
+}
+
+/**
+ * A requestId-less CEP mutation may have committed even though its response
+ * was lost. The route layer keeps the durable customer/OU lease when this is
+ * raised so only the exact same request can later reconcile the outcome.
+ */
+export class CepMutationOutcomeAmbiguous extends Error {
+  readonly code = "cep-mutation-outcome-ambiguous";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CepMutationOutcomeAmbiguous";
+  }
+}
+
+class CepLicenseRequestTimeout extends Error {
+  readonly method: string;
+  readonly url: string;
+
+  constructor(method: string, url: string, timeoutMs: number) {
+    super(`license-request-timeout: ${method} ${url} exceeded ${timeoutMs}ms`);
+    this.name = "CepLicenseRequestTimeout";
+    this.method = method;
+    this.url = url;
+  }
+}
+
+/** Promise deadline that also observes a late transport rejection. */
+function withinCepLicenseDeadline<T>(
+  operation: Promise<T>,
+  method: string,
+  url: string,
+  timeoutMs: number,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new CepLicenseRequestTimeout(method, url, timeoutMs));
+    }, timeoutMs);
+    operation.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -266,18 +480,18 @@ interface EnumHint {
 
 interface CepContext {
   customerId: string;
+  /** Canonical Directory customer id required by Cloud Identity Policy create. */
+  dlpCustomerId?: string;
   projectId?: string;
   /** Org unit ids the policies target, per scope. */
   ouIds: Record<CepOu, string>;
   primaryDomain?: string;
   internalUrls: string[];
   region: string;
-  ruleActions: Partial<Record<CepDlpRuleId, CepDlpAction>>;
+  dlpMatrix: CepDlpMatrixState;
   accessLevelName?: string;
   /** True only when this run created it, which is what rollback may delete. */
   accessLevelIsOurs?: boolean;
-  /** `policies/<id>` of the URL-list detector, once it exists. */
-  internalSitesDetector?: string;
 }
 
 interface CepFieldSpec {
@@ -350,6 +564,74 @@ function requiresDomain(context: CepContext): string | null {
   return context.primaryDomain
     ? null
     : "the tenant's primary domain could not be resolved from the Directory API";
+}
+
+type ActionableDlpOperation = Exclude<CepDlpOperation, "watermark">;
+
+const DLP_OPERATION_TRIGGERS: Record<ActionableDlpOperation, string> = {
+  upload: "google.workspace.chrome.file.v1.upload",
+  download: "google.workspace.chrome.file.v1.download",
+  paste: "google.workspace.chrome.web_content.v1.upload",
+  print: "google.workspace.chrome.page.v1.print",
+};
+
+const DLP_OPERATIONS_BY_RULE: Record<
+  Exclude<CepDlpRuleId, "watermark">,
+  readonly ActionableDlpOperation[]
+> = {
+  universal_upload: ["upload"],
+  universal_download: ["download"],
+  payment_card: ["upload", "paste", "print"],
+  national_id: ["upload", "paste", "print"],
+  access_level: ["upload", "download", "paste", "print"],
+  genai_block: ["upload", "paste"],
+};
+
+/**
+ * The matrix is the authoritative contract for current callers. The legacy
+ * per-rule action remains a compatibility input and expands to every operation
+ * that rule supports, which preserves old API clients without collapsing mixed
+ * actions from the UI.
+ */
+function resolveDlpMatrix(config: CepProvisionConfig): CepDlpMatrixState {
+  if (config.dlp_matrix !== undefined) return config.dlp_matrix;
+
+  const actionFor = (id: CepDlpRuleId): CepDlpAction =>
+    config.dlp_rule_actions?.[id] ?? "warnUser";
+  const expanded: CepDlpMatrixState = {};
+  for (const [id, operations] of Object.entries(DLP_OPERATIONS_BY_RULE) as Array<
+    [Exclude<CepDlpRuleId, "watermark">, readonly ActionableDlpOperation[]]
+  >) {
+    const action = actionFor(id);
+    expanded[id] = Object.fromEntries(
+      operations.map((operation) => [operation, action]),
+    ) as CepDlpMatrixRuleConfig;
+  }
+  // The public Policy API documentation does not publish a supported CEL
+  // function for evaluating an Access Context Manager level in a DLP rule.
+  // Legacy callers therefore default this row off instead of emitting guessed
+  // CEL that the service rejects.
+  expanded.access_level = {
+    upload: "off",
+    download: "off",
+    paste: "off",
+    print: "off",
+    byodOnly: false,
+  };
+  expanded.watermark = { watermark: actionFor("watermark") !== "off", byodOnly: false };
+  return expanded;
+}
+
+function dlpRuleHasAction(
+  config: CepProvisionConfig,
+  id: CepDlpRuleId,
+  action: CepDlpAction,
+): boolean {
+  const rule = resolveDlpMatrix(config)[id];
+  if (rule === undefined) return false;
+  return (["upload", "download", "paste", "print"] as const).some(
+    (operation) => rule[operation] === action,
+  );
 }
 
 const CEP_POLICIES: readonly CepPolicyDefinition[] = [
@@ -470,18 +752,14 @@ const CEP_POLICIES: readonly CepPolicyDefinition[] = [
   {
     module: "dataBoundary",
     ou: "users",
-    label: "Restrict secondary sign-in to the corporate domain",
-    schema: "chrome.users.RestrictAccountsToPatterns",
-    appliesTo: (config) => config.data_boundary_mode === "copy_paste",
-    requires: requiresDomain,
-    fields: [{ name: /restrictAccountsToPatterns/i, value: (c) => [`*@${c.primaryDomain}`] }],
-  },
-  {
-    module: "dataBoundary",
-    ou: "users",
     label: "Block non-corporate Google accounts in apps",
     schema: "chrome.users.AllowedDomainsForApps",
-    appliesTo: (config) => config.data_boundary_mode === "block_non_corp",
+    // RestrictAccountsToPatterns only applies on Android/iOS. This policy is
+    // supported by managed Chrome on desktop and ChromeOS, which are also in
+    // this product's advertised platform boundary.
+    appliesTo: (config) =>
+      config.data_boundary_mode === "copy_paste" ||
+      config.data_boundary_mode === "block_non_corp",
     requires: requiresDomain,
     // A comma-separated domain list, per the published policy. The previous
     // value was `*.{customer_id}`, and customer_id is `my_customer` or `C0…`.
@@ -493,19 +771,19 @@ const CEP_POLICIES: readonly CepPolicyDefinition[] = [
     label: "Block unapproved consumer GenAI services",
     schema: "chrome.users.URLBlocklist",
     schemaMatcher: /URLBlocklist/i,
-    appliesTo: (config) =>
-      config.dlp_rule_actions?.genai_block !== undefined &&
-      config.dlp_rule_actions.genai_block !== "off",
+    appliesTo: (config) => dlpRuleHasAction(config, "genai_block", "blockContent"),
     fields: [
       {
         name: /urlBlocklist/i,
         value: () => [
-          "*chatgpt.com*",
-          "*claude.ai*",
-          "*deepseek.com*",
-          "*poe.com*",
-          "*perplexity.ai*",
-          "*copilot.microsoft.com*",
+          // Chrome's URL-filter grammar does not accept a trailing `*` after
+          // the URL. A bare host matches that host and its subdomains.
+          "chatgpt.com",
+          "claude.ai",
+          "deepseek.com",
+          "poe.com",
+          "perplexity.ai",
+          "copilot.microsoft.com",
         ],
       },
     ],
@@ -516,15 +794,13 @@ const CEP_POLICIES: readonly CepPolicyDefinition[] = [
     label: "Allow corporate GenAI (Gemini)",
     schema: "chrome.users.URLAllowlist",
     schemaMatcher: /URLAllowlist/i,
-    appliesTo: (config) =>
-      config.dlp_rule_actions?.genai_block !== undefined &&
-      config.dlp_rule_actions.genai_block !== "off",
+    appliesTo: (config) => dlpRuleHasAction(config, "genai_block", "blockContent"),
     fields: [
       {
         name: /urlAllowlist/i,
         value: () => [
-          "*gemini.google.com*",
-          "*workspace.google.com*",
+          "gemini.google.com",
+          "workspace.google.com",
         ],
       },
     ],
@@ -723,13 +999,178 @@ function targetKey(
   return key;
 }
 
+/**
+ * Chrome Policy batch calls accept only one target resource and one set of
+ * additional-target-key names per request. Values (for example app ids) may
+ * differ, but mixing an app-scoped request with a normal OU request is a 400.
+ */
+function groupPolicyRequests<
+  T extends { policyTargetKey: Record<string, unknown> },
+>(requests: readonly T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const request of requests) {
+    const targetResource = String(request.policyTargetKey.targetResource ?? "");
+    const rawAdditionalKeys = request.policyTargetKey.additionalTargetKeys;
+    const additionalKeyNames =
+      rawAdditionalKeys !== null && typeof rawAdditionalKeys === "object"
+        ? Object.keys(rawAdditionalKeys).sort()
+        : [];
+    const signature = JSON.stringify([targetResource, additionalKeyNames]);
+    const group = groups.get(signature) ?? [];
+    group.push(request);
+    groups.set(signature, group);
+  }
+  return [...groups.values()];
+}
+
+function policyRequestGroupLabel(
+  requests: readonly { policyTargetKey: Record<string, unknown> }[],
+): string {
+  const key = requests[0]?.policyTargetKey ?? {};
+  const additional = key.additionalTargetKeys;
+  const additionalNames =
+    additional !== null && typeof additional === "object"
+      ? Object.keys(additional).sort()
+      : [];
+  return `${String(key.targetResource ?? "unknown target")}` +
+    (additionalNames.length > 0 ? ` + ${additionalNames.join(",")}` : "");
+}
+
 interface ResolvedPolicy {
   definition: CepPolicyDefinition;
   request: {
     policyTargetKey: Record<string, unknown>;
     policyValue: { policySchema: string; value: Record<string, unknown> };
-    updateMask: { paths: string[] };
+    updateMask: string;
   };
+}
+
+function parseDirectoryOrgUnits(payload: Record<string, unknown>): ResolvedCepTargetOu[] {
+  const rawUnits = payload.organizationUnits;
+  if (rawUnits !== undefined && !Array.isArray(rawUnits)) {
+    throw new Error("directory-orgunits-response-invalid");
+  }
+  const units = rawUnits ?? [];
+  const result: ResolvedCepTargetOu[] = [];
+  const ids = new Set<string>();
+  const paths = new Set<string>();
+  for (const item of units) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error("directory-orgunits-item-invalid");
+    }
+    const record = item as Record<string, unknown>;
+    const rawId = record.orgUnitId;
+    const path = record.orgUnitPath;
+    const name = record.name;
+    if (
+      typeof rawId !== "string" || !/^(?:id:)?[A-Za-z0-9_-]+$/.test(rawId) ||
+      typeof path !== "string" || path === "" || !path.startsWith("/") ||
+      (path !== "/" && (path.endsWith("/") || path.includes("//"))) ||
+      typeof name !== "string" || name.trim() === ""
+    ) {
+      throw new Error("directory-orgunits-item-invalid");
+    }
+    // Directory returns `id:03abc...`; Chrome policy targets use the bare id.
+    const id = rawId.replace(/^id:/, "");
+    const normalizedId = id.toLowerCase();
+    const normalizedPath = path.toLowerCase();
+    if (ids.has(normalizedId) || paths.has(normalizedPath)) {
+      throw new Error("directory-orgunits-duplicate-identity");
+    }
+    ids.add(normalizedId);
+    paths.add(normalizedPath);
+    result.push({ id, path, name: name.trim() });
+  }
+  return result;
+}
+
+/**
+ * Resolve and authorize a CEP write target from a fresh Directory tree read.
+ * Browser-supplied labels are display data only: the immutable id, current
+ * path, non-root boundary, and separately typed confirmation must all agree.
+ */
+export async function resolveConfirmedCepTargetOu(
+  transport: Transport,
+  request: Pick<
+    CepProvisionConfig | CepLicenseAssignConfig,
+    "customer_id" | "target_ou_id" | "target_ou_path" | "target_ou_confirmation"
+  >,
+): Promise<ResolvedCepTargetOu> {
+  const customerId = typeof request.customer_id === "string"
+    ? request.customer_id.trim()
+    : "";
+  const targetOuId = typeof request.target_ou_id === "string"
+    ? request.target_ou_id.trim()
+    : "";
+  if (!/^C[A-Za-z0-9]+$/.test(customerId) || !/^[A-Za-z0-9_-]+$/.test(targetOuId)) {
+    throw new CepTargetValidationError(
+      400,
+      "cep-target-ou-invalid",
+      "A canonical customer_id and bare target_ou_id are required for a CEP mutation.",
+    );
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    const response = await transport.requestJson(
+      "GET",
+      `${DIRECTORY}/customer/${encodeURIComponent(customerId)}/orgunits?type=all_including_parent`,
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    payload = response.payload;
+  } catch (error) {
+    throw new CepTargetValidationError(
+      502,
+      "cep-target-ou-unresolved",
+      `The current Directory organizational-unit tree could not be resolved: ${errorMessage(error)}`,
+    );
+  }
+
+  let units: ResolvedCepTargetOu[];
+  try {
+    units = parseDirectoryOrgUnits(payload);
+  } catch (error) {
+    throw new CepTargetValidationError(
+      502,
+      "cep-target-ou-inventory-invalid",
+      `Directory returned an invalid organizational-unit tree: ${errorMessage(error)}`,
+    );
+  }
+  const target = units.find((unit) => unit.id === targetOuId);
+  if (target === undefined) {
+    throw new CepTargetValidationError(
+      409,
+      "cep-target-ou-not-found",
+      "The selected organizational-unit id is no longer present. Reload the OU list.",
+    );
+  }
+  if (target.path === "/") {
+    throw new CepTargetValidationError(
+      400,
+      "cep-root-ou-forbidden",
+      "The Workspace root organizational unit cannot be used for CEP provision or licence assignment.",
+    );
+  }
+  if (typeof request.target_ou_path !== "string" || request.target_ou_path !== target.path) {
+    throw new CepTargetValidationError(
+      409,
+      "cep-target-ou-path-stale",
+      "The selected OU path no longer matches Directory. Reload the OU list.",
+    );
+  }
+  if (
+    typeof request.target_ou_confirmation !== "string" ||
+    request.target_ou_confirmation !== target.path
+  ) {
+    throw new CepTargetValidationError(
+      400,
+      "cep-target-ou-confirmation-mismatch",
+      "Type the exact current OU path shown in the picker before this mutation.",
+    );
+  }
+  return target;
 }
 
 export class CepProvider {
@@ -739,13 +1180,29 @@ export class CepProvider {
   private readonly transport: Transport;
   /** IAM, Resource Manager, Access Context Manager: authorized as the deployer. */
   private readonly cloudTransport: Transport;
-  private lastListAt = 0;
+  /** Administrator-discovered policy on which the deployer has policyReader. */
+  private readonly accessPolicyId: string | undefined;
+  private readonly cloudIdentityPolicyRateLimiter: CloudIdentityPolicyRateLimiter;
+  private readonly licenseRequestTimeoutMs: number;
 
   // Assigned rather than declared as parameter properties: node's
   // type-stripping loader, which the verify scripts run under, rejects those.
-  constructor(transport: Transport, cloudTransport?: Transport) {
+  constructor(
+    transport: Transport,
+    cloudTransport?: Transport,
+    accessPolicyId?: string,
+    options?: { licenseRequestTimeoutMs?: number },
+  ) {
     this.transport = transport;
     this.cloudTransport = cloudTransport ?? transport;
+    this.accessPolicyId = accessPolicyId;
+    this.cloudIdentityPolicyRateLimiter = policyRateLimiter(transport);
+    const requestedLicenseTimeout = options?.licenseRequestTimeoutMs;
+    this.licenseRequestTimeoutMs =
+      typeof requestedLicenseTimeout === "number" &&
+        Number.isFinite(requestedLicenseTimeout) && requestedLicenseTimeout > 0
+        ? Math.min(requestedLicenseTimeout, CEP_LICENSE_REQUEST_TIMEOUT_MS)
+        : CEP_LICENSE_REQUEST_TIMEOUT_MS;
   }
 
   // -- Transport --------------------------------------------------------------
@@ -764,18 +1221,38 @@ export class CepProvider {
     url: string,
     body?: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const { status, payload } = await transport.requestJson(
-      method,
-      url,
-      body === undefined ? {} : { jsonBody: body },
-    );
+    const cloudIdentityRequest = url.startsWith(`${CLOUD_IDENTITY}/`);
+    const send = () =>
+      transport.requestJson(
+        method,
+        url,
+        {
+          ...(body === undefined ? {} : { jsonBody: body }),
+          ...(cloudIdentityRequest ? { acceptedStatuses: [429] } : {}),
+        },
+      );
+    let response: Awaited<ReturnType<Transport["requestJson"]>>;
+    if (cloudIdentityRequest) {
+      response = await this.cloudIdentityPolicyRateLimiter.run(send);
+      for (let attempt = 1; response.status === 429 && attempt < POLICY_MAX_ATTEMPTS; attempt += 1) {
+        const backoff = POLICY_MIN_INTERVAL_MS * 2 ** (attempt - 1);
+        response = await this.cloudIdentityPolicyRateLimiter.run(send, backoff);
+      }
+    } else {
+      response = await send();
+    }
+    const { status, payload } = response;
     if (status < 200 || status >= 300) {
       const detail = payload.error as { message?: string } | undefined;
       throw new CepApiError(status, detail?.message ?? `HTTP ${status}`);
     }
     const embedded = payload.error as { code?: number; message?: string } | undefined;
     if (embedded !== undefined && embedded.code !== undefined) {
-      throw new CepApiError(status, embedded.message ?? rpcCodeMeaning(embedded.code));
+      throw new CepApiError(
+        status,
+        embedded.message ?? rpcCodeMeaning(embedded.code),
+        true,
+      );
     }
     return payload;
   }
@@ -821,6 +1298,8 @@ export class CepProvider {
     if (this.schemaCatalogueCache !== null) return this.schemaCatalogueCache;
     const catalogue = new Map<string, PolicySchemaShape>();
     let pageToken = "";
+    let complete = false;
+    const seenPageTokens = new Set<string>();
     for (let page = 0; page < 40; page += 1) {
       const query = pageToken === "" ? "" : `&pageToken=${encodeURIComponent(pageToken)}`;
       let payload: Record<string, unknown>;
@@ -830,11 +1309,24 @@ export class CepProvider {
           "GET",
           `${CHROME_POLICY}/customers/${customerId}/policySchemas?pageSize=1000${query}`,
         );
-      } catch {
-        break;
+      } catch (error) {
+        throw new Error(
+          `policy-schema-catalogue-incomplete: page ${page + 1} failed (${errorMessage(error)})`,
+        );
       }
-      const schemas = Array.isArray(payload.policySchemas) ? payload.policySchemas : [];
+      const rawSchemas = payload.policySchemas;
+      if (rawSchemas !== undefined && !Array.isArray(rawSchemas)) {
+        throw new Error(
+          "policy-schema-catalogue-incomplete: policySchemas was present but not an array",
+        );
+      }
+      const schemas = rawSchemas ?? [];
       for (const item of schemas) {
+        if (typeof item !== "object" || item === null || Array.isArray(item)) {
+          throw new Error(
+            "policy-schema-catalogue-incomplete: policySchemas contained a malformed item",
+          );
+        }
         const record = item as PolicySchemaShape & { schemaName?: string; name?: string };
         // `schemaName` is the bare name; `name` is the full resource path.
         const bare =
@@ -842,11 +1334,33 @@ export class CepProvider {
           (typeof record.name === "string"
             ? record.name.replace(/^customers\/[^/]+\/policySchemas\//, "")
             : undefined);
-        if (typeof bare === "string" && bare !== "") catalogue.set(bare, record);
+        if (
+          typeof bare !== "string" || bare === "" || bare.includes("/") ||
+          catalogue.has(bare)
+        ) {
+          throw new Error(
+            "policy-schema-catalogue-incomplete: policySchemas contained an invalid or duplicate identity",
+          );
+        }
+        catalogue.set(bare, record);
       }
-      const next = payload.nextPageToken;
-      if (typeof next !== "string" || next === "") break;
+      const next = strictNextPageToken(payload, "policy-schema-catalogue-incomplete");
+      if (next === null) {
+        complete = true;
+        break;
+      }
+      if (seenPageTokens.has(next)) {
+        throw new Error(
+          `policy-schema-catalogue-incomplete: repeated page token ${JSON.stringify(next)}`,
+        );
+      }
+      seenPageTokens.add(next);
       pageToken = next;
+    }
+    if (!complete) {
+      throw new Error(
+        "policy-schema-catalogue-incomplete: a next page remained after 40 pages",
+      );
     }
     this.schemaCatalogueCache = catalogue;
     return catalogue;
@@ -930,8 +1444,10 @@ export class CepProvider {
       .map((entry) => entry.name);
   }
 
-  /** The tenant's primary domain, which the data-boundary policies are written from. */
-  private async primaryDomain(customerId: string): Promise<string | undefined> {
+  /** Canonical tenant identity used by domain policies and Cloud Identity DLP. */
+  private async customerMetadata(
+    customerId: string,
+  ): Promise<{ primaryDomain?: string; dlpCustomerId?: string }> {
     try {
       const payload = await this.request(
         this.transport,
@@ -939,9 +1455,17 @@ export class CepProvider {
         `${DIRECTORY}/customers/${customerId}`,
       );
       const domain = payload.customerDomain;
-      return typeof domain === "string" && domain !== "" ? domain : undefined;
+      const resolvedId = payload.id;
+      return {
+        primaryDomain:
+          typeof domain === "string" && domain !== "" ? domain : undefined,
+        dlpCustomerId:
+          typeof resolvedId === "string" && /^C[A-Za-z0-9]+$/.test(resolvedId)
+            ? resolvedId
+            : undefined,
+      };
     } catch {
-      return undefined;
+      return {};
     }
   }
 
@@ -953,25 +1477,16 @@ export class CepProvider {
       "GET",
       `${DIRECTORY}/customer/${customerId}/orgunits?type=all_including_parent`,
     );
-    const units = Array.isArray(payload.organizationUnits) ? payload.organizationUnits : [];
-    const result: Array<{ id: string; path: string; name: string }> = [];
-    for (const item of units) {
-      const record = item as Record<string, unknown>;
-      const rawId = record.orgUnitId;
-      const path = record.orgUnitPath;
-      if (typeof rawId !== "string" || typeof path !== "string") continue;
-      // The Directory API returns `id:03abc…`; policy targets want the bare id.
-      result.push({ id: rawId.replace(/^id:/, ""), path, name: String(record.name ?? "") });
-    }
-    return result;
+    return parseDirectoryOrgUnits(payload);
   }
 
   /**
    * Resolve the two sub OUs, creating them when asked to.
    *
-   * User-scoped and browser-scoped policies want different homes, which is the
-   * whole point of the pair. When they are not created, both scopes fall back
-   * to the selected OU so the deployment still lands somewhere real.
+   * The returned ids are used for legacy cleanup inventory. Provision creates
+   * these children only as optional organization scaffolding: it deliberately
+   * keeps policy targets on the selected populated pilot OU, because creating
+   * a child does not move users or enrolled browsers into it.
    */
   private async resolveSubOrgUnits(
     trace: CepTraceItem[],
@@ -980,7 +1495,7 @@ export class CepProvider {
     created: string[],
     skipped: string[],
     create: boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let units: Array<{ id: string; path: string; name: string }>;
     try {
       units = await this.listOrgUnits(context.customerId);
@@ -1001,17 +1516,21 @@ export class CepProvider {
         error: errorMessage(error),
       });
       skipped.push(`Sub OUs: could not read the OU tree (${errorMessage(error)})`);
-      return;
+      return false;
     }
 
-    const parentPath =
-      config.target_ou_path ?? units.find((unit) => unit.id === config.target_ou_id)?.path;
-    if (parentPath === undefined) {
+    const parent = units.find((unit) => unit.id === config.target_ou_id);
+    if (
+      parent === undefined ||
+      (config.target_ou_path !== undefined &&
+        config.target_ou_path.toLowerCase() !== parent.path.toLowerCase())
+    ) {
       skipped.push(
-        "Sub OUs: the selected OU's path could not be resolved, so policies target it directly",
+        "Sub OUs: the selected OU identity/path could not be resolved exactly; no policy was applied",
       );
-      return;
+      return false;
     }
+    const parentPath = parent.path;
 
     for (const scope of ["users", "browsers"] as const) {
       const name = CEP_SUB_OU_NAMES[scope];
@@ -1030,15 +1549,59 @@ export class CepProvider {
         parentOrgUnitPath: parentPath,
       });
       if (payload === null) {
-        skipped.push(`Sub OU "${name}" could not be created; policies target the selected OU`);
-        continue;
+        skipped.push(`Sub OU "${name}" could not be created; no policy was applied`);
+        return false;
       }
       const rawId = payload.orgUnitId;
       if (typeof rawId === "string") {
-        context.ouIds[scope] = rawId.replace(/^id:/, "");
         created.push(`Organizational unit "${name}"`);
+      } else {
+        skipped.push(
+          `Sub OU "${name}" create response had no organizational-unit id; no policy was applied`,
+        );
+        return false;
       }
     }
+    if (!create) return true;
+
+    // Creation acknowledgements are not sufficient: both exact child paths
+    // must be visible in a fresh authoritative OU-tree read before any policy
+    // request is allowed to target them.
+    let freshUnits: Array<{ id: string; path: string; name: string }>;
+    try {
+      freshUnits = await this.listOrgUnits(context.customerId);
+      trace.push({
+        label: "Verify created organizational units",
+        method: "GET",
+        url: `${DIRECTORY}/customer/${context.customerId}/orgunits`,
+        status: 200,
+        ok: true,
+      });
+    } catch (error) {
+      trace.push({
+        label: "Verify created organizational units",
+        method: "GET",
+        url: `${DIRECTORY}/customer/${context.customerId}/orgunits`,
+        status: error instanceof CepApiError ? error.status : 0,
+        ok: false,
+        error: errorMessage(error),
+      });
+      skipped.push(`Sub OUs: fresh verification failed (${errorMessage(error)}); no policy was applied`);
+      return false;
+    }
+    for (const scope of ["users", "browsers"] as const) {
+      const name = CEP_SUB_OU_NAMES[scope];
+      const wanted = `${parentPath === "/" ? "" : parentPath}/${name}`;
+      const exact = freshUnits.filter((unit) => unit.path === wanted);
+      if (exact.length !== 1 || exact[0]!.id === "") {
+        skipped.push(
+          `Sub OU "${name}" was not resolved to exactly one fresh child at ${wanted}; no policy was applied`,
+        );
+        return false;
+      }
+      context.ouIds[scope] = exact[0]!.id;
+    }
+    return true;
   }
 
   /**
@@ -1050,7 +1613,7 @@ export class CepProvider {
    * impossible -- the module hard-failed on tenants with no access policy,
    * which is most of them.
    *
-   * `ensureManagedChromeAccessLevel` already resolves the ACM policy, writes
+   * `ensureManagedChromeAccessLevelDetailed` resolves the ACM policy, writes
    * the CEL expression, and reuses a level it finds, so the auto-create path
    * does not reimplement any of that.
    */
@@ -1060,19 +1623,19 @@ export class CepProvider {
     created: string[],
     skipped: string[],
     selection: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!selection.startsWith("AUTO_CREATE_")) {
       // A level the operator selected. Nothing to create, nothing to own.
       context.accessLevelName = selection;
       context.accessLevelIsOurs = false;
-      return;
+      return selection !== "" && selection !== "NONE";
     }
 
     if (!context.projectId) {
       skipped.push(
         "Context-Aware Access: creating a level needs a Google Cloud project. Pick an existing access level instead, or set a project on the setup screen.",
       );
-      return;
+      return false;
     }
 
     const kind = selection.includes("BROWSER")
@@ -1081,13 +1644,15 @@ export class CepProvider {
       ? "any"
       : "profile";
     try {
-      const name = await ensureManagedChromeAccessLevel(
+      const ensured = await ensureManagedChromeAccessLevelDetailed(
         this.cloudTransport,
         context.projectId,
         kind,
+        this.accessPolicyId,
       );
+      const name = ensured.name;
       context.accessLevelName = name;
-      context.accessLevelIsOurs = true;
+      context.accessLevelIsOurs = ensured.created;
       trace.push({
         label: "Ensure Context-Aware Access level",
         method: "POST",
@@ -1095,7 +1660,14 @@ export class CepProvider {
         status: 200,
         ok: true,
       });
-      created.push(`Context-Aware Access level (${name})`);
+      if (ensured.created) {
+        created.push(`Context-Aware Access level (${name})`);
+      } else {
+        skipped.push(
+          `Context-Aware Access: ${name} already existed and was reused; this CEP operation does not own it`,
+        );
+      }
+      return true;
     } catch (error) {
       trace.push({
         label: "Ensure Context-Aware Access level",
@@ -1108,10 +1680,11 @@ export class CepProvider {
       skipped.push(
         `Context-Aware Access: ${errorMessage(error)} Select an existing access level from the dropdown to use one that already exists.`,
       );
+      return false;
     }
   }
 
-  // -- DLP detectors and rules ------------------------------------------------
+  // -- DLP rules and legacy-detector retention --------------------------------
 
   /**
    * Cloud Identity policies are addressed by a CEL query over the target OU,
@@ -1127,35 +1700,46 @@ export class CepProvider {
 
   /**
    * Existing `CEP PoC - …` policies, so a second run reuses rather than
-   * duplicates, and rollback knows what is ours to delete.
+   * duplicates. A matching name is deliberately not treated as delete ownership.
    *
-   * List is rate limited to 1 QPS per customer, so this runs once per kind and
-   * the result is passed around rather than re-fetched.
+   * The shared request path rate-limits every Cloud Identity Policies request,
+   * including list pages and create calls. Results are still
+   * passed around to avoid unnecessary quota use.
    */
   private lastDlpError = "";
 
   private async listDlpPolicies(
     trace: CepTraceItem[],
     kind: "rule.dlp" | "detector",
-  ): Promise<Array<{ name: string; displayName: string; type: string }> | null> {
-    // Documented at 1 QPS per customer, and provision and rollback both list
-    // twice in a row. Without this the second call comes back 429.
-    const sinceLastList = Date.now() - this.lastListAt;
-    if (this.lastListAt !== 0 && sinceLastList < LIST_MIN_INTERVAL_MS) {
-      await new Promise((resolve) => setTimeout(resolve, LIST_MIN_INTERVAL_MS - sinceLastList));
-    }
-    this.lastListAt = Date.now();
-
-    const filter = encodeURIComponent(`setting.type.matches("${kind}")`);
-    const result: Array<{ name: string; displayName: string; type: string }> = [];
+    customerId: string,
+  ): Promise<Array<{
+    name: string;
+    displayName: string;
+    type: string;
+    value: Record<string, unknown>;
+    policyQuery: Record<string, unknown>;
+  }> | null> {
+    const filter = encodeURIComponent(
+      `customer == "customers/${customerId}" && setting.type.matches("${kind}")`,
+    );
+    const result: Array<{
+      name: string;
+      displayName: string;
+      type: string;
+      value: Record<string, unknown>;
+      policyQuery: Record<string, unknown>;
+    }> = [];
     let pageToken = "";
+    let complete = false;
+    const seenPageTokens = new Set<string>();
+    const seenPolicyNames = new Set<string>();
 
     // Paged, because the default page is 50 and a tenant with more policies
     // than that would hide ours -- which reads as "not created yet" and makes
     // the next run create a duplicate.
     for (let page = 0; page < 20; page += 1) {
       const query = pageToken === "" ? "" : `&pageToken=${encodeURIComponent(pageToken)}`;
-      const url = `${CLOUD_IDENTITY}/policies?pageSize=200&filter=${filter}${query}`;
+      const url = `${CLOUD_IDENTITY}/policies?pageSize=100&filter=${filter}${query}`;
       const before = trace.length;
       const payload = await this.call(trace, `List ${kind} policies`, "GET", url);
       if (payload === null) {
@@ -1163,88 +1747,262 @@ export class CepProvider {
         return null;
       }
 
-      const policies = Array.isArray(payload.policies) ? payload.policies : [];
+      if (payload.policies !== undefined && !Array.isArray(payload.policies)) {
+        this.lastDlpError = `response-invalid: ${kind} policy list omitted a valid policies array`;
+        return null;
+      }
+      const policies = payload.policies ?? [];
       for (const item of policies) {
+        if (typeof item !== "object" || item === null || Array.isArray(item)) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains a malformed item`;
+          return null;
+        }
         const record = item as Record<string, unknown>;
-        const setting = (record.setting ?? {}) as {
-          type?: string;
-          value?: Record<string, unknown>;
+        if (
+          typeof record.name !== "string" ||
+          !/^policies\/[A-Za-z0-9._~-]+$/.test(record.name) ||
+          seenPolicyNames.has(record.name)
+        ) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains an invalid identity`;
+          return null;
+        }
+        seenPolicyNames.add(record.name);
+        if (typeof record.setting !== "object" || record.setting === null ||
+            Array.isArray(record.setting)) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains an invalid setting`;
+          return null;
+        }
+        const setting = record.setting as {
+          type?: unknown;
+          value?: unknown;
         };
+        const settingTypeMatches = kind === "rule.dlp"
+          ? setting.type === "settings/rule.dlp"
+          : typeof setting.type === "string" && /^settings\/detector(?:\.|$)/.test(setting.type);
+        if (
+          !settingTypeMatches ||
+          typeof setting.value !== "object" || setting.value === null ||
+          Array.isArray(setting.value)
+        ) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains an invalid setting`;
+          return null;
+        }
+        const settingValue = setting.value as Record<string, unknown>;
         // `setting.value` is a free-form struct, so its keys come back exactly
         // as whoever wrote them spelled them. Reading only camelCase missed
         // every rule and duplicated the whole set on the second run.
-        const raw = setting.value?.displayName ?? setting.value?.display_name;
-        if (typeof record.name !== "string" || typeof raw !== "string") continue;
-        result.push({ name: record.name, displayName: raw, type: setting.type ?? "" });
+        const camel = settingValue.displayName;
+        const snake = settingValue.display_name;
+        const raw = camel ?? snake;
+        if (
+          typeof raw !== "string" || raw === "" ||
+          (camel !== undefined && typeof camel !== "string") ||
+          (snake !== undefined && typeof snake !== "string") ||
+          (typeof camel === "string" && typeof snake === "string" && camel !== snake)
+        ) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains an invalid display name`;
+          return null;
+        }
+        const value = { ...settingValue };
+        // Struct keys are user-defined. Treat the legacy snake-case spelling
+        // as the same display-name field, but keep every other field exact.
+        if (value.displayName === undefined && typeof value.display_name === "string") {
+          value.displayName = value.display_name;
+        }
+        delete value.display_name;
+        if (kind === "rule.dlp") {
+          const outputOnlyFields = [
+            ["createTime", "create_time", "timestamp"],
+            ["updateTime", "update_time", "timestamp"],
+          ] as const;
+          for (const [camelName, snakeName, outputType] of outputOnlyFields) {
+            const camelValue = value[camelName];
+            const snakeValue = value[snakeName];
+            if (
+              camelValue !== undefined && snakeValue !== undefined &&
+              canonicalJson(camelValue) !== canonicalJson(snakeValue)
+            ) {
+              this.lastDlpError =
+                `response-invalid: ${kind} policy list contains conflicting ${camelName} fields`;
+              return null;
+            }
+            const outputValue = camelValue ?? snakeValue;
+            const validOutput = outputValue === undefined ||
+              (outputType === "timestamp" &&
+                typeof outputValue === "string" && outputValue !== "" &&
+                Number.isFinite(Date.parse(outputValue)));
+            if (!validOutput) {
+              this.lastDlpError =
+                `response-invalid: ${kind} policy list contains invalid ${camelName}`;
+              return null;
+            }
+            // Cloud Identity populates timestamps after create. They are not
+            // operator-set rule semantics; every other value key remains exact.
+            delete value[camelName];
+            delete value[snakeName];
+          }
+
+          const normalizeRuleTypeMetadata = (
+            raw: unknown,
+          ): Record<string, unknown> | null => {
+            if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+            const metadata = raw as Record<string, unknown>;
+            if (!Object.keys(metadata).every(
+              (key) => key === "dlpRuleMetadata" || key === "dlp_rule_metadata"
+            )) return null;
+            const camelDlp = metadata.dlpRuleMetadata;
+            const snakeDlp = metadata.dlp_rule_metadata;
+            if (camelDlp === undefined && snakeDlp === undefined) return null;
+            const normalizeDlp = (candidate: unknown): Record<string, unknown> | null => {
+              if (
+                typeof candidate !== "object" || candidate === null ||
+                Array.isArray(candidate)
+              ) return null;
+              const record = candidate as Record<string, unknown>;
+              if (!Object.keys(record).every(
+                (key) => key === "alertSeverity" || key === "alert_severity"
+              )) return null;
+              const camelSeverity = record.alertSeverity;
+              const snakeSeverity = record.alert_severity;
+              if (
+                camelSeverity !== undefined && snakeSeverity !== undefined &&
+                camelSeverity !== snakeSeverity
+              ) return null;
+              const severity = camelSeverity ?? snakeSeverity;
+              if (
+                typeof severity !== "string" ||
+                !["LOW", "MEDIUM", "HIGH"].includes(severity)
+              ) return null;
+              return { alertSeverity: severity };
+            };
+            const normalizedCamel = camelDlp === undefined ? undefined : normalizeDlp(camelDlp);
+            const normalizedSnake = snakeDlp === undefined ? undefined : normalizeDlp(snakeDlp);
+            if (
+              normalizedCamel === null || normalizedSnake === null ||
+              (normalizedCamel !== undefined && normalizedSnake !== undefined &&
+                canonicalJson(normalizedCamel) !== canonicalJson(normalizedSnake))
+            ) return null;
+            return { dlpRuleMetadata: normalizedCamel ?? normalizedSnake };
+          };
+          const camelMetadata = value.ruleTypeMetadata;
+          const snakeMetadata = value.rule_type_metadata;
+          if (camelMetadata !== undefined || snakeMetadata !== undefined) {
+            const normalizedCamel = camelMetadata === undefined
+              ? undefined
+              : normalizeRuleTypeMetadata(camelMetadata);
+            const normalizedSnake = snakeMetadata === undefined
+              ? undefined
+              : normalizeRuleTypeMetadata(snakeMetadata);
+            if (
+              normalizedCamel === null || normalizedSnake === null ||
+              (normalizedCamel !== undefined && normalizedSnake !== undefined &&
+                canonicalJson(normalizedCamel) !== canonicalJson(normalizedSnake))
+            ) {
+              this.lastDlpError =
+                `response-invalid: ${kind} policy list contains invalid ruleTypeMetadata`;
+              return null;
+            }
+            value.ruleTypeMetadata = normalizedCamel ?? normalizedSnake;
+            delete value.rule_type_metadata;
+          }
+        }
+        if (
+          typeof record.policyQuery !== "object" || record.policyQuery === null ||
+          Array.isArray(record.policyQuery)
+        ) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains an invalid policy query`;
+          return null;
+        }
+        const policyQuery = normalizedCloudIdentityPolicyQuery(
+          record.policyQuery as Record<string, unknown>,
+        );
+        if (policyQuery === null) {
+          this.lastDlpError = `response-invalid: ${kind} policy list contains an invalid policy query`;
+          return null;
+        }
+        result.push({
+          name: record.name,
+          displayName: raw,
+          type: setting.type as string,
+          value,
+          policyQuery,
+        });
       }
 
-      const next = payload.nextPageToken;
-      if (typeof next !== "string" || next === "") break;
+      let next: string | null;
+      try {
+        next = strictNextPageToken(payload, `${kind} policy list`);
+      } catch (error) {
+        this.lastDlpError = `pagination-incomplete: ${errorMessage(error)}`;
+        return null;
+      }
+      if (next === null) {
+        complete = true;
+        break;
+      }
+      if (seenPageTokens.has(next)) {
+        this.lastDlpError =
+          `pagination-incomplete: ${kind} policy list repeated page token ${JSON.stringify(next)}`;
+        return null;
+      }
+      seenPageTokens.add(next);
       pageToken = next;
+    }
+    if (!complete) {
+      this.lastDlpError =
+        `pagination-incomplete: ${kind} policy list still had a next page after 20 pages`;
+      return null;
     }
     return result;
   }
 
   /**
-   * The URL-list detector the rules below exempt, built from the internal
-   * sites the operator typed in.
+   * Cloud Identity create is a long-running operation. A 2xx response with
+   * `done: false` is only an acknowledgement, so do not let a dependent rule
+   * run until the created policy is visible in the authoritative list.
+   * Every poll goes through the shared one-QPS request path and the attempt
+   * bound turns a stuck operation into an explicit failure.
    */
-  private async ensureDetectors(
+  private async waitForDlpPolicy(
     trace: CepTraceItem[],
-    context: CepContext,
-    created: string[],
-    skipped: string[],
-  ): Promise<void> {
-    if (context.internalUrls.length === 0) {
-      skipped.push(
-        "Internal Sites detector: no internal URLs were entered, so there is nothing to match",
-      );
-      return;
+    kind: "rule.dlp" | "detector",
+    displayName: string,
+    customerId: string,
+    expectedValue: Record<string, unknown>,
+    expectedQuery: Record<string, unknown>,
+  ): Promise<{
+    name: string;
+    displayName: string;
+    type: string;
+    value: Record<string, unknown>;
+    policyQuery: Record<string, unknown>;
+  } | null> {
+    for (let attempt = 1; attempt <= DLP_RECONCILIATION_MAX_ATTEMPTS; attempt += 1) {
+      const policies = await this.listDlpPolicies(trace, kind, customerId);
+      if (policies === null) return null;
+      const matches = policies.filter((policy) => policy.displayName === displayName);
+      if (matches.length > 1) {
+        this.lastDlpError = `reserved-name-conflict: ${matches.length} policies use "${displayName}"`;
+        return null;
+      }
+      const found = matches[0];
+      if (found !== undefined) {
+        if (
+          found.type !== `settings/${kind}` ||
+          canonicalJson(found.value) !== canonicalJson(expectedValue) ||
+          canonicalJson(found.policyQuery) !== canonicalJson(expectedQuery)
+        ) {
+          this.lastDlpError =
+            `reserved-name-conflict: policy "${displayName}" does not match the requested setting and OU query`;
+          return null;
+        }
+        return found;
+      }
     }
-
-    const existing = await this.listDlpPolicies(trace, "detector");
-    if (existing === null) {
-      skipped.push(`DLP detectors: ${this.lastDlpError}`);
-      return;
-    }
-
-    const displayName = `${DLP_PREFIX}Internal Sites`;
-    const found = existing.find((policy) => policy.displayName === displayName);
-    if (found !== undefined) {
-      context.internalSitesDetector = found.name;
-      skipped.push(`Detector "${displayName}" already exists and was reused`);
-      return;
-    }
-
-    const beforeCreate = trace.length;
-    const payload = await this.call(
-      trace,
-      `Create detector "${displayName}"`,
-      "POST",
-      `${CLOUD_IDENTITY}/policies`,
-      {
-        customer: `customers/${context.customerId}`,
-        type: "ADMIN",
-        policyQuery: this.policyQuery(context),
-        setting: {
-          type: "settings/detector.url_list",
-          value: {
-            displayName,
-            description: "Internal sites exempted from CEP evaluation rules.",
-            urlList: { urls: context.internalUrls },
-          },
-        },
-      },
-    );
-    if (payload === null) {
-      skipped.push(
-        `Detector "${displayName}": ${trace[beforeCreate]?.error ?? "could not be created"}`,
-      );
-      return;
-    }
-    const response = (payload.response ?? payload) as { name?: string };
-    if (typeof response.name === "string") context.internalSitesDetector = response.name;
-    created.push(`DLP detector "${displayName}"`);
+    this.lastDlpError =
+      `the create operation was still incomplete after ` +
+      `${DLP_RECONCILIATION_MAX_ATTEMPTS} rate-limited reconciliation checks`;
+    return null;
   }
 
   /**
@@ -1254,19 +2012,22 @@ export class CepProvider {
    * identifier depends on where the tenant operates -- a US infoType detects
    * nothing in a Japanese tenant, and a rule that never fires looks the same as
    * one that works. And the action is per rule, because an evaluation normally
-   * starts by auditing and tightens to blocking once the volume is understood.
+   * starts with a warning and tightens to blocking once the volume is understood.
    *
    * Watermarking lives here rather than in the Chrome policy table because it
    * is an action parameter on a rule, not a policy of its own.
    */
   private dlpRules(context: CepContext): Array<{
     id: CepDlpRuleId;
+    operation: CepDlpOperation;
     displayName: string;
     description: string;
     triggers: string[];
+    action: Exclude<CepDlpAction, "off">;
     condition?: Record<string, string>;
     actionParams?: Record<string, unknown>;
-    requires?: "internalSites" | "accessLevel";
+    requires?: "internalUrls";
+    byodOnly: boolean;
   }> {
     const region = NATIONAL_ID_INFOTYPES[context.region] ?? NATIONAL_ID_INFOTYPES.US;
     const nationalIdCondition = region.infoTypes
@@ -1276,27 +2037,32 @@ export class CepProvider {
       )
       .join(" || ");
 
-    return [
+    const bases: Array<{
+      id: CepDlpRuleId;
+      displayName: string;
+      description: string;
+      operations: readonly CepDlpOperation[];
+      condition?: Record<string, string>;
+      actionParams?: Record<string, unknown>;
+      requires?: "internalUrls";
+    }> = [
       {
         id: "universal_upload",
         displayName: `${DLP_PREFIX}Universal file upload protection`,
-        description: "Inspects and audits/blocks all file uploads from Chrome.",
-        triggers: ["google.workspace.chrome.file.v1.upload"],
+        description: "Inspects and warns/blocks all file uploads from Chrome.",
+        operations: DLP_OPERATIONS_BY_RULE.universal_upload,
       },
       {
         id: "universal_download",
         displayName: `${DLP_PREFIX}Universal file download protection`,
-        description: "Inspects and audits/blocks all file downloads in Chrome.",
-        triggers: ["google.workspace.chrome.file.v1.download"],
+        description: "Inspects and warns/blocks all file downloads in Chrome.",
+        operations: DLP_OPERATIONS_BY_RULE.universal_download,
       },
       {
         id: "payment_card",
-        displayName: `${DLP_PREFIX}Payment card numbers in uploads and paste`,
-        description: "Detects payment card numbers in files uploaded and content pasted from Chrome.",
-        triggers: [
-          "google.workspace.chrome.file.v1.upload",
-          "google.workspace.chrome.web_content.v1.upload",
-        ],
+        displayName: `${DLP_PREFIX}Payment card numbers`,
+        description: "Detects payment card numbers in Chrome content.",
+        operations: DLP_OPERATIONS_BY_RULE.payment_card,
         condition: {
           contentCondition:
             "all_content.matches_dlp_detector('CREDIT_CARD_NUMBER', google.privacy.dlp.v2.Likelihood.LIKELY, {minimum_match_count: 1, minimum_unique_match_count: 1})",
@@ -1304,51 +2070,85 @@ export class CepProvider {
       },
       {
         id: "national_id",
-        displayName: `${DLP_PREFIX}National ID numbers in pages and uploads`,
-        description: `Detects ${region.infoTypes.join(", ")} in content pasted into pages or uploaded (${region.label}).`,
-        triggers: [
-          "google.workspace.chrome.web_content.v1.upload",
-          "google.workspace.chrome.file.v1.upload",
-        ],
+        displayName: `${DLP_PREFIX}National ID numbers`,
+        description: `Detects ${region.infoTypes.join(", ")} in Chrome content (${region.label}).`,
+        operations: DLP_OPERATIONS_BY_RULE.national_id,
         condition: { contentCondition: nationalIdCondition },
-      },
-      {
-        id: "access_level",
-        displayName: `${DLP_PREFIX}Uploads and paste from unmanaged Chrome / BYOD`,
-        description:
-          "Enforces controls on sessions that do not meet the selected Context-Aware Access level.",
-        triggers: [
-          "google.workspace.chrome.file.v1.upload",
-          "google.workspace.chrome.web_content.v1.upload",
-        ],
-        condition: {
-          contextCondition: `!access_levels.meets_access_requirements(['${context.accessLevelName ?? ""}'])`,
-        },
-        requires: "accessLevel",
       },
       {
         id: "watermark",
         displayName: `${DLP_PREFIX}Watermark internal pages`,
         description:
-          "Overlays a watermark and blocks screenshots on the internal sites listed above.",
-        triggers: ["google.workspace.chrome.url.v1.navigation"],
+          "Allows navigation with a warning, overlays a watermark, and blocks screenshots on the listed internal sites.",
+        operations: ["watermark"],
         condition: {
-          contentCondition: `url.matches_url_list('${context.internalSitesDetector ?? ""}')`,
+          contentCondition: context.internalUrls
+            .map((url) => `url.starts_with(${JSON.stringify(url)})`)
+            .join(" || "),
         },
         actionParams: { watermarkMessage: "Confidential", blockScreenshot: true },
-        requires: "internalSites",
+        requires: "internalUrls",
       },
       {
         id: "genai_block",
-        displayName: `${DLP_PREFIX}Prevent data paste to consumer GenAI`,
+        displayName: `${DLP_PREFIX}Consumer GenAI data protection`,
         description:
-          "Prevents pasting sensitive data into unapproved consumer GenAI services while allowing corporate Gemini.",
-        triggers: [
-          "google.workspace.chrome.web_content.v1.upload",
-          "google.workspace.chrome.url.v1.navigation",
-        ],
+          "Controls uploads and paste to unapproved consumer GenAI services while allowing corporate Gemini.",
+        operations: DLP_OPERATIONS_BY_RULE.genai_block,
+        condition: {
+          contentCondition:
+            "url.contains('chatgpt.com') || url.contains('claude.ai') || url.contains('deepseek.com') || url.contains('poe.com') || url.contains('perplexity.ai') || url.contains('copilot.microsoft.com')",
+        },
       },
     ];
+
+    const resolved: Array<{
+      id: CepDlpRuleId;
+      operation: CepDlpOperation;
+      displayName: string;
+      description: string;
+      triggers: string[];
+      action: Exclude<CepDlpAction, "off">;
+      condition?: Record<string, string>;
+      actionParams?: Record<string, unknown>;
+      requires?: "internalUrls";
+      byodOnly: boolean;
+    }> = [];
+
+    for (const base of bases) {
+      const matrixRule = context.dlpMatrix[base.id] ?? {};
+      // A requested BYOD scope is reported separately by ensureRules. Never
+      // broaden it silently into an all-device rule.
+      if (matrixRule.byodOnly === true) continue;
+      for (const operation of base.operations) {
+        const selectedAction =
+          operation === "watermark"
+            ? matrixRule.watermark === true
+              ? "warnUser"
+              : "off"
+            : matrixRule[operation];
+        if (selectedAction === undefined || selectedAction === "off") continue;
+
+        const operationLabel = operation === "watermark" ? "navigation" : operation;
+        resolved.push({
+          id: base.id,
+          operation,
+          displayName: `${base.displayName} - ${operationLabel}`,
+          description: `${base.description} Operation: ${operationLabel}.`,
+          triggers: [
+            operation === "watermark"
+              ? "google.workspace.chrome.url.v1.navigation"
+              : DLP_OPERATION_TRIGGERS[operation],
+          ],
+          action: selectedAction,
+          condition: base.condition,
+          actionParams: base.actionParams,
+          requires: base.requires,
+          byodOnly: false,
+        });
+      }
+    }
+    return resolved;
   }
 
   private async ensureRules(
@@ -1356,34 +2156,50 @@ export class CepProvider {
     context: CepContext,
     created: string[],
     skipped: string[],
-  ): Promise<void> {
-    const existing = await this.listDlpPolicies(trace, "rule.dlp");
+  ): Promise<boolean> {
+    let failed = false;
+    if (context.dlpCustomerId === undefined) {
+      skipped.push(
+        "DLP rules: Directory customers.get did not return a canonical customer id beginning with C; no Cloud Identity policy was listed or created",
+      );
+      return false;
+    }
+    const existing = await this.listDlpPolicies(trace, "rule.dlp", context.dlpCustomerId);
     if (existing === null) {
       skipped.push(`DLP rules: ${this.lastDlpError}`);
-      return;
+      return false;
+    }
+
+    const operationKeys = ["upload", "download", "paste", "print"] as const;
+    for (const [id, rule] of Object.entries(context.dlpMatrix) as Array<
+      [CepDlpRuleId, CepDlpMatrixRuleConfig]
+    >) {
+      const selected =
+        rule.watermark === true ||
+        operationKeys.some((operation) => {
+          const action = rule[operation];
+          return action !== undefined && action !== "off";
+        });
+      if (!selected) continue;
+      if (id === "access_level") {
+        failed = true;
+        skipped.push(
+          "DLP unmanaged/BYOD rule: not created because the public Policy API documentation does not define a supported access-level CEL function",
+        );
+      } else if (rule.byodOnly === true) {
+        failed = true;
+        skipped.push(
+          `DLP ${id} BYOD scope: not created because the public Policy API documentation does not define a supported access-level CEL function`,
+        );
+      }
     }
 
     for (const rule of this.dlpRules(context)) {
-      // Audit first is the safe default: a PoC that starts by blocking is a
-      // PoC that gets turned off before anyone sees the reports.
-      const action = context.ruleActions[rule.id] ?? "auditOnly";
-      if (action === "off") {
-        skipped.push(`Rule "${rule.displayName}": not selected`);
+      if (rule.requires === "internalUrls" && context.internalUrls.length === 0) {
+        skipped.push(`Rule "${rule.displayName}": needs at least one internal URL prefix`);
+        failed = true;
         continue;
       }
-      if (rule.requires === "internalSites" && context.internalSitesDetector === undefined) {
-        skipped.push(`Rule "${rule.displayName}": needs the Internal Sites detector`);
-        continue;
-      }
-      if (rule.requires === "accessLevel" && context.accessLevelName === undefined) {
-        skipped.push(`Rule "${rule.displayName}": needs a Context-Aware Access level`);
-        continue;
-      }
-      if (existing.some((policy) => policy.displayName === rule.displayName)) {
-        skipped.push(`Rule "${rule.displayName}" already exists and was reused`);
-        continue;
-      }
-
       const value: Record<string, unknown> = {
         displayName: rule.displayName,
         description: rule.description,
@@ -1392,78 +2208,130 @@ export class CepProvider {
         action: {
           chromeAction:
             rule.actionParams === undefined
-              ? { [action]: {} }
-              : { [action]: { actionParams: rule.actionParams } },
+              ? { [rule.action]: {} }
+              : { [rule.action]: { actionParams: rule.actionParams } },
+        },
+        ruleTypeMetadata: {
+          dlpRuleMetadata: { alertSeverity: "LOW" },
         },
       };
       // Omitted entirely when absent: an empty sub-object is rejected.
       if (rule.condition !== undefined) value.condition = rule.condition;
+      const policyQuery = this.policyQuery(context);
+      const sameName = existing.filter((policy) => policy.displayName === rule.displayName);
+      if (sameName.length > 0) {
+        const exact = sameName.length === 1 &&
+          sameName[0]!.type === "settings/rule.dlp" &&
+          canonicalJson(sameName[0]!.value) === canonicalJson(value) &&
+          canonicalJson(sameName[0]!.policyQuery) === canonicalJson(policyQuery);
+        if (exact) {
+          skipped.push(`Rule "${rule.displayName}" already exists and was reused`);
+        } else {
+          failed = true;
+          skipped.push(
+            `Rule "${rule.displayName}": reserved-name-conflict; ` +
+              `${sameName.length} existing policy record(s) do not exactly match the requested setting and OU query`,
+          );
+        }
+        continue;
+      }
 
-      const beforeCreate = trace.length;
-      const payload = await this.call(
-        trace,
-        `Create rule "${rule.displayName}"`,
-        "POST",
-        `${CLOUD_IDENTITY}/policies`,
-        {
-          customer: `customers/${context.customerId}`,
+      const createLabel = `Create rule "${rule.displayName}"`;
+      const createUrl = `${CLOUD_IDENTITY}/policies`;
+      const createBody = {
+          customer: `customers/${context.dlpCustomerId}`,
           type: "ADMIN",
-          policyQuery: this.policyQuery(context),
+          policyQuery,
           setting: { type: "settings/rule.dlp", value },
-        },
-      );
-      if (payload === null) {
+      };
+      let createError: unknown;
+      try {
+        await this.request(this.transport, "POST", createUrl, createBody);
+        trace.push({ label: createLabel, method: "POST", url: createUrl, status: 200, ok: true });
+      } catch (error) {
+        createError = error;
+        trace.push({
+          label: createLabel,
+          method: "POST",
+          url: createUrl,
+          status: errorStatus(error) ?? 0,
+          ok: false,
+          error: errorMessage(error),
+        });
+      }
+
+      if (createError !== undefined && isDefiniteCepMutationRejection(createError)) {
+        failed = true;
         skipped.push(
-          `Rule "${rule.displayName}": ${trace[beforeCreate]?.error ?? "could not be created"}`,
+          `Rule "${rule.displayName}": ${errorMessage(createError)}`,
         );
         continue;
       }
-      created.push(`DLP rule "${rule.displayName}"`);
+
+      // policies.create has no requestId and returns an Operation. Its response
+      // (including an immediate resource name) is never ownership proof: only
+      // the authoritative paged list can establish exactly one full semantic
+      // match under the durable CEP lease.
+      const confirmed = await this.waitForDlpPolicy(
+        trace,
+        "rule.dlp",
+        rule.displayName,
+        context.dlpCustomerId,
+        value,
+        policyQuery,
+      );
+      if (confirmed === null) {
+        throw new CepMutationOutcomeAmbiguous(
+          `Rule "${rule.displayName}" create outcome is ambiguous: ${this.lastDlpError}`,
+        );
+      }
+      created.push(`DLP rule "${rule.displayName}" (${confirmed.name})`);
     }
+    return !failed;
   }
 
   /**
-   * Delete what we created, rules before detectors.
+   * Retain DLP resources unless durable ownership can be proven.
    *
-   * A detector cannot go while a rule still references it, so the order is
-   * load-bearing rather than incidental.
+   * A display-name prefix is not ownership: an earlier run may have reused a
+   * matching policy, and another administrator can create the same prefix.
+   * CEP ownership is not currently persisted with a customer/OU/settings
+   * digest, so rollback must not issue a destructive DELETE.
    */
-  private async removeDlpPolicies(
+  private async retainUnownedDlpPolicies(
     trace: CepTraceItem[],
-    removed: string[],
     skipped: string[],
     kinds: Array<"rule.dlp" | "detector">,
-    verifyMatch: boolean,
-  ): Promise<void> {
+    customerId?: string,
+  ): Promise<boolean> {
+    if (customerId === undefined) {
+      skipped.push(
+        "DLP rollback: Directory customers.get did not return a canonical customer id beginning with C; no DLP policy was listed or deleted",
+      );
+      return true;
+    }
+    let retained = false;
     for (const kind of kinds) {
-      const existing = await this.listDlpPolicies(trace, kind);
+      const existing = await this.listDlpPolicies(trace, kind, customerId);
       if (existing === null) {
-        skipped.push(`${kind}: the policy API could not be reached, so nothing was deleted`);
+        retained = true;
+        skipped.push(
+          `${kind}: ownership could not be verified because the policy API could not be read ` +
+            `(${this.lastDlpError}); no DLP policy was deleted`,
+        );
         continue;
       }
       for (const policy of existing) {
         if (!policy.displayName.startsWith(DLP_PREFIX)) continue;
-        // The kind is re-checked rather than taken from the server-side filter.
-        // Deleting a detector during the rule pass would break the ordering
-        // this loop exists to guarantee.
         if (!policy.type.includes(kind)) continue;
-        if (verifyMatch && !policy.type.startsWith("settings/")) {
-          skipped.push(`"${policy.displayName}" has an unexpected type and was left alone`);
-          continue;
-        }
-        const deleted = await this.call(
-          trace,
-          `Delete "${policy.displayName}"`,
-          "DELETE",
-          `${CLOUD_IDENTITY}/${policy.name}`,
+        retained = true;
+        skipped.push(
+          `Retained DLP ${kind === "detector" ? "detector" : "rule"} ` +
+            `"${policy.displayName}" (${policy.name}): durable ownership metadata is unavailable`,
         );
-        if (deleted === null) {
-          skipped.push(`"${policy.displayName}" could not be deleted`);
-          continue;
-        }
-        removed.push(`${kind === "detector" ? "Detector" : "Rule"} "${policy.displayName}"`);
       }
     }
+    return retained;
   }
 
   /**
@@ -1545,7 +2413,7 @@ export class CepProvider {
         request: {
           policyTargetKey: targetKey(context, definition),
           policyValue: { policySchema: schemaName, value },
-          updateMask: { paths },
+          updateMask: paths.join(","),
         },
       });
     }
@@ -1559,14 +2427,16 @@ export class CepProvider {
     const customerId = config.customer_id || "my_customer";
     const provision = config as CepProvisionConfig;
     const region = provision.dlp_region ?? "";
+    const customer = await this.customerMetadata(customerId);
     return {
       customerId,
+      dlpCustomerId: customer.dlpCustomerId,
       projectId: config.project_id,
       ouIds: { users: config.target_ou_id, browsers: config.target_ou_id },
-      primaryDomain: await this.primaryDomain(customerId),
+      primaryDomain: customer.primaryDomain,
       internalUrls,
       region: NATIONAL_ID_INFOTYPES[region] === undefined ? "US" : region,
-      ruleActions: provision.dlp_rule_actions ?? {},
+      dlpMatrix: resolveDlpMatrix(provision),
     };
   }
 
@@ -1578,25 +2448,72 @@ export class CepProvider {
     const skipped: string[] = [];
     const internalUrls = (config.internal_urls ?? []).map((url) => url.trim()).filter(Boolean);
     const context = await this.buildContext(config, internalUrls);
+    const failedModules = new Set<string>();
 
     if (config.create_sub_ous === true) {
-      await this.resolveSubOrgUnits(trace, config, context, created, skipped, true);
+      const childContext: CepContext = {
+        ...context,
+        ouIds: { ...context.ouIds },
+      };
+      const exactChildren = await this.resolveSubOrgUnits(
+        trace,
+        config,
+        childContext,
+        created,
+        skipped,
+        true,
+      );
+      if (!exactChildren) {
+        return {
+          success: false,
+          message:
+            "No policy was applied because both requested child organizational units could not be resolved exactly.",
+          created_items: created,
+          skipped_items: skipped,
+          debug_trace: trace,
+        };
+      }
+      skipped.push(
+        `Sub OUs "${CEP_SUB_OU_NAMES.users}" and "${CEP_SUB_OU_NAMES.browsers}" were created or reused as optional scaffolding. Policies remain on the selected pilot OU so its current users and browsers are covered immediately; the children inherit those policies unless directly overridden, and no occupant was moved automatically.`,
+      );
     }
 
     if (moduleEnabled(config, "contextAwareAccess")) {
-      await this.resolveAccessLevel(trace, context, created, skipped, config.access_level ?? "");
+      if (!(await this.resolveAccessLevel(
+        trace,
+        context,
+        created,
+        skipped,
+        config.access_level ?? "",
+      ))) {
+        failedModules.add("contextAwareAccess");
+      }
     }
 
-    // Detectors before rules: a rule that matches the internal-sites list needs
-    // that detector's resource name to reference.
     if (moduleEnabled(config, "dlpDetectors")) {
-      await this.ensureDetectors(trace, context, created, skipped);
+      skipped.push(
+        "DLP URL-list detectors were not created: settings/detector.url_list is not supported by the Cloud Identity Policy mutation API. Internal URL prefixes are embedded as escaped CEL in supported rules instead.",
+      );
+      failedModules.add("dlpDetectors");
     }
     if (moduleEnabled(config, "dlpRules")) {
-      await this.ensureRules(trace, context, created, skipped);
+      if (!(await this.ensureRules(trace, context, created, skipped))) {
+        failedModules.add("dlpRules");
+      }
     }
 
-    const resolved = await this.resolvePolicies(config, context, skipped);
+    const requestedPolicies = selectedPolicies(config);
+    let resolved: ResolvedPolicy[] = [];
+    try {
+      resolved = await this.resolvePolicies(config, context, skipped);
+    } catch (error) {
+      skipped.push(`Chrome policy schema catalogue: ${errorMessage(error)}; no unresolved Chrome policy was applied`);
+    }
+    for (const module of new Set(requestedPolicies.map((policy) => policy.module))) {
+      const requestedCount = requestedPolicies.filter((policy) => policy.module === module).length;
+      const resolvedCount = resolved.filter((item) => item.definition.module === module).length;
+      if (resolvedCount !== requestedCount) failedModules.add(module);
+    }
     if (resolved.length === 0 && created.length === 0) {
       return {
         success: false,
@@ -1620,7 +2537,6 @@ export class CepProvider {
     }
 
     const url = `${CHROME_POLICY}/customers/${context.customerId}/policies/orgunits:batchModify`;
-    let failures = 0;
     for (const [module, items] of byModule) {
       const payload = await this.call(
         trace,
@@ -1638,7 +2554,7 @@ export class CepProvider {
       // convicted all four. Re-send them one at a time: whatever the API
       // objects to belongs to a specific policy, and the others still apply.
       if (items.length === 1) {
-        failures += 1;
+        failedModules.add(module);
         skipped.push(`${items[0].definition.label}: ${trace[trace.length - 1]?.error ?? "rejected"}`);
         continue;
       }
@@ -1660,10 +2576,11 @@ export class CepProvider {
         }
         created.push(item.definition.label);
       }
-      if (moduleFailed) failures += 1;
+      if (moduleFailed) failedModules.add(module);
     }
 
     const applied = created.length;
+    const failures = failedModules.size;
     return {
       success: failures === 0,
       message:
@@ -1679,11 +2596,15 @@ export class CepProvider {
   // -- Rollback ---------------------------------------------------------------
 
   /**
-   * Return the OU to its parent's settings.
+   * Inspect rollback candidates without mutating tenant state.
    *
-   * Every policy the table can write is inherited back, including the
-   * app-scoped extension entry that the previous implementation left behind --
-   * a rollback that leaves a force-installed extension in place is not one.
+   * CEP provision predates the run inventory and does not durably persist an
+   * exact before/managed-after image per OU/schema/app target. Inheriting a
+   * policy here could therefore erase a direct value that existed before CEP,
+   * or a value another administrator wrote after provision. Until CEP has the
+   * same three-way ownership ledger as deployment Apply, rollback is a
+   * fail-closed inventory operation: resolve exact targets and retain them for
+   * manual review.
    */
   async rollback(config: CepRollbackConfig): Promise<CepProvisionResult> {
     const trace: CepTraceItem[] = [];
@@ -1694,55 +2615,80 @@ export class CepProvider {
     const wanted = (module: CepModule): boolean =>
       modules.length === 0 || modules.includes(module);
 
-    // Find the sub OUs without creating them; policies may live in either place.
-    await this.resolveSubOrgUnits(trace, config, context, [], [], false);
-
-    const targets = CEP_POLICIES.filter((policy) => wanted(policy.module));
-    if (targets.length > 0) {
-      // Resolved the same way provision resolved them, so a policy written
-      // under a namespace we did not predict is still inherited back.
-      const requests: Array<Record<string, unknown>> = [];
-      for (const policy of targets) {
-        const resolved = await this.resolveSchema(context.customerId, policy);
-        requests.push({
-          policyTargetKey: targetKey(context, policy),
-          policySchema: resolved?.name ?? policy.schema,
-        });
-      }
-      const url = `${CHROME_POLICY}/customers/${context.customerId}/policies/orgunits:batchInherit`;
-      const payload = await this.call(trace, "Inherit CEP policies", "POST", url, {
-        requests,
-      });
-      if (payload === null) {
-        return {
-          success: false,
-          message: "Rollback failed while returning policies to the parent OU.",
-          created_items: removed,
-          skipped_items: skipped,
-          debug_trace: trace,
-        };
-      }
-      removed.push(`${targets.length} Chrome policies returned to the parent OU`);
+    // New releases apply to the selected populated pilot OU. Older releases
+    // could target the two children, so cleanup inventory inspects both without
+    // assuming which release wrote a direct value.
+    const childContext: CepContext = {
+      ...context,
+      ouIds: { ...context.ouIds },
+    };
+    await this.resolveSubOrgUnits(trace, config, childContext, [], [], false);
+    const inspectionContexts = [context];
+    if (
+      childContext.ouIds.users !== context.ouIds.users ||
+      childContext.ouIds.browsers !== context.ouIds.browsers
+    ) {
+      inspectionContexts.push(childContext);
     }
 
-    // Rules first, then detectors, then the access level a rule may reference:
-    // each depends on the one after it, so deleting in the other order fails.
-    const dlpKinds: Array<"rule.dlp" | "detector"> = [];
-    if (wanted("dlpRules")) dlpKinds.push("rule.dlp");
-    if (wanted("dlpDetectors")) dlpKinds.push("detector");
-    if (dlpKinds.length > 0) {
-      await this.removeDlpPolicies(
-        trace,
-        removed,
-        skipped,
-        dlpKinds,
-        config.verify_match !== false,
+    const targets = CEP_POLICIES.filter((policy) => wanted(policy.module));
+    const retainedChrome = targets.length > 0;
+    let inspectedChromeTargets = 0;
+    if (targets.length > 0) {
+      for (const policy of targets) {
+        const resolved = await this.resolveSchema(context.customerId, policy);
+        const schemaName = resolved?.name ?? policy.schema;
+        const seenKeys = new Set<string>();
+        for (const targetContext of inspectionContexts) {
+          const policyTargetKey = targetKey(targetContext, policy);
+          const fingerprint = JSON.stringify(policyTargetKey);
+          if (seenKeys.has(fingerprint)) continue;
+          seenKeys.add(fingerprint);
+          inspectedChromeTargets += 1;
+          await this.call(
+            trace,
+            `Inspect rollback candidate ${policy.label}`,
+            "POST",
+            `${CHROME_POLICY}/customers/${context.customerId}/policies:resolve`,
+            {
+              policySchemaFilter: schemaName,
+              policyTargetKey,
+            },
+          );
+        }
+      }
+      skipped.push(
+        `${inspectedChromeTargets} Chrome policy target${inspectedChromeTargets === 1 ? " was" : "s were"} retained: durable before/managed-after ownership is unavailable for CEP rollback`,
       );
     }
 
+    // Inventory DLP candidates in dependency order. No DELETE is issued
+    // without a durable CEP run ownership record.
+    const dlpKinds: Array<"rule.dlp" | "detector"> = [];
+    if (wanted("dlpRules")) dlpKinds.push("rule.dlp");
+    if (wanted("dlpDetectors")) dlpKinds.push("detector");
+    const retainedDlp =
+      dlpKinds.length > 0
+        ? await this.retainUnownedDlpPolicies(
+            trace,
+            skipped,
+            dlpKinds,
+            context.dlpCustomerId,
+          )
+        : false;
+
     const selectedLevel = config.access_level ?? "";
     if (wanted("contextAwareAccess") && selectedLevel.startsWith("AUTO_CREATE_")) {
-      await this.removeAccessLevel(trace, context, removed, skipped, config.verify_match !== false);
+      if (context.projectId === undefined) {
+        skipped.push("Context-Aware Access: no project id, so no access level was looked for");
+      } else {
+        await this.retainSelectedAccessLevel(
+          trace,
+          context.projectId,
+          selectedLevel,
+          skipped,
+        );
+      }
     } else if (wanted("contextAwareAccess") && selectedLevel !== "" && selectedLevel !== "NONE") {
       skipped.push(
         `Context-Aware Access: ${selectedLevel} was selected rather than created here, so it was left in place`,
@@ -1755,378 +2701,359 @@ export class CepProvider {
       `Sub OUs "${CEP_SUB_OU_NAMES.users}" and "${CEP_SUB_OU_NAMES.browsers}" were left in place; remove them in the Admin Console if they are empty`,
     );
 
+    const retained = retainedChrome || retainedDlp ||
+      (wanted("contextAwareAccess") && selectedLevel.startsWith("AUTO_CREATE_"));
     return {
-      success: true,
-      message: "CEP policies were returned to the parent OU.",
+      success: !retained,
+      message: retained
+        ? "CEP rollback made no destructive change where durable ownership or a three-way before/managed-after image was unavailable. Review the retained targets and remove only verified-owned settings in the Admin consoles."
+        : "No owned CEP mutation required rollback.",
       created_items: removed,
       skipped_items: skipped,
       debug_trace: trace,
     };
   }
 
-  private async removeAccessLevel(
+  private async retainSelectedAccessLevel(
     trace: CepTraceItem[],
-    context: CepContext,
-    removed: string[],
+    projectId: string,
+    selection: string,
     skipped: string[],
-    verifyMatch: boolean,
   ): Promise<void> {
-    if (!context.projectId) {
-      skipped.push("Context-Aware Access: no project id, so no access level was looked for");
-      return;
-    }
-    let name: string;
-    try {
-      name = await ensureManagedChromeAccessLevel(this.cloudTransport, context.projectId, "any");
-    } catch (error) {
-      skipped.push(`Context-Aware Access: ${errorMessage(error)}`);
+    const kind = selectionToAccessLevelKind(selection);
+    if (kind === null) {
+      skipped.push(`Context-Aware Access: unknown auto-create selection ${selection}; nothing was deleted`);
       return;
     }
 
-    if (verifyMatch) {
-      const level = await this.call(
+    let parentPayload = await this.call(
+      trace,
+      "Resolve Access Context Manager organization",
+      "GET",
+      `${CRM}/projects/${projectId}`,
+      undefined,
+      this.cloudTransport,
+    );
+    let parent = parentPayload?.parent;
+    for (let depth = 0; depth < 20 && typeof parent === "string" && !parent.startsWith("organizations/"); depth += 1) {
+      parentPayload = await this.call(
         trace,
-        "Read access level",
+        "Resolve Access Context Manager parent",
         "GET",
-        `${ACM}/${name}`,
+        `${CRM}/${parent}`,
         undefined,
         this.cloudTransport,
       );
-      const description = (level?.description ?? "") as string;
-      if (!description.includes("Secure Gateway Studio")) {
-        skipped.push(
-          `Context-Aware Access: ${name} was not created by this tool (or has been edited) and was left alone`,
-        );
-        return;
-      }
+      parent = parentPayload?.parent;
+    }
+    if (typeof parent !== "string" || !parent.startsWith("organizations/")) {
+      skipped.push("Context-Aware Access: project organization could not be resolved; nothing was deleted");
+      return;
     }
 
-    const deleted = await this.call(
+    let policyName: string | undefined;
+    if (this.accessPolicyId !== undefined) {
+      policyName = `accessPolicies/${this.accessPolicyId}`;
+      const policy = await this.call(
+        trace,
+        "Read Access Context Manager policy",
+        "GET",
+        `${ACM}/${policyName}`,
+        undefined,
+        this.cloudTransport,
+      );
+      if (policy?.name !== policyName || policy.parent !== parent) {
+        skipped.push("Context-Aware Access: configured policy did not match the project organization; nothing was deleted");
+        return;
+      }
+    } else {
+      const policies = await this.call(
+        trace,
+        "List Access Context Manager policies",
+        "GET",
+        `${ACM}/accessPolicies?parent=${encodeURIComponent(parent)}`,
+        undefined,
+        this.cloudTransport,
+      );
+      policyName = Array.isArray(policies?.accessPolicies) &&
+          typeof policies.accessPolicies[0]?.name === "string"
+        ? policies.accessPolicies[0].name
+        : undefined;
+    }
+    if (policyName === undefined) {
+      skipped.push("Context-Aware Access: no access policy was found; nothing was deleted");
+      return;
+    }
+
+    const suffix =
+      kind === "profile"
+        ? "secgw_profile_managed"
+        : kind === "browser"
+        ? "secgw_browser_managed"
+        : "secgw_chrome_managed";
+    const name = `${policyName}/accessLevels/${suffix}`;
+
+    const level = await this.call(
       trace,
-      "Delete access level",
-      "DELETE",
+      "Read auto-created access level",
+      "GET",
       `${ACM}/${name}`,
       undefined,
       this.cloudTransport,
     );
-    if (deleted === null) {
-      skipped.push(`Context-Aware Access: ${name} could not be deleted`);
+    const expectedExpression =
+      kind === "profile"
+        ? "device.chrome.management_state == ChromeManagementState.CHROME_MANAGEMENT_STATE_PROFILE_MANAGED"
+        : kind === "browser"
+        ? "device.chrome.management_state == ChromeManagementState.CHROME_MANAGEMENT_STATE_BROWSER_MANAGED"
+        : "device.chrome.management_state in [ChromeManagementState.CHROME_MANAGEMENT_STATE_BROWSER_MANAGED, ChromeManagementState.CHROME_MANAGEMENT_STATE_PROFILE_MANAGED]";
+    const expression = (((level?.custom as { expr?: { expression?: unknown } } | undefined)?.expr)
+      ?.expression ?? "") as string;
+    if (
+      level?.name !== name ||
+      level.description !== "Created automatically by Secure Gateway Studio" ||
+      expression !== expectedExpression
+    ) {
+      skipped.push(
+        `Context-Aware Access: ${name} was absent, not created by this tool, or edited; it was left in place`,
+      );
       return;
     }
-    removed.push(`Context-Aware Access level (${name})`);
+
+    skipped.push(
+      `Context-Aware Access: ${name} matches the CEP template but has no durable run ownership marker; it was left in place`,
+    );
   }
 
-  // -- IAM custom roles -------------------------------------------------------
+  // -- Workspace administrator roles -----------------------------------------
 
   /**
-   * The permissions IAM will actually accept in a custom role on this project.
-   *
-   * Hardcoding a permission list does not survive contact with IAM: a name can
-   * be wrong, withdrawn, or -- as with `accesscontextmanager.*` -- real but
-   * scoped to the organization, so a project-level custom role rejects the
-   * whole request over one entry. Asking first turns that into a role that is
-   * created with the permissions that exist, and a note about the ones that do
-   * not. Same reasoning as reading Chrome Policy schemas rather than assuming.
+   * Kept only as a fail-closed response for older clients while the legacy
+   * route is retired. Google Cloud custom IAM roles cannot grant Google
+   * Workspace Chrome administrator privileges or OAuth scopes, so pretending
+   * to provision those roles would report security access that does not exist.
    */
-  private async testablePermissions(projectId: string): Promise<Set<string> | null> {
-    const permissions = new Set<string>();
-    let pageToken = "";
-    for (let page = 0; page < 20; page += 1) {
-      const body: Record<string, unknown> = {
-        fullResourceName: `//cloudresourcemanager.googleapis.com/projects/${projectId}`,
-        pageSize: 1000,
-      };
-      if (pageToken !== "") body.pageToken = pageToken;
-
-      let payload: Record<string, unknown>;
-      try {
-        payload = await this.request(
-          this.cloudTransport,
-          "POST",
-          `${IAM}/permissions:queryTestablePermissions`,
-          body,
-        );
-      } catch {
-        // Without the list we cannot filter; the caller falls back to sending
-        // the permissions as written rather than refusing to create anything.
-        return null;
-      }
-
-      const page_ = Array.isArray(payload.permissions) ? payload.permissions : [];
-      for (const item of page_) {
-        const record = item as { name?: string; customRolesSupportLevel?: string };
-        if (typeof record.name !== "string") continue;
-        // NOT_SUPPORTED permissions exist but cannot go in a custom role.
-        if (record.customRolesSupportLevel === "NOT_SUPPORTED") continue;
-        permissions.add(record.name);
-      }
-
-      const next = payload.nextPageToken;
-      if (typeof next !== "string" || next === "") break;
-      pageToken = next;
-    }
-    return permissions;
-  }
-
-  /**
-   * Create the two least-privilege roles, and optionally grant them.
-   *
-   * A failure here used to be reported as "(Existing / Verified)" and the call
-   * still returned success, so a permission error looked like a completed
-   * provisioning step. Only ALREADY_EXISTS means the role is there.
-   */
-  async createCustomRoles(config: CepCustomRoleConfig): Promise<CepRoleResult> {
-    const trace: CepTraceItem[] = [];
-    const roles: string[] = [];
-    const failures: string[] = [];
-    const projectId = config.project_id;
-
-    if (!projectId) {
-      return {
-        success: false,
-        message: "A Google Cloud project id is required to create IAM custom roles.",
-        roles: [],
-        debug_trace: trace,
-      };
-    }
-
-    const definitions: Array<{ id: string; title: string; description: string; permissions: string[] }> = [];
-    if (config.role_type === "administrator" || config.role_type === "both") {
-      definitions.push({
-        id: "cepPolicyAdministrator",
-        title: "CEP Policy Administrator",
-        description:
-          "Least-privilege role to configure Chrome Enterprise Premium policies and access levels.",
-        permissions: [
-          "chromepolicy.policies.get",
-          "chromepolicy.policies.list",
-          "chromepolicy.policies.modify",
-          "chromepolicy.orgunits.get",
-          "accesscontextmanager.accessLevels.get",
-          "accesscontextmanager.accessLevels.list",
-          "accesscontextmanager.accessLevels.update",
-          "serviceusage.services.use",
-        ],
-      });
-    }
-    if (config.role_type === "auditor" || config.role_type === "both") {
-      definitions.push({
-        id: "cepSecurityAuditor",
-        title: "CEP Security Auditor (Read-Only)",
-        description:
-          "Read-only role to inspect Chrome Enterprise Premium policy state and security logs.",
-        permissions: [
-          "chromepolicy.policies.get",
-          "chromepolicy.policies.list",
-          "chromepolicy.orgunits.get",
-          "logging.logEntries.list",
-          "accesscontextmanager.accessLevels.get",
-          "accesscontextmanager.accessLevels.list",
-          "serviceusage.services.use",
-        ],
-      });
-    }
-
-    const testable = await this.testablePermissions(projectId);
-    trace.push({
-      label: "Query permissions valid for a project custom role",
-      method: "POST",
-      url: `${IAM}/permissions:queryTestablePermissions`,
-      status: testable === null ? 0 : 200,
-      ok: testable !== null,
-      error: testable === null ? "could not be read; permissions sent as declared" : undefined,
-    });
-
-    const unavailable = new Set<string>();
-    const url = `${IAM}/projects/${projectId}/roles`;
-    for (const definition of definitions) {
-      const roleName = `projects/${projectId}/roles/${definition.id}`;
-      const permissions =
-        testable === null
-          ? definition.permissions
-          : definition.permissions.filter((permission) => {
-              if (testable.has(permission)) return true;
-              unavailable.add(permission);
-              return false;
-            });
-
-      if (permissions.length === 0) {
-        failures.push(
-          `${definition.title}: none of its permissions can be granted on project ${projectId}`,
-        );
-        continue;
-      }
-
-      try {
-        await this.request(this.cloudTransport, "POST", url, {
-          roleId: definition.id,
-          role: {
-            title: definition.title,
-            description: definition.description,
-            stage: "GA",
-            includedPermissions: permissions,
-          },
-        });
-        trace.push({ label: `Create role ${definition.id}`, method: "POST", url, status: 200, ok: true });
-        roles.push(roleName);
-      } catch (error) {
-        const status = error instanceof CepApiError ? error.status : 0;
-        trace.push({
-          label: `Create role ${definition.id}`,
-          method: "POST",
-          url,
-          status,
-          ok: status === 409,
-          error: status === 409 ? undefined : errorMessage(error),
-        });
-        if (status === 409) {
-          roles.push(roleName);
-        } else {
-          failures.push(`${definition.title}: ${errorMessage(error)}`);
-        }
-      }
-    }
-
-    let omittedNote = "";
-    if (unavailable.size > 0) {
-      const orgScoped = [...unavailable].filter((permission) =>
-        permission.startsWith("accesscontextmanager."),
-      );
-      omittedNote =
-        ` Omitted ${[...unavailable].join(", ")} -- not grantable in a custom role on this project.`;
-      if (orgScoped.length > 0) {
-        omittedNote +=
-          " Access Context Manager permissions are organization-scoped; to let this role manage access levels, create an equivalent role at the organization level.";
-      }
-    }
-
-    const email = config.assigned_user_email?.trim();
-    let grantNote = "";
-    if (email && roles.length > 0) {
-      const granted = await this.grantRoles(trace, projectId, roles, email);
-      grantNote = granted
-        ? ` Granted to ${email}.`
-        : ` The roles were created but could not be granted to ${email}.`;
-      if (!granted) failures.push(`Role binding for ${email} failed`);
-    }
-
-    if (failures.length > 0) {
-      return {
-        success: false,
-        message: `${failures.join("; ")}.${omittedNote}${grantNote}`,
-        roles,
-        debug_trace: trace,
-      };
-    }
+  async createCustomRoles(_config: CepCustomRoleConfig): Promise<CepRoleResult> {
     return {
-      success: true,
-      message: `Provisioned ${roles.join(", ")}.${omittedNote}${grantNote}`,
-      roles,
-      debug_trace: trace,
+      success: false,
+      message:
+        "Unsupported: Google Cloud custom IAM roles cannot grant Chrome Policy administrator access. Assign a scoped administrator role in the Google Admin console (Super Admin is required for Cloud Identity DLP mutations), then verify the real APIs from the CEP deployer.",
+      roles: [],
+      debug_trace: [],
     };
-  }
-
-  /** Read-modify-write on the project policy, keeping the etag as elsewhere. */
-  private async grantRoles(
-    trace: CepTraceItem[],
-    projectId: string,
-    roles: string[],
-    email: string,
-  ): Promise<boolean> {
-    const base = `${CRM}/projects/${projectId}`;
-    const policy = await this.call(
-      trace,
-      "Read project IAM policy",
-      "POST",
-      `${base}:getIamPolicy`,
-      undefined,
-      this.cloudTransport,
-    );
-    if (policy === null) return false;
-
-    const bindings = (Array.isArray(policy.bindings) ? policy.bindings : []) as Array<{
-      role: string;
-      members: string[];
-      condition?: unknown;
-    }>;
-    const member = `user:${email}`;
-    for (const role of roles) {
-      const existing = bindings.find(
-        (binding) => binding.role === role && binding.condition === undefined,
-      );
-      if (existing === undefined) {
-        bindings.push({ role, members: [member] });
-      } else if (!existing.members.includes(member)) {
-        existing.members.push(member);
-      }
-    }
-
-    const updated = await this.call(
-      trace,
-      "Set project IAM policy",
-      "POST",
-      `${base}:setIamPolicy`,
-      { policy: { bindings, etag: policy.etag } },
-      this.cloudTransport,
-    );
-    return updated !== null;
   }
 
   // -- License assignment -----------------------------------------------------
 
   /**
-   * Assign Chrome Enterprise Premium licenses to all users in the target OU.
+   * Assign Chrome Enterprise Premium licences to a bounded exact-OU pilot.
    */
   async assignLicenses(config: CepLicenseAssignConfig): Promise<CepLicenseAssignResult> {
     const trace: CepTraceItem[] = [];
     const customerId = config.customer_id || "my_customer";
     const productId = config.product_id || "101040";
     const skuId = config.sku_id || "1010400001";
-    let targetPath = config.target_ou_path;
+    let targetPath = "";
+    const boundedRequest = (
+      method: string,
+      url: string,
+      options?: Parameters<Transport["requestJson"]>[2],
+    ) => withinCepLicenseDeadline(
+      this.transport.requestJson(method, url, options),
+      method,
+      url,
+      this.licenseRequestTimeoutMs,
+    );
 
-    if (!targetPath) {
-      try {
-        const units = await this.listOrgUnits(customerId);
-        const found = units.find((u) => u.id === config.target_ou_id);
-        targetPath = found?.path || "/";
-      } catch {
-        targetPath = "/";
-      }
+    const failedResult = (message: string, errors: string[]): CepLicenseAssignResult => ({
+      success: false,
+      message,
+      total_users: 0,
+      assigned_count: 0,
+      already_assigned_count: 0,
+      failed_count: 0,
+      assigned_users: [],
+      errors,
+      debug_trace: trace,
+    });
+
+    if (!config.target_ou_id) {
+      return failedResult("ライセンス割り当てを開始できませんでした。", [
+        "対象の組織部門IDが指定されていません。",
+      ]);
     }
 
-    const users: Array<{ primaryEmail: string }> = [];
-    let pageToken = "";
-    const query = `orgUnitPath='${targetPath.replace(/'/g, "\\'")}'`;
-
-    for (let page = 0; page < 20; page += 1) {
-      const queryParam = `customer=${encodeURIComponent(customerId)}&query=${encodeURIComponent(query)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
-      const url = `${DIRECTORY}/users?${queryParam}`;
-      const payload = await this.call(trace, `List users in OU ${targetPath}`, "GET", url);
-      if (payload === null) {
-        break;
+    // Never trust a caller-supplied path as the license-assignment boundary.
+    // Resolve the immutable OU id immediately before listing users, and reject
+    // a stale/mismatched path instead of silently assigning a different OU.
+    try {
+      const ouUrl =
+        `${DIRECTORY}/customer/${encodeURIComponent(customerId)}` +
+        "/orgunits?type=all_including_parent";
+      const response = await boundedRequest("GET", ouUrl);
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      const rawUsers = Array.isArray(payload.users) ? payload.users : [];
+      const units = parseDirectoryOrgUnits(response.payload);
+      const found = units.find((u) => u.id === config.target_ou_id);
+      if (found === undefined) {
+        return failedResult("対象の組織部門を確認できなかったため、割り当てを中止しました。", [
+          `組織部門ID ${config.target_ou_id} はDirectory APIの結果にありません。`,
+        ]);
+      }
+      targetPath = found.path;
+    } catch (error) {
+      return failedResult("対象の組織部門を確認できなかったため、割り当てを中止しました。", [
+        errorMessage(error),
+      ]);
+    }
+
+    if (
+      config.target_ou_path !== undefined &&
+      config.target_ou_path !== "" &&
+      config.target_ou_path !== targetPath
+    ) {
+      return failedResult("対象の組織部門情報が変更されたため、割り当てを中止しました。", [
+        `指定されたOUパス ${config.target_ou_path} はDirectory APIの現在値 ${targetPath} と一致しません。OU一覧を再読み込みしてください。`,
+      ]);
+    }
+
+    if (!targetPath.startsWith("/")) {
+      return failedResult("対象の組織部門パスが不正なため、割り当てを中止しました。", [
+        `Directory API形式の絶対OUパスではありません: ${targetPath}`,
+      ]);
+    }
+
+    const usersByEmail = new Map<string, { primaryEmail: string }>();
+    let pageToken = "";
+    const seenPageTokens = new Set<string>();
+    const query = `orgUnitPath='${targetPath.replace(/'/g, "\\'")}'`;
+    let directoryComplete = false;
+
+    for (let page = 0; page < CEP_LICENSE_DIRECTORY_PAGE_LIMIT; page += 1) {
+      const queryParam =
+        `customer=${encodeURIComponent(customerId)}` +
+        `&query=${encodeURIComponent(query)}` +
+        "&viewType=admin_view&projection=full&maxResults=500" +
+        `${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`;
+      const url = `${DIRECTORY}/users?${queryParam}`;
+      let payload: Record<string, unknown>;
+      try {
+        const response = await boundedRequest("GET", url);
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        payload = response.payload;
+        trace.push({
+          label: `List users in OU ${targetPath}`,
+          method: "GET",
+          url,
+          status: response.status,
+          ok: true,
+        });
+      } catch (error) {
+        trace.push({
+          label: `List users in OU ${targetPath}`,
+          method: "GET",
+          url,
+          status: 0,
+          ok: false,
+          error: errorMessage(error),
+        });
+        return failedResult("OU内のユーザー一覧を取得できなかったため、割り当てを中止しました。", [
+          errorMessage(error),
+        ]);
+      }
+      if (!Array.isArray(payload.users)) {
+        return failedResult("OU内のユーザー一覧が不正なため、割り当てを中止しました。", [
+          "Directory APIのusersフィールドが配列ではありません。",
+        ]);
+      }
+      const rawUsers = payload.users;
       for (const u of rawUsers) {
-        const email = (u as { primaryEmail?: string }).primaryEmail;
-        if (typeof email === "string" && email !== "") {
-          users.push({ primaryEmail: email });
+        if (u === null || typeof u !== "object") {
+          return failedResult("OU内のユーザー情報が不正なため、割り当てを中止しました。", [
+            "Directory APIがオブジェクトではないユーザーを返しました。",
+          ]);
+        }
+        const record = u as { primaryEmail?: unknown; orgUnitPath?: unknown };
+        const email = typeof record.primaryEmail === "string"
+          ? record.primaryEmail.trim()
+          : "";
+        const userPath = record.orgUnitPath;
+        if (
+          !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ||
+          typeof userPath !== "string" ||
+          !userPath.startsWith("/")
+        ) {
+          return failedResult("OU内のユーザー情報が不正なため、割り当てを中止しました。", [
+            "Directory APIのprimaryEmailまたはorgUnitPathが欠落・不正です。",
+          ]);
+        }
+        // Directory's orgUnitPath query includes every descendant OU. Licence
+        // assignment is intentionally bounded to the exact selected OU.
+        if (userPath === targetPath) {
+          const key = email.toLowerCase();
+          if (!usersByEmail.has(key)) usersByEmail.set(key, { primaryEmail: email });
         }
       }
-      const next = payload.nextPageToken;
-      if (typeof next !== "string" || next === "") break;
+      if (usersByEmail.size > CEP_LICENSE_PILOT_USER_LIMIT) {
+        return {
+          success: false,
+          message:
+            `組織部門「${targetPath}」にはパイロット上限の ` +
+            `${CEP_LICENSE_PILOT_USER_LIMIT} 名を超えるユーザーがいるため、` +
+            "ライセンスは1件も割り当てませんでした。",
+          total_users: usersByEmail.size,
+          assigned_count: 0,
+          already_assigned_count: 0,
+          failed_count: 0,
+          assigned_users: [],
+          errors: [
+            `この操作は正確なOUに所属する最大${CEP_LICENSE_PILOT_USER_LIMIT}名の` +
+              "非本番パイロット専用です。対象OUを小さくして再試行してください。",
+          ],
+          debug_trace: trace,
+        };
+      }
+      let next: string | null;
+      try {
+        next = strictNextPageToken(payload, "Directory users list");
+      } catch (error) {
+        return failedResult("OU内のユーザー一覧を最後まで取得できなかったため、割り当てを中止しました。", [
+          errorMessage(error),
+        ]);
+      }
+      if (next === null) {
+        directoryComplete = true;
+        break;
+      }
+      if (seenPageTokens.has(next)) {
+        return failedResult("OU内のユーザー一覧を最後まで取得できなかったため、割り当てを中止しました。", [
+          "Directory APIが同じページトークンを繰り返しました。",
+        ]);
+      }
+      seenPageTokens.add(next);
       pageToken = next;
     }
+    if (!directoryComplete) {
+      return failedResult("OU内のユーザー一覧を最後まで取得できなかったため、割り当てを中止しました。", [
+        `Directory APIのユーザー一覧が${CEP_LICENSE_DIRECTORY_PAGE_LIMIT}ページ以内に` +
+          "完了しませんでした。部分結果には割り当てません。",
+      ]);
+    }
+    const users = [...usersByEmail.values()];
 
     if (users.length === 0) {
       return {
-        success: true,
-        message: `組織部門「${targetPath}」内にユーザーは見つかりませんでした。`,
+        success: false,
+        message: `組織部門「${targetPath}」内にユーザーが見つからなかったため、割り当てを行いませんでした。`,
         total_users: 0,
         assigned_count: 0,
         already_assigned_count: 0,
         failed_count: 0,
         assigned_users: [],
-        errors: [],
+        errors: ["対象OUにライセンス割り当て可能なユーザーが存在することを確認してください。"],
         debug_trace: trace,
       };
     }
@@ -2139,59 +3066,144 @@ export class CepProvider {
 
     const LICENSING = "https://licensing.googleapis.com/apps/licensing/v1";
 
-    for (const user of users) {
-      const url = `${LICENSING}/product/${productId}/sku/${skuId}/user`;
+    const exactLicenseAssignment = (
+      payload: Record<string, unknown>,
+      userEmail: string,
+    ): boolean => {
       try {
-        const { status, payload } = await this.transport.requestJson("POST", url, {
-          jsonBody: { userId: user.primaryEmail },
+        validateLicenseAssignment(payload, { productId, skuId, userId: userEmail });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    for (const user of users) {
+      const collectionUrl = `${LICENSING}/product/${productId}/sku/${skuId}/user`;
+      const assignmentUrl = `${collectionUrl}/${encodeURIComponent(user.primaryEmail)}`;
+      const readAssignment = async (): Promise<"missing" | "exact"> => {
+        const current = await boundedRequest("GET", assignmentUrl, {
+          acceptedStatuses: [404],
         });
-        if (status >= 200 && status < 300) {
+        if (current.status === 404) return "missing";
+        if (
+          current.status >= 200 && current.status < 300 &&
+          exactLicenseAssignment(current.payload, user.primaryEmail)
+        ) {
+          return "exact";
+        }
+        throw new Error(
+          current.status >= 200 && current.status < 300
+            ? "license-assignment-identity-mismatch"
+            : `HTTP ${current.status}`,
+        );
+      };
+      try {
+        const current = await readAssignment();
+        if (current === "exact") {
+          alreadyAssignedCount += 1;
+          trace.push({
+            label: `License for ${user.primaryEmail} already assigned`,
+            method: "GET",
+            url: assignmentUrl,
+            status: 200,
+            ok: true,
+          });
+          continue;
+        }
+
+        let status = 0;
+        let payload: Record<string, unknown> = {};
+        let postError: unknown;
+        let postLeaseFence = false;
+        try {
+          const response = await boundedRequest("POST", collectionUrl, {
+            jsonBody: { userId: user.primaryEmail },
+            // These statuses do not prove non-application. They are returned
+            // to this state machine so it can reconcile with exact GET.
+            acceptedStatuses: [408, 412, 429, 500, 502, 503, 504],
+          });
+          status = response.status;
+          payload = response.payload;
+        } catch (error) {
+          postError = error;
+          postLeaseFence =
+            (error as { cepMutationLeaseFence?: unknown }).cepMutationLeaseFence === true;
+          const errorStatus = (error as { status?: unknown }).status;
+          if (
+            typeof errorStatus === "number" && errorStatus >= 400 && errorStatus < 500 &&
+            ![408, 412, 429].includes(errorStatus)
+          ) {
+            throw error;
+          }
+        }
+        const postOutcomeAmbiguous =
+          !postLeaseFence &&
+          (postError instanceof CepLicenseRequestTimeout ||
+            postError !== undefined ||
+            [408, 500, 502, 503, 504].includes(status));
+
+        if (
+          status >= 200 && status < 300 &&
+          exactLicenseAssignment(payload, user.primaryEmail)
+        ) {
           assignedCount += 1;
           assignedUsers.push(user.primaryEmail);
           trace.push({
             label: `Assign CEP license to ${user.primaryEmail}`,
             method: "POST",
-            url,
+            url: collectionUrl,
             status,
             ok: true,
           });
-        } else {
-          const errDetail = (payload.error as { message?: string })?.message || `HTTP ${status}`;
-          if (
-            errDetail.toLowerCase().includes("already") ||
-            errDetail.toLowerCase().includes("duplicate") ||
-            status === 400 ||
-            status === 409
-          ) {
-            alreadyAssignedCount += 1;
-            trace.push({
-              label: `License for ${user.primaryEmail} already assigned (${errDetail})`,
-              method: "POST",
-              url,
-              status,
-              ok: true,
-            });
-          } else {
-            failedCount += 1;
-            errors.push(`${user.primaryEmail}: ${errDetail}`);
-            trace.push({
-              label: `Failed to assign license to ${user.primaryEmail}`,
-              method: "POST",
-              url,
-              status,
-              ok: false,
-              error: errDetail,
-            });
-          }
+          continue;
         }
+
+        // A 412, 5xx, timeout, or response loss is ambiguous. Only the exact
+        // user/product/SKU read proves success; a missing or mismatched row is
+        // a failure and is never relabelled as "already assigned" by message.
+        let reconciled: "missing" | "exact";
+        try {
+          reconciled = await readAssignment();
+        } catch (error) {
+          if (postOutcomeAmbiguous) {
+            throw new CepMutationOutcomeAmbiguous(
+              `The CEP licence POST for ${user.primaryEmail} had no confirmed response, ` +
+                `and exact reconciliation could not complete (${errorMessage(error)}).`,
+            );
+          }
+          throw error;
+        }
+        if (reconciled !== "exact") {
+          const detail = postError === undefined
+            ? ((payload.error as { message?: string } | undefined)?.message ?? `HTTP ${status}`)
+            : errorMessage(postError);
+          if (postOutcomeAmbiguous) {
+            throw new CepMutationOutcomeAmbiguous(
+              `The CEP licence POST for ${user.primaryEmail} may have committed, ` +
+                `but an exact product/SKU/user assignment is not visible yet (${detail}).`,
+            );
+          }
+          throw new Error(`license-assignment-not-confirmed: ${detail}`);
+        }
+        assignedCount += 1;
+        assignedUsers.push(user.primaryEmail);
+        trace.push({
+          label: `Reconcile CEP license for ${user.primaryEmail}`,
+          method: "GET",
+          url: assignmentUrl,
+          status: 200,
+          ok: true,
+        });
       } catch (err) {
+        if (err instanceof CepMutationOutcomeAmbiguous) throw err;
         failedCount += 1;
         const msg = errorMessage(err);
         errors.push(`${user.primaryEmail}: ${msg}`);
         trace.push({
           label: `Exception assigning license to ${user.primaryEmail}`,
-          method: "POST",
-          url,
+          method: "GET",
+          url: assignmentUrl,
           status: 0,
           ok: false,
           error: msg,
@@ -2202,7 +3214,8 @@ export class CepProvider {
     const message = `組織部門「${targetPath}」内のユーザー ${users.length} 名の処理が完了しました（新規割り当て: ${assignedCount} 名、割り当て済み: ${alreadyAssignedCount} 名${failedCount > 0 ? `、失敗: ${failedCount} 名` : ""}）。`;
 
     return {
-      success: failedCount === 0 || assignedCount > 0 || alreadyAssignedCount > 0,
+      success:
+        failedCount === 0 && assignedCount + alreadyAssignedCount === users.length,
       message,
       total_users: users.length,
       assigned_count: assignedCount,
@@ -2217,11 +3230,13 @@ export class CepProvider {
   // -- Script export ----------------------------------------------------------
 
   /**
-   * A standalone script for the same configuration the UI would apply.
+   * A standalone script for the Chrome Policy portion of the selected setup.
    *
    * Resolved against the live schemas rather than hardcoded, so the exported
-   * file and the one-click path cannot disagree -- the previous version emitted
-   * the same four policies no matter what was selected.
+   * file and the one-click Chrome Policy path cannot disagree -- the previous
+   * version emitted the same four policies no matter what was selected. Cloud
+   * Identity DLP, Access Context Manager, OU creation, and licence assignment
+   * use different APIs and are deliberately not represented by this export.
    */
   async generatePythonScript(config: CepProvisionConfig): Promise<string> {
     const internalUrls = (config.internal_urls ?? []).map((url) => url.trim()).filter(Boolean);
@@ -2229,7 +3244,7 @@ export class CepProvider {
     const skipped: string[] = [];
     const resolved = await this.resolvePolicies(config, context, skipped);
 
-    const requests = resolved.map((item) => item.request);
+    const requestGroups = groupPolicyRequests(resolved.map((item) => item.request));
     const notes = skipped.length > 0 ? `\n\nNot included:\n  - ${skipped.join("\n  - ")}` : "";
 
     return `#!/usr/bin/env python3
@@ -2253,11 +3268,11 @@ import google.auth
 from googleapiclient.discovery import build
 
 CUSTOMER_ID = ${pythonLiteral(context.customerId)}
-REQUESTS = ${pythonLiteral(requests)}
+REQUEST_GROUPS = ${pythonLiteral(requestGroups)}
 
 
 def main() -> None:
-    if not REQUESTS:
+    if not REQUEST_GROUPS:
         print("[!] Nothing to apply: no policy modules were selected.")
         return
 
@@ -2266,16 +3281,26 @@ def main() -> None:
     )
     service = build("chromepolicy", "v1", credentials=credentials)
 
-    print(f"[*] Applying {len(REQUESTS)} policies to customer {CUSTOMER_ID}...")
-    response = (
-        service.customers()
-        .policies()
-        .orgunits()
-        .batchModify(customer=f"customers/{CUSTOMER_ID}", body={"requests": REQUESTS})
-        .execute()
-    )
-    print("[+] Applied.")
-    print(json.dumps(response, indent=2))
+    total = sum(len(requests) for requests in REQUEST_GROUPS)
+    applied = 0
+    print(f"[*] Applying {total} policies to customer {CUSTOMER_ID}...")
+    for index, requests in enumerate(REQUEST_GROUPS, start=1):
+        try:
+            response = (
+                service.customers()
+                .policies()
+                .orgunits()
+                .batchModify(customer=f"customers/{CUSTOMER_ID}", body={"requests": requests})
+                .execute()
+            )
+        except Exception as error:
+            raise RuntimeError(
+                f"Stopped after {applied}/{total} policies: target-compatible "
+                f"batch {index}/{len(REQUEST_GROUPS)} failed; later batches were not attempted."
+            ) from error
+        applied += len(requests)
+        print(f"[+] Applied batch {index}/{len(REQUEST_GROUPS)} ({len(requests)} policies).")
+        print(json.dumps(response, indent=2))
 
 
 if __name__ == "__main__":

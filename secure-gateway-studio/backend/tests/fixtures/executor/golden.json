@@ -43,14 +43,22 @@
           "requests": [
             {
               "body": {
-                "display_name": "default",
-                "service_discovery": {}
+                "displayName": "default",
+                "logging": {},
+                "serviceDiscovery": {}
               },
               "method": "POST",
               "params": {
-                "security_gateway_id": "default"
+                "requestId": "d51e9877-5cc1-5ca7-a2e9-acda05092d5a",
+                "securityGatewayId": "default"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
               "body": null,
@@ -70,7 +78,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
             },
             {
@@ -91,7 +101,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -114,7 +124,11 @@
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
-              "body": {},
+              "body": {
+                "options": {
+                  "requestedPolicyVersion": 3
+                }
+              },
               "method": "POST",
               "params": null,
               "url": "https://cloudresourcemanager.googleapis.com/v1/projects/enterprise-secgw-01:getIamPolicy"
@@ -137,7 +151,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -155,8 +169,8 @@
           "requests": [
             {
               "body": {
-                "display_name": "secure-gateway-http-offload-app",
-                "endpoint_matchers": [
+                "displayName": "secure-gateway-http-offload-app",
+                "endpointMatchers": [
                   {
                     "hostname": "10.20.0.10",
                     "ports": [
@@ -174,9 +188,16 @@
               },
               "method": "POST",
               "params": {
-                "application_id": "secure-gateway-http-offload-app"
+                "applicationId": "secure-gateway-http-offload-app",
+                "requestId": "204dbd37-9f43-5dba-8ad2-7693577c3ed7"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app"
             }
           ]
         },
@@ -190,7 +211,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
             },
             {
@@ -236,10 +259,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -268,11 +298,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -293,10 +319,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -325,11 +358,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -350,10 +379,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.ManagedConfiguration"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -382,11 +418,7 @@
                         "managedConfiguration": "{\"securityGateway\":{\"Value\":{\"authentication\":{},\"context\":{\"resource\":\"projects/enterprise-secgw-01/locations/global/securityGateways/default\"},\"serviceDiscovery\":{\"routes\":{}}}}}"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "managedConfiguration"
-                      ]
-                    }
+                    "updateMask": "managedConfiguration"
                   }
                 ]
               },
@@ -407,10 +439,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.SimpleProxySettings"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.SimpleProxySettings",
                 "policyTargetKey": {
                   "targetResource": "orgunits/03-test-ou"
@@ -433,11 +472,7 @@
                         "simpleProxyMode": "PROXY_MODE_ENUM_USER_CONFIGURED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "simpleProxyMode"
-                      ]
-                    }
+                    "updateMask": "simpleProxyMode"
                   }
                 ]
               },
@@ -538,14 +573,22 @@
           "requests": [
             {
               "body": {
-                "display_name": "default",
-                "service_discovery": {}
+                "displayName": "default",
+                "logging": {},
+                "serviceDiscovery": {}
               },
               "method": "POST",
               "params": {
-                "security_gateway_id": "default"
+                "requestId": "d51e9877-5cc1-5ca7-a2e9-acda05092d5a",
+                "securityGatewayId": "default"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
               "body": null,
@@ -565,7 +608,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
             },
             {
@@ -586,7 +631,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -609,7 +654,11 @@
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
-              "body": {},
+              "body": {
+                "options": {
+                  "requestedPolicyVersion": 3
+                }
+              },
               "method": "POST",
               "params": null,
               "url": "https://cloudresourcemanager.googleapis.com/v1/projects/enterprise-secgw-01:getIamPolicy"
@@ -632,7 +681,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -650,8 +699,8 @@
           "requests": [
             {
               "body": {
-                "display_name": "secure-gateway-http-offload-app",
-                "endpoint_matchers": [
+                "displayName": "secure-gateway-http-offload-app",
+                "endpointMatchers": [
                   {
                     "hostname": "10.20.0.10",
                     "ports": [
@@ -661,7 +710,7 @@
                 ],
                 "upstreams": [
                   {
-                    "egress_policy": {
+                    "egressPolicy": {
                       "regions": [
                         "asia-east1"
                       ]
@@ -674,9 +723,16 @@
               },
               "method": "POST",
               "params": {
-                "application_id": "secure-gateway-http-offload-app"
+                "applicationId": "secure-gateway-http-offload-app",
+                "requestId": "b8991c14-dcf5-5e2b-9593-f99651944f5b"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app"
             }
           ]
         },
@@ -690,7 +746,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
             },
             {
@@ -736,10 +794,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -768,11 +833,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -793,10 +854,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -825,11 +893,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -850,10 +914,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.ManagedConfiguration"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -882,11 +953,7 @@
                         "managedConfiguration": "{\"securityGateway\":{\"Value\":{\"authentication\":{},\"context\":{\"resource\":\"projects/enterprise-secgw-01/locations/global/securityGateways/default\"},\"serviceDiscovery\":{\"routes\":{}}}}}"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "managedConfiguration"
-                      ]
-                    }
+                    "updateMask": "managedConfiguration"
                   }
                 ]
               },
@@ -907,10 +974,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.SimpleProxySettings"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.SimpleProxySettings",
                 "policyTargetKey": {
                   "targetResource": "orgunits/03-test-ou"
@@ -933,11 +1007,7 @@
                         "simpleProxyMode": "PROXY_MODE_ENUM_USER_CONFIGURED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "simpleProxyMode"
-                      ]
-                    }
+                    "updateMask": "simpleProxyMode"
                   }
                 ]
               },
@@ -1039,14 +1109,22 @@
           "requests": [
             {
               "body": {
-                "display_name": "default",
-                "service_discovery": {}
+                "displayName": "default",
+                "logging": {},
+                "serviceDiscovery": {}
               },
               "method": "POST",
               "params": {
-                "security_gateway_id": "default"
+                "requestId": "d51e9877-5cc1-5ca7-a2e9-acda05092d5a",
+                "securityGatewayId": "default"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
               "body": null,
@@ -1066,7 +1144,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
             },
             {
@@ -1087,7 +1167,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -1110,7 +1190,11 @@
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
-              "body": {},
+              "body": {
+                "options": {
+                  "requestedPolicyVersion": 3
+                }
+              },
               "method": "POST",
               "params": null,
               "url": "https://cloudresourcemanager.googleapis.com/v1/projects/shared-network-prj:getIamPolicy"
@@ -1133,7 +1217,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -1151,8 +1235,8 @@
           "requests": [
             {
               "body": {
-                "display_name": "secure-gateway-http-offload-app",
-                "endpoint_matchers": [
+                "displayName": "secure-gateway-http-offload-app",
+                "endpointMatchers": [
                   {
                     "hostname": "10.20.0.10",
                     "ports": [
@@ -1170,9 +1254,16 @@
               },
               "method": "POST",
               "params": {
-                "application_id": "secure-gateway-http-offload-app"
+                "applicationId": "secure-gateway-http-offload-app",
+                "requestId": "4a8e26be-4fde-596d-8d54-da87af0b7c30"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app"
             }
           ]
         },
@@ -1186,7 +1277,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
             },
             {
@@ -1232,10 +1325,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -1264,11 +1364,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -1289,10 +1385,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -1321,11 +1424,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -1346,10 +1445,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.ManagedConfiguration"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -1378,11 +1484,7 @@
                         "managedConfiguration": "{\"securityGateway\":{\"Value\":{\"authentication\":{},\"context\":{\"resource\":\"projects/enterprise-secgw-01/locations/global/securityGateways/default\"},\"serviceDiscovery\":{\"routes\":{}}}}}"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "managedConfiguration"
-                      ]
-                    }
+                    "updateMask": "managedConfiguration"
                   }
                 ]
               },
@@ -1403,10 +1505,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.SimpleProxySettings"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.SimpleProxySettings",
                 "policyTargetKey": {
                   "targetResource": "orgunits/03-test-ou"
@@ -1429,11 +1538,7 @@
                         "simpleProxyMode": "PROXY_MODE_ENUM_USER_CONFIGURED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "simpleProxyMode"
-                      ]
-                    }
+                    "updateMask": "simpleProxyMode"
                   }
                 ]
               },
@@ -1535,14 +1640,22 @@
           "requests": [
             {
               "body": {
-                "display_name": "default",
-                "service_discovery": {}
+                "displayName": "default",
+                "logging": {},
+                "serviceDiscovery": {}
               },
               "method": "POST",
               "params": {
-                "security_gateway_id": "default"
+                "requestId": "d51e9877-5cc1-5ca7-a2e9-acda05092d5a",
+                "securityGatewayId": "default"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
               "body": null,
@@ -1562,7 +1675,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
             },
             {
@@ -1583,7 +1698,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -1606,7 +1721,11 @@
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default"
             },
             {
-              "body": {},
+              "body": {
+                "options": {
+                  "requestedPolicyVersion": 3
+                }
+              },
               "method": "POST",
               "params": null,
               "url": "https://cloudresourcemanager.googleapis.com/v1/projects/enterprise-secgw-01:getIamPolicy"
@@ -1629,7 +1748,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -1647,8 +1766,8 @@
           "requests": [
             {
               "body": {
-                "display_name": "secure-gateway-http-offload-app",
-                "endpoint_matchers": [
+                "displayName": "secure-gateway-http-offload-app",
+                "endpointMatchers": [
                   {
                     "hostname": "app.corp.internal",
                     "ports": [
@@ -1666,9 +1785,16 @@
               },
               "method": "POST",
               "params": {
-                "application_id": "secure-gateway-http-offload-app"
+                "applicationId": "secure-gateway-http-offload-app",
+                "requestId": "ffcbcc0b-ec28-5b6f-810a-217b63ebc557"
               },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app"
             }
           ]
         },
@@ -1682,7 +1808,9 @@
             {
               "body": null,
               "method": "GET",
-              "params": null,
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
             },
             {
@@ -1728,10 +1856,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -1760,11 +1895,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -1785,10 +1916,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.InstallType"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.InstallType",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -1817,11 +1955,7 @@
                         "appInstallType": "FORCED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "appInstallType"
-                      ]
-                    }
+                    "updateMask": "appInstallType"
                   }
                 ]
               },
@@ -1842,10 +1976,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.apps.ManagedConfiguration"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
                 "policyTargetKey": {
                   "additionalTargetKeys": {
@@ -1874,11 +2015,7 @@
                         "managedConfiguration": "{\"securityGateway\":{\"Value\":{\"authentication\":{},\"context\":{\"resource\":\"projects/enterprise-secgw-01/locations/global/securityGateways/default\"},\"serviceDiscovery\":{\"routes\":{}}}}}"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "managedConfiguration"
-                      ]
-                    }
+                    "updateMask": "managedConfiguration"
                   }
                 ]
               },
@@ -1899,10 +2036,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://chromepolicy.googleapis.com/v1/customers/my_customer/policySchemas/chrome.users.SimpleProxySettings"
             },
             {
               "body": {
+                "pageSize": 1000,
                 "policySchemaFilter": "chrome.users.SimpleProxySettings",
                 "policyTargetKey": {
                   "targetResource": "orgunits/03-test-ou"
@@ -1925,11 +2069,7 @@
                         "simpleProxyMode": "PROXY_MODE_ENUM_USER_CONFIGURED"
                       }
                     },
-                    "updateMask": {
-                      "paths": [
-                        "simpleProxyMode"
-                      ]
-                    }
+                    "updateMask": "simpleProxyMode"
                   }
                 ]
               },
@@ -1999,6 +2139,12 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "serviceIds": [
                   "accesscontextmanager.googleapis.com",
@@ -2034,9 +2180,15 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "autoCreateSubnetworks": false,
-                "description": "Managed by Secure Gateway Studio",
+                "description": "Secure Gateway Studio ownership-token=a80a7d5a-b7a9-58ad-b6c4-c96e718e7e75; Managed by Secure Gateway Studio",
                 "name": "secure-gateway-http-offload-vpc",
                 "routingConfig": {
                   "routingMode": "REGIONAL"
@@ -2044,9 +2196,15 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "0f885f2c-d742-56e8-aa6f-9a3c7e6e58fb"
+                "requestId": "2f6b1ea7-2ade-5f5e-937f-791f35781dcb"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks/secure-gateway-http-offload-vpc"
             }
           ]
         },
@@ -2058,7 +2216,14 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
+                "description": "Secure Gateway Studio ownership-token=08ed7f89-0dcb-5d98-991a-e6031d8d1e53",
                 "ipCidrRange": "10.42.0.0/24",
                 "name": "secure-gateway-http-offload-subnet",
                 "network": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks/secure-gateway-http-offload-vpc",
@@ -2067,9 +2232,15 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "be20d877-8a8f-5e4f-a722-2cba5d1fe5eb"
+                "requestId": "688b25e8-fdb5-583a-a694-3977c939fce1"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/subnetworks"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/subnetworks/secure-gateway-http-offload-subnet"
             }
           ]
         },
@@ -2081,15 +2252,28 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
+                "description": "Secure Gateway Studio ownership-token=c538ab2a-a03a-5d3e-bb66-c0107b8858d1",
                 "name": "secure-gateway-http-offload-router",
                 "network": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks/secure-gateway-http-offload-vpc"
               },
               "method": "POST",
               "params": {
-                "requestId": "fbbeb86a-0ea6-534e-a45b-09609b8bad08"
+                "requestId": "a525e39a-7771-5931-83a1-86f5c6ad8cdd"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/routers"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/routers/secure-gateway-http-offload-router"
             }
           ]
         },
@@ -2104,10 +2288,17 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/routers/secure-gateway-http-offload-router"
             },
             {
               "body": {
+                "fingerprint": "router-fingerprint-1",
                 "nats": [
                   {
                     "logConfig": {
@@ -2129,7 +2320,9 @@
                 ]
               },
               "method": "PATCH",
-              "params": null,
+              "params": {
+                "requestId": "06991aa3-8fcd-5a52-a71d-e163a36d892e"
+              },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/routers/secure-gateway-http-offload-router"
             }
           ]
@@ -2142,9 +2335,16 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "accountId": "secure-gateway-http-offload-offload",
                 "serviceAccount": {
+                  "description": "Secure Gateway Studio ownership-token=fff70d1c-6ffb-54bc-8c8d-5bc9648a173e",
                   "displayName": "Secure Gateway Studio secure-gateway-http-offload-offload"
                 }
               },
@@ -2162,16 +2362,29 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "addressType": "INTERNAL",
+                "description": "Secure Gateway Studio ownership-token=7f76ca22-11a8-5700-848d-11099d0e430a",
                 "name": "secure-gateway-http-offload-offload-ip",
                 "subnetwork": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/subnetworks/secure-gateway-http-offload-subnet"
               },
               "method": "POST",
               "params": {
-                "requestId": "a66dad28-d7a3-5791-94c7-e5fd47ba30d3"
+                "requestId": "89ddcd26-7a9d-5ae6-8cea-04ed3d366eb0"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/addresses"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/addresses/secure-gateway-http-offload-offload-ip"
             }
           ]
         },
@@ -2186,6 +2399,14 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": {
+                "options.requestedPolicyVersion": 3
+              },
               "url": "https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/enterprise-tls:getIamPolicy"
             },
             {
@@ -2206,7 +2427,7 @@
                     }
                   ],
                   "etag": "before-etag",
-                  "version": 1
+                  "version": 3
                 }
               },
               "method": "POST",
@@ -2226,6 +2447,18 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/addresses/secure-gateway-http-offload-backend-ip"
             },
             {
@@ -2235,8 +2468,15 @@
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/addresses/secure-gateway-http-offload-offload-ip"
             },
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/enterprise-tls/versions/latest:access"
+            },
+            {
               "body": {
                 "deletionProtection": false,
+                "description": "Secure Gateway Studio ownership-token=a639c179-0677-50a5-afc4-2c56d647d8fe",
                 "disks": [
                   {
                     "autoDelete": true,
@@ -2244,7 +2484,7 @@
                     "initializeParams": {
                       "diskSizeGb": "20",
                       "diskType": "zones/asia-east1-c/diskTypes/pd-balanced",
-                      "sourceImage": "projects/debian-cloud/global/images/family/debian-12"
+                      "sourceImage": "projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
                     }
                   }
                 ],
@@ -2257,7 +2497,7 @@
                   "items": [
                     {
                       "key": "startup-script",
-                      "value": "#!/bin/bash\nset -euo pipefail\numask 077\nexport DEBIAN_FRONTEND=noninteractive\napt-get update\napt-get install -y --no-install-recommends nginx python3 ca-certificates\n\npython3 <<'PY'\nimport base64\nimport json\nimport os\nimport urllib.request\n\ntoken_request = urllib.request.Request(\n    \"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token\",\n    headers={\"Metadata-Flavor\": \"Google\"},\n)\nwith urllib.request.urlopen(token_request, timeout=10) as response:\n    token = json.load(response)[\"access_token\"]\nsecret_request = urllib.request.Request(\n    \"https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/enterprise-tls/versions/latest:access\",\n    headers={\"Authorization\": f\"Bearer {token}\"},\n)\nwith urllib.request.urlopen(secret_request, timeout=20) as response:\n    envelope = json.load(response)\ndocument = json.loads(base64.b64decode(envelope[\"payload\"][\"data\"]))\ncertificate = document[\"certificate_pem\"] + \"\".join(\n    document[\"certificate_chain_pem\"]\n)\nfor path, value in (\n    (\"/etc/nginx/tls.crt\", certificate),\n    (\"/etc/nginx/tls.key\", document[\"private_key_pem\"]),\n):\n    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)\n    with os.fdopen(descriptor, \"w\") as output:\n        output.write(value)\nPY\ncat >/etc/nginx/conf.d/sgstudio-log.conf <<'EOF'\nlog_format sgstudio_offload escape=json\n  '{\"timestamp\":\"$time_iso8601\",\"request_id\":\"$request_id\",'\n  '\"role\":\"offload\",\"host\":\"$host\",\"method\":\"$request_method\",\"uri\":\"$uri\",'\n  '\"status\":$status,\"request_time\":$request_time,\"tls_protocol\":\"$ssl_protocol\",'\n  '\"upstream_addr\":\"$upstream_addr\",\"upstream_status\":\"$upstream_status\",'\n  '\"upstream_time\":\"$upstream_response_time\"}';\nEOF\ncat >/etc/nginx/sites-available/default <<'EOF'\nserver {\n  listen 443 ssl;\n  server_name demo-server-http.internal;\n  server_tokens off;\n  ssl_certificate /etc/nginx/tls.crt;\n  ssl_certificate_key /etc/nginx/tls.key;\n  ssl_protocols TLSv1.2 TLSv1.3;\n  access_log /var/log/nginx/sgstudio-access.log sgstudio_offload;\n  add_header X-Request-ID $request_id always;\n  add_header Strict-Transport-Security \"max-age=31536000\" always;\n  location / {\n    proxy_pass http://10.42.0.20;\n    proxy_http_version 1.1;\n    proxy_connect_timeout 5s;\n    proxy_send_timeout 30s;\n    proxy_read_timeout 30s;\n    proxy_set_header Host $host;\n    proxy_set_header Connection \"\";\n    proxy_set_header X-Forwarded-Proto https;\n    proxy_set_header X-Request-ID $request_id;\n  }\n}\nEOF\nnginx -t\nsystemctl enable nginx\nsystemctl restart nginx\npython3 <<'PY'\nimport hashlib\nimport json\nimport socket\nimport ssl\nimport time\nimport urllib.request\nfrom datetime import UTC, datetime\n\nbackend = 'http://10.42.0.20'\nhostname = 'demo-server-http.internal'\n\ndef publish(test_id, payload):\n    request = urllib.request.Request(\n        \"http://metadata.google.internal/computeMetadata/v1/instance/\"\n        f\"guest-attributes/sgstudio/{test_id}\",\n        data=json.dumps(payload, separators=(\",\", \":\")).encode(),\n        method=\"PUT\",\n        headers={\"Metadata-Flavor\": \"Google\"},\n    )\n    with urllib.request.urlopen(request, timeout=10):\n        pass\n\ndef upstream_check():\n    with urllib.request.urlopen(backend, timeout=10) as response:\n        body = response.read()\n        status = response.status\n    if status != 200:\n        raise RuntimeError(\"offload-upstream-test-failed\")\n    return {\n        \"status\": status,\n        \"upstream\": backend,\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '01381f71f6a049bbc4986ffd31486004fa8cda95c910522002183347ff4380d4',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\ndef tls_check():\n    context = ssl.create_default_context()\n    context.load_verify_locations(cafile=\"/etc/nginx/tls.crt\")\n    with socket.create_connection((\"127.0.0.1\", 443), timeout=10) as raw:\n        with context.wrap_socket(raw, server_hostname=hostname) as connection:\n            connection.sendall(\n                (\n                    f\"GET / HTTP/1.1\\r\\nHost: {hostname}\\r\\n\"\n                    \"Connection: close\\r\\n\\r\\n\"\n                ).encode()\n            )\n            response = b\"\"\n            while True:\n                chunk = connection.recv(65536)\n                if not chunk:\n                    break\n                response += chunk\n            negotiated = connection.version()\n            peer = connection.getpeercert()\n    headers, _, body = response.partition(b\"\\r\\n\\r\\n\")\n    status_line = headers.split(b\"\\r\\n\", 1)[0].decode(\"ascii\", \"replace\")\n    if \" 200 \" not in f\"{status_line} \":\n        raise RuntimeError(\"offload-tls-test-failed\")\n    return {\n        \"http_status\": 200,\n        \"tls_version\": negotiated,\n        \"hostname\": hostname,\n        \"subject_alt_names\": [\n            value for kind, value in peer.get(\"subjectAltName\", []) if kind == \"DNS\"\n        ],\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '01381f71f6a049bbc4986ffd31486004fa8cda95c910522002183347ff4380d4',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\nlast_error = None\nfor _ in range(12):\n    try:\n        t02 = upstream_check()\n        t03 = tls_check()\n        publish(\"T02\", t02)\n        publish(\"T03\", t03)\n        break\n    except Exception as error:\n        last_error = error\n        time.sleep(5)\nelse:\n    raise RuntimeError(\"offload-runtime-tests-failed\") from last_error\nPY\n"
+                      "value": "#!/bin/bash\nset -euo pipefail\numask 077\nexport DEBIAN_FRONTEND=noninteractive\napt-get update\napt-get install -y --no-install-recommends nginx python3 ca-certificates\n\npython3 <<'PY'\nimport base64\nimport json\nimport os\nimport urllib.request\n\ntoken_request = urllib.request.Request(\n    \"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token\",\n    headers={\"Metadata-Flavor\": \"Google\"},\n)\nwith urllib.request.urlopen(token_request, timeout=10) as response:\n    token = json.load(response)[\"access_token\"]\nsecret_request = urllib.request.Request(\n    \"https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/enterprise-tls/versions/7:access\",\n    headers={\"Authorization\": f\"Bearer {token}\"},\n)\nwith urllib.request.urlopen(secret_request, timeout=20) as response:\n    envelope = json.load(response)\ndocument = json.loads(base64.b64decode(envelope[\"payload\"][\"data\"]))\ncertificate = document[\"certificate_pem\"] + \"\".join(\n    document[\"certificate_chain_pem\"]\n)\nfor path, value in (\n    (\"/etc/nginx/tls.crt\", certificate),\n    (\"/etc/nginx/tls.key\", document[\"private_key_pem\"]),\n):\n    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)\n    with os.fdopen(descriptor, \"w\") as output:\n        output.write(value)\nPY\ncat >/etc/nginx/conf.d/sgstudio-log.conf <<'EOF'\nlog_format sgstudio_offload escape=json\n  '{\"timestamp\":\"$time_iso8601\",\"request_id\":\"$request_id\",'\n  '\"role\":\"offload\",\"method\":\"$request_method\",'\n  '\"status\":$status,\"request_time\":$request_time,\"tls_protocol\":\"$ssl_protocol\",'\n  '\"upstream_addr\":\"$upstream_addr\",\"upstream_status\":\"$upstream_status\",'\n  '\"upstream_time\":\"$upstream_response_time\"}';\nEOF\ncat >/etc/nginx/sites-available/default <<'EOF'\nserver {\n  listen 443 ssl;\n  server_name gw.example-company.com;\n  server_tokens off;\n  ssl_certificate /etc/nginx/tls.crt;\n  ssl_certificate_key /etc/nginx/tls.key;\n  ssl_protocols TLSv1.2 TLSv1.3;\n  access_log /var/log/nginx/sgstudio-access.log sgstudio_offload;\n  add_header X-Request-ID $request_id always;\n  add_header Strict-Transport-Security \"max-age=31536000\" always;\n  location / {\n    proxy_pass http://10.42.0.20;\n    proxy_http_version 1.1;\n    proxy_connect_timeout 5s;\n    proxy_send_timeout 30s;\n    proxy_read_timeout 30s;\n    proxy_set_header Host $host;\n    proxy_set_header Connection \"\";\n    proxy_set_header X-Forwarded-Proto https;\n    proxy_set_header X-Request-ID $request_id;\n  }\n}\nEOF\nnginx -t\nsystemctl enable nginx\nsystemctl restart nginx\npython3 <<'PY'\nimport hashlib\nimport json\nimport socket\nimport ssl\nimport time\nimport urllib.request\nfrom datetime import UTC, datetime\n\nbackend = 'http://10.42.0.20'\nhostname = 'gw.example-company.com'\npin_presented_chain = False\ntrust_mode = (\n    \"presented_chain_pinned\" if pin_presented_chain else \"public_system_roots\"\n)\n\ndef publish(test_id, payload):\n    request = urllib.request.Request(\n        \"http://metadata.google.internal/computeMetadata/v1/instance/\"\n        f\"guest-attributes/sgstudio/{test_id}\",\n        data=json.dumps(payload, separators=(\",\", \":\")).encode(),\n        method=\"PUT\",\n        headers={\"Metadata-Flavor\": \"Google\"},\n    )\n    with urllib.request.urlopen(request, timeout=10):\n        pass\n\ndef upstream_check():\n    with urllib.request.urlopen(backend, timeout=10) as response:\n        body = response.read()\n        status = response.status\n    if status != 200:\n        raise RuntimeError(\"offload-upstream-test-failed\")\n    return {\n        \"status\": status,\n        \"upstream\": backend,\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '5a84f491a85d895d6204333e9d894ee5fea2fa7d0c5405f2d844d17256144deb',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\ndef tls_check():\n    context = ssl.create_default_context()\n    if pin_presented_chain:\n        context.load_verify_locations(cafile=\"/etc/nginx/tls.crt\")\n    with socket.create_connection((\"127.0.0.1\", 443), timeout=10) as raw:\n        with context.wrap_socket(raw, server_hostname=hostname) as connection:\n            connection.sendall(\n                (\n                    f\"GET / HTTP/1.1\\r\\nHost: {hostname}\\r\\n\"\n                    \"Connection: close\\r\\n\\r\\n\"\n                ).encode()\n            )\n            response = b\"\"\n            while True:\n                chunk = connection.recv(65536)\n                if not chunk:\n                    break\n                response += chunk\n            negotiated = connection.version()\n            peer = connection.getpeercert()\n    headers, _, body = response.partition(b\"\\r\\n\\r\\n\")\n    status_line = headers.split(b\"\\r\\n\", 1)[0].decode(\"ascii\", \"replace\")\n    if \" 200 \" not in f\"{status_line} \":\n        raise RuntimeError(\"offload-tls-test-failed\")\n    return {\n        \"http_status\": 200,\n        \"tls_version\": negotiated,\n        \"hostname\": hostname,\n        \"trust_mode\": trust_mode,\n        \"subject_alt_names\": [\n            value for kind, value in peer.get(\"subjectAltName\", []) if kind == \"DNS\"\n        ],\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '5a84f491a85d895d6204333e9d894ee5fea2fa7d0c5405f2d844d17256144deb',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\nlast_error = None\nfor _ in range(12):\n    try:\n        t02 = upstream_check()\n        t03 = tls_check()\n        publish(\"T02\", t02)\n        publish(\"T03\", t03)\n        break\n    except Exception as error:\n        last_error = error\n        time.sleep(5)\nelse:\n    raise RuntimeError(\"offload-runtime-tests-failed\") from last_error\nPY\n"
                     },
                     {
                       "key": "enable-guest-attributes",
@@ -2295,9 +2535,27 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "5c3066f5-9c99-54e3-aa91-b515e88d01f3"
+                "requestId": "7cc19863-8e6c-5980-9cc1-2211a19dd357"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-c/instances"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-c/instances/secure-gateway-http-offload-offload"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-c/instances/secure-gateway-http-offload-offload"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-c/disks/secure-gateway-http-offload-offload"
             },
             {
               "body": null,
@@ -2317,6 +2575,12 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "allowed": [
                   {
@@ -2326,6 +2590,7 @@
                     ]
                   }
                 ],
+                "description": "Secure Gateway Studio ownership-token=358b4b46-4e1b-58f0-85e9-29e7602ce97c",
                 "direction": "INGRESS",
                 "logConfig": {
                   "enable": true,
@@ -2343,9 +2608,15 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "6ed5171f-a3b1-5426-b3a7-4f74473a6a72"
+                "requestId": "d9035612-5e0d-599a-8d73-f1af078e2acb"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/firewalls"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/firewalls/secure-gateway-http-offload-gateway-ingress"
             }
           ]
         },
@@ -2357,14 +2628,20 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
-                "description": "Managed by Secure Gateway Studio",
-                "dnsName": "demo-server-http.internal.",
+                "description": "Secure Gateway Studio ownership-token=4d72259a-aa16-5d8a-baca-c6e2cdaa16c5",
+                "dnsName": "gw.example-company.com.",
                 "name": "secure-gateway-http-offload-zone",
                 "privateVisibilityConfig": {
                   "networks": [
                     {
-                      "networkUrl": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks/secure-gateway-http-offload-vpc"
+                      "networkUrl": "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks/secure-gateway-http-offload-vpc"
                     }
                   ]
                 },
@@ -2379,10 +2656,16 @@
         {
           "change": {
             "provider": "dns",
-            "resource_name": "demo-server-http.internal",
+            "resource_name": "gw.example-company.com",
             "resource_type": "record_set"
           },
           "requests": [
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
             {
               "body": null,
               "method": "GET",
@@ -2393,17 +2676,27 @@
               "body": {
                 "additions": [
                   {
-                    "name": "demo-server-http.internal.",
+                    "name": "gw.example-company.com.",
                     "rrdatas": [
                       "10.42.0.10"
                     ],
                     "ttl": 60,
                     "type": "A"
+                  },
+                  {
+                    "name": "_sgs-owner.gw.example-company.com.",
+                    "rrdatas": [
+                      "\"sgs-owner=c61017d2-3b79-5411-883d-a6d6151ef1d9\""
+                    ],
+                    "ttl": 60,
+                    "type": "TXT"
                   }
                 ]
               },
               "method": "POST",
-              "params": null,
+              "params": {
+                "clientOperationId": "c61017d2-3b79-5411-883d-a6d6151ef1d9"
+              },
               "url": "https://dns.googleapis.com/dns/v1/projects/enterprise-secgw-01/managedZones/secure-gateway-http-offload-zone/changes"
             }
           ]
@@ -2439,7 +2732,7 @@
             "value": "secure-access@example.com"
           }
         ],
-        "private_hostname": "demo-server-http.internal",
+        "private_hostname": "gw.example-company.com",
         "project_id": "enterprise-secgw-01",
         "proxy_subnet_cidr": "10.42.1.0/24",
         "public_certificate_secret": "projects/enterprise-secgw-01/secrets/enterprise-tls",
@@ -2448,6 +2741,7 @@
         "require_human_approval": true,
         "schema_version": 1,
         "secondary_zone": "asia-east1-a",
+        "source_image": "projects/enterprise-secgw-01/global/images/sgs-nginx-20260730",
         "subnet_cidr": "10.42.0.0/24",
         "target_ou_id": "03-test-ou",
         "test_ou_confirmed": true,
@@ -2466,11 +2760,18 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "labels": {
                   "certificate-spec-hash": "194c9aa4159e3c20132b2b7dabf1b3c5",
                   "configuration-hash": "9dc98a2d7687bbff3c81fc8beb0c3ef0",
-                  "managed-by": "secure-gateway-studio"
+                  "managed-by": "secure-gateway-studio",
+                  "sgs-owner-token": "581b3e07-8ec6-5938-97b0-9453522ba26b"
                 },
                 "replication": {
                   "automatic": {}
@@ -2495,12 +2796,26 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/secure-gateway-http-offload-tls"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": {
+                "pageSize": 100
+              },
+              "url": "https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/secure-gateway-http-offload-tls/versions"
             },
             {
               "body": {
                 "payload": {
-                  "data": "eyJjZXJ0aWZpY2F0ZV9jaGFpbl9wZW0iOlsiLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tXG5RMGhCU1U0PVxuLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLVxuIl0sImNlcnRpZmljYXRlX3BlbSI6Ii0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLVxuVUVsT1RrVkVcbi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS1cbiIsInByaXZhdGVfa2V5X3BlbSI6Ii0tLS0tQkVHSU4gUFJJVkFURSBLRVktLS0tLVxuUzBWWlxuLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLVxuIn0="
+                  "data": "eyJjZXJ0aWZpY2F0ZV9jaGFpbl9wZW0iOlsiLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tXG5RMGhCU1U0PVxuLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLVxuIl0sImNlcnRpZmljYXRlX3BlbSI6Ii0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLVxuVUVsT1RrVkVcbi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS1cbiIsInByaXZhdGVfa2V5X3BlbSI6Ii0tLS0tQkVHSU4gUFJJVkFURSBLRVktLS0tLVxuUzBWWlxuLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLVxuIiwic2dzX293bmVyc2hpcF90b2tlbiI6Ijk1ZmQ0NzEwLTEwYjgtNTg4OS1hZWRmLTFkNjA1YTFlNmNhMSJ9"
                 }
               },
               "method": "POST",
@@ -2519,7 +2834,9 @@
                 "labels": {
                   "certificate-spec-hash": "194c9aa4159e3c20132b2b7dabf1b3c5",
                   "configuration-hash": "9dc98a2d7687bbff3c81fc8beb0c3ef0",
-                  "managed-by": "secure-gateway-studio"
+                  "managed-by": "secure-gateway-studio",
+                  "sgs-active-version": "1",
+                  "sgs-previous-active": "none"
                 },
                 "versionAliases": {
                   "active": "1"
@@ -2527,7 +2844,7 @@
               },
               "method": "PATCH",
               "params": {
-                "updateMask": "version_aliases,labels"
+                "updateMask": "versionAliases,labels"
               },
               "url": "https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/secure-gateway-http-offload-tls"
             }
@@ -2544,11 +2861,23 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/addresses/secure-gateway-http-offload-backend-ip"
             },
             {
               "body": {
-                "description": "Managed by Secure Gateway Studio",
+                "description": "Secure Gateway Studio ownership-token=9a84f782-4f46-5bc8-be47-31da773a4476; Managed by Secure Gateway Studio",
                 "name": "secure-gateway-http-offload-offload-template",
                 "properties": {
                   "disks": [
@@ -2571,7 +2900,7 @@
                     "items": [
                       {
                         "key": "startup-script",
-                        "value": "#!/bin/bash\nset -euo pipefail\numask 077\ncommand -v python3 >/dev/null\ncommand -v nginx >/dev/null\n\npython3 <<'PY'\nimport base64\nimport json\nimport os\nimport urllib.request\n\ntoken_request = urllib.request.Request(\n    \"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token\",\n    headers={\"Metadata-Flavor\": \"Google\"},\n)\nwith urllib.request.urlopen(token_request, timeout=10) as response:\n    token = json.load(response)[\"access_token\"]\nsecret_request = urllib.request.Request(\n    \"https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/secure-gateway-http-offload-tls/versions/active:access\",\n    headers={\"Authorization\": f\"Bearer {token}\"},\n)\nwith urllib.request.urlopen(secret_request, timeout=20) as response:\n    envelope = json.load(response)\ndocument = json.loads(base64.b64decode(envelope[\"payload\"][\"data\"]))\ncertificate = document[\"certificate_pem\"] + \"\".join(\n    document[\"certificate_chain_pem\"]\n)\nfor path, value in (\n    (\"/etc/nginx/tls.crt\", certificate),\n    (\"/etc/nginx/tls.key\", document[\"private_key_pem\"]),\n):\n    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)\n    with os.fdopen(descriptor, \"w\") as output:\n        output.write(value)\nPY\ncat >/etc/nginx/conf.d/sgstudio-log.conf <<'EOF'\nlog_format sgstudio_offload escape=json\n  '{\"timestamp\":\"$time_iso8601\",\"request_id\":\"$request_id\",'\n  '\"role\":\"offload\",\"host\":\"$host\",\"method\":\"$request_method\",\"uri\":\"$uri\",'\n  '\"status\":$status,\"request_time\":$request_time,\"tls_protocol\":\"$ssl_protocol\",'\n  '\"upstream_addr\":\"$upstream_addr\",\"upstream_status\":\"$upstream_status\",'\n  '\"upstream_time\":\"$upstream_response_time\"}';\nEOF\ncat >/etc/nginx/sites-available/default <<'EOF'\nserver {\n  listen 443 ssl;\n  server_name demo-server-http.internal;\n  server_tokens off;\n  ssl_certificate /etc/nginx/tls.crt;\n  ssl_certificate_key /etc/nginx/tls.key;\n  ssl_protocols TLSv1.2 TLSv1.3;\n  access_log /var/log/nginx/sgstudio-access.log sgstudio_offload;\n  add_header X-Request-ID $request_id always;\n  add_header Strict-Transport-Security \"max-age=31536000\" always;\n  location / {\n    proxy_pass http://10.42.0.20;\n    proxy_http_version 1.1;\n    proxy_connect_timeout 5s;\n    proxy_send_timeout 30s;\n    proxy_read_timeout 30s;\n    proxy_set_header Host $host;\n    proxy_set_header Connection \"\";\n    proxy_set_header X-Forwarded-Proto https;\n    proxy_set_header X-Request-ID $request_id;\n  }\n}\nEOF\nnginx -t\nsystemctl enable nginx\nsystemctl restart nginx\npython3 <<'PY'\nimport hashlib\nimport json\nimport socket\nimport ssl\nimport time\nimport urllib.request\nfrom datetime import UTC, datetime\n\nbackend = 'http://10.42.0.20'\nhostname = 'demo-server-http.internal'\n\ndef publish(test_id, payload):\n    request = urllib.request.Request(\n        \"http://metadata.google.internal/computeMetadata/v1/instance/\"\n        f\"guest-attributes/sgstudio/{test_id}\",\n        data=json.dumps(payload, separators=(\",\", \":\")).encode(),\n        method=\"PUT\",\n        headers={\"Metadata-Flavor\": \"Google\"},\n    )\n    with urllib.request.urlopen(request, timeout=10):\n        pass\n\ndef upstream_check():\n    with urllib.request.urlopen(backend, timeout=10) as response:\n        body = response.read()\n        status = response.status\n    if status != 200:\n        raise RuntimeError(\"offload-upstream-test-failed\")\n    return {\n        \"status\": status,\n        \"upstream\": backend,\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '9dc98a2d7687bbff3c81fc8beb0c3ef003594eadd89059aed565e2922143abe8',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\ndef tls_check():\n    context = ssl.create_default_context()\n    context.load_verify_locations(cafile=\"/etc/nginx/tls.crt\")\n    with socket.create_connection((\"127.0.0.1\", 443), timeout=10) as raw:\n        with context.wrap_socket(raw, server_hostname=hostname) as connection:\n            connection.sendall(\n                (\n                    f\"GET / HTTP/1.1\\r\\nHost: {hostname}\\r\\n\"\n                    \"Connection: close\\r\\n\\r\\n\"\n                ).encode()\n            )\n            response = b\"\"\n            while True:\n                chunk = connection.recv(65536)\n                if not chunk:\n                    break\n                response += chunk\n            negotiated = connection.version()\n            peer = connection.getpeercert()\n    headers, _, body = response.partition(b\"\\r\\n\\r\\n\")\n    status_line = headers.split(b\"\\r\\n\", 1)[0].decode(\"ascii\", \"replace\")\n    if \" 200 \" not in f\"{status_line} \":\n        raise RuntimeError(\"offload-tls-test-failed\")\n    return {\n        \"http_status\": 200,\n        \"tls_version\": negotiated,\n        \"hostname\": hostname,\n        \"subject_alt_names\": [\n            value for kind, value in peer.get(\"subjectAltName\", []) if kind == \"DNS\"\n        ],\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '9dc98a2d7687bbff3c81fc8beb0c3ef003594eadd89059aed565e2922143abe8',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\nlast_error = None\nfor _ in range(12):\n    try:\n        t02 = upstream_check()\n        t03 = tls_check()\n        publish(\"T02\", t02)\n        publish(\"T03\", t03)\n        break\n    except Exception as error:\n        last_error = error\n        time.sleep(5)\nelse:\n    raise RuntimeError(\"offload-runtime-tests-failed\") from last_error\nPY\n"
+                        "value": "#!/bin/bash\nset -euo pipefail\numask 077\ncommand -v python3 >/dev/null\ncommand -v nginx >/dev/null\n\npython3 <<'PY'\nimport base64\nimport json\nimport os\nimport urllib.request\n\ntoken_request = urllib.request.Request(\n    \"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token\",\n    headers={\"Metadata-Flavor\": \"Google\"},\n)\nwith urllib.request.urlopen(token_request, timeout=10) as response:\n    token = json.load(response)[\"access_token\"]\nsecret_request = urllib.request.Request(\n    \"https://secretmanager.googleapis.com/v1/projects/enterprise-secgw-01/secrets/secure-gateway-http-offload-tls/versions/active:access\",\n    headers={\"Authorization\": f\"Bearer {token}\"},\n)\nwith urllib.request.urlopen(secret_request, timeout=20) as response:\n    envelope = json.load(response)\ndocument = json.loads(base64.b64decode(envelope[\"payload\"][\"data\"]))\ncertificate = document[\"certificate_pem\"] + \"\".join(\n    document[\"certificate_chain_pem\"]\n)\nfor path, value in (\n    (\"/etc/nginx/tls.crt\", certificate),\n    (\"/etc/nginx/tls.key\", document[\"private_key_pem\"]),\n):\n    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)\n    with os.fdopen(descriptor, \"w\") as output:\n        output.write(value)\nPY\ncat >/etc/nginx/conf.d/sgstudio-log.conf <<'EOF'\nlog_format sgstudio_offload escape=json\n  '{\"timestamp\":\"$time_iso8601\",\"request_id\":\"$request_id\",'\n  '\"role\":\"offload\",\"method\":\"$request_method\",'\n  '\"status\":$status,\"request_time\":$request_time,\"tls_protocol\":\"$ssl_protocol\",'\n  '\"upstream_addr\":\"$upstream_addr\",\"upstream_status\":\"$upstream_status\",'\n  '\"upstream_time\":\"$upstream_response_time\"}';\nEOF\ncat >/etc/nginx/sites-available/default <<'EOF'\nserver {\n  listen 443 ssl;\n  server_name demo-server-http.internal;\n  server_tokens off;\n  ssl_certificate /etc/nginx/tls.crt;\n  ssl_certificate_key /etc/nginx/tls.key;\n  ssl_protocols TLSv1.2 TLSv1.3;\n  access_log /var/log/nginx/sgstudio-access.log sgstudio_offload;\n  add_header X-Request-ID $request_id always;\n  add_header Strict-Transport-Security \"max-age=31536000\" always;\n  location / {\n    proxy_pass http://10.42.0.20;\n    proxy_http_version 1.1;\n    proxy_connect_timeout 5s;\n    proxy_send_timeout 30s;\n    proxy_read_timeout 30s;\n    proxy_set_header Host $host;\n    proxy_set_header Connection \"\";\n    proxy_set_header X-Forwarded-Proto https;\n    proxy_set_header X-Request-ID $request_id;\n  }\n}\nEOF\nnginx -t\nsystemctl enable nginx\nsystemctl restart nginx\npython3 <<'PY'\nimport hashlib\nimport json\nimport socket\nimport ssl\nimport time\nimport urllib.request\nfrom datetime import UTC, datetime\n\nbackend = 'http://10.42.0.20'\nhostname = 'demo-server-http.internal'\npin_presented_chain = True\ntrust_mode = (\n    \"presented_chain_pinned\" if pin_presented_chain else \"public_system_roots\"\n)\n\ndef publish(test_id, payload):\n    request = urllib.request.Request(\n        \"http://metadata.google.internal/computeMetadata/v1/instance/\"\n        f\"guest-attributes/sgstudio/{test_id}\",\n        data=json.dumps(payload, separators=(\",\", \":\")).encode(),\n        method=\"PUT\",\n        headers={\"Metadata-Flavor\": \"Google\"},\n    )\n    with urllib.request.urlopen(request, timeout=10):\n        pass\n\ndef upstream_check():\n    with urllib.request.urlopen(backend, timeout=10) as response:\n        body = response.read()\n        status = response.status\n    if status != 200:\n        raise RuntimeError(\"offload-upstream-test-failed\")\n    return {\n        \"status\": status,\n        \"upstream\": backend,\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '9dc98a2d7687bbff3c81fc8beb0c3ef003594eadd89059aed565e2922143abe8',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\ndef tls_check():\n    context = ssl.create_default_context()\n    if pin_presented_chain:\n        context.load_verify_locations(cafile=\"/etc/nginx/tls.crt\")\n    with socket.create_connection((\"127.0.0.1\", 443), timeout=10) as raw:\n        with context.wrap_socket(raw, server_hostname=hostname) as connection:\n            connection.sendall(\n                (\n                    f\"GET / HTTP/1.1\\r\\nHost: {hostname}\\r\\n\"\n                    \"Connection: close\\r\\n\\r\\n\"\n                ).encode()\n            )\n            response = b\"\"\n            while True:\n                chunk = connection.recv(65536)\n                if not chunk:\n                    break\n                response += chunk\n            negotiated = connection.version()\n            peer = connection.getpeercert()\n    headers, _, body = response.partition(b\"\\r\\n\\r\\n\")\n    status_line = headers.split(b\"\\r\\n\", 1)[0].decode(\"ascii\", \"replace\")\n    if \" 200 \" not in f\"{status_line} \":\n        raise RuntimeError(\"offload-tls-test-failed\")\n    return {\n        \"http_status\": 200,\n        \"tls_version\": negotiated,\n        \"hostname\": hostname,\n        \"trust_mode\": trust_mode,\n        \"subject_alt_names\": [\n            value for kind, value in peer.get(\"subjectAltName\", []) if kind == \"DNS\"\n        ],\n        \"body_sha256\": hashlib.sha256(body).hexdigest(),\n        \"configuration_hash\": '9dc98a2d7687bbff3c81fc8beb0c3ef003594eadd89059aed565e2922143abe8',\n        \"observed_at\": datetime.now(UTC).isoformat(),\n    }\n\nlast_error = None\nfor _ in range(12):\n    try:\n        t02 = upstream_check()\n        t03 = tls_check()\n        publish(\"T02\", t02)\n        publish(\"T03\", t03)\n        break\n    except Exception as error:\n        last_error = error\n        time.sleep(5)\nelse:\n    raise RuntimeError(\"offload-runtime-tests-failed\") from last_error\nPY\n"
                       },
                       {
                         "key": "enable-guest-attributes",
@@ -2608,9 +2937,15 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "b024d08d-9ac8-5eca-823e-d36b7ffc70bc"
+                "requestId": "7850976a-a94c-54ed-b932-c39193cb1c75"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/instanceTemplates"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/instanceTemplates/secure-gateway-http-offload-offload-template"
             }
           ]
         },
@@ -2622,8 +2957,15 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "checkIntervalSec": 10,
+                "description": "Secure Gateway Studio ownership-token=66dfce5a-08f3-5b39-8d96-11599a83aa9b",
                 "healthyThreshold": 2,
                 "name": "secure-gateway-http-offload-offload-hc",
                 "sslHealthCheck": {
@@ -2635,9 +2977,15 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "bee74019-075a-5177-bd5f-9f7829b6d8f1"
+                "requestId": "3d63c373-9c91-513e-b0ed-4f903fec8a5f"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/healthChecks"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/healthChecks/secure-gateway-http-offload-offload-hc"
             }
           ]
         },
@@ -2649,8 +2997,15 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "baseInstanceName": "secure-gateway-http-offload-offload",
+                "description": "Secure Gateway Studio ownership-token=ad182517-01bf-5a10-8586-6a4e443c5eb9",
                 "distributionPolicy": {
                   "targetShape": "EVEN",
                   "zones": [
@@ -2672,7 +3027,7 @@
                 "targetSize": 2,
                 "updatePolicy": {
                   "maxSurge": {
-                    "fixed": 1
+                    "fixed": 2
                   },
                   "maxUnavailable": {
                     "fixed": 0
@@ -2689,7 +3044,7 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "9793fdbe-b4cb-53df-b367-b567c1d88d4c"
+                "requestId": "a2c5f0d0-1a20-571d-8c5f-167b0975a678"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroupManagers"
             },
@@ -2698,6 +3053,44 @@
               "method": "GET",
               "params": null,
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroupManagers/secure-gateway-http-offload-offload-mig"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroupManagers/secure-gateway-http-offload-offload-mig"
+            },
+            {
+              "body": null,
+              "method": "POST",
+              "params": {
+                "maxResults": 500
+              },
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroupManagers/secure-gateway-http-offload-offload-mig/listManagedInstances"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-c/instances/secure-gateway-http-offload-offload-a1"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-c/disks/secure-gateway-http-offload-offload-a1"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-a/instances/secure-gateway-http-offload-offload-a2"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/zones/asia-east1-a/disks/secure-gateway-http-offload-offload-a2"
             }
           ]
         },
@@ -2709,6 +3102,12 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "autoscalingPolicy": {
                   "coolDownPeriodSec": 90,
@@ -2719,14 +3118,21 @@
                   "minNumReplicas": 2,
                   "mode": "ON"
                 },
+                "description": "Secure Gateway Studio ownership-token=b92a6ec2-7c62-56c6-a473-ef4637c0d002",
                 "name": "secure-gateway-http-offload-offload-autoscaler",
                 "target": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroupManagers/secure-gateway-http-offload-offload-mig"
               },
               "method": "POST",
               "params": {
-                "requestId": "c284eed5-4cb0-5a61-bb4d-80d1d2bbad22"
+                "requestId": "ed206cc1-eca7-5a53-8547-8b0cbb43a672"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/autoscalers"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/autoscalers/secure-gateway-http-offload-offload-autoscaler"
             }
           ]
         },
@@ -2738,12 +3144,19 @@
           },
           "requests": [
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
               "body": {
                 "backends": [
                   {
-                    "group": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroups/secure-gateway-http-offload-offload-mig"
+                    "group": "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroups/secure-gateway-http-offload-offload-mig"
                   }
                 ],
+                "description": "Secure Gateway Studio ownership-token=ccee8544-2674-594e-8a77-e85a7e4acf12",
                 "healthChecks": [
                   "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/healthChecks/secure-gateway-http-offload-offload-hc"
                 ],
@@ -2754,9 +3167,15 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "a0fe23eb-021b-5449-95e0-61d1e619e2bf"
+                "requestId": "527dc77c-0221-5ba3-b29f-ce0f430278b2"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/backendServices"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/backendServices/secure-gateway-http-offload-offload-bs"
             }
           ]
         },
@@ -2771,6 +3190,12 @@
               "body": null,
               "method": "GET",
               "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+            },
+            {
+              "body": null,
+              "method": "GET",
+              "params": null,
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/addresses/secure-gateway-http-offload-offload-ip"
             },
             {
@@ -2779,6 +3204,7 @@
                 "IPProtocol": "TCP",
                 "allowGlobalAccess": true,
                 "backendService": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/backendServices/secure-gateway-http-offload-offload-bs",
+                "description": "Secure Gateway Studio ownership-token=1fde7836-0430-5cf1-827d-c6a08ab0b21f",
                 "loadBalancingScheme": "INTERNAL",
                 "name": "secure-gateway-http-offload-offload-fr",
                 "network": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/global/networks/secure-gateway-http-offload-vpc",
@@ -2789,13 +3215,19 @@
               },
               "method": "POST",
               "params": {
-                "requestId": "5f6da184-7a86-5b6e-90ca-8314f5e1b3be"
+                "requestId": "28a45395-a78a-58b7-ada2-95abda5d708c"
               },
               "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/forwardingRules"
             },
             {
+              "body": null,
+              "method": "GET",
+              "params": null,
+              "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/forwardingRules/secure-gateway-http-offload-offload-fr"
+            },
+            {
               "body": {
-                "group": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroups/secure-gateway-http-offload-offload-mig"
+                "group": "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/regions/asia-east1/instanceGroups/secure-gateway-http-offload-offload-mig"
               },
               "method": "POST",
               "params": null,

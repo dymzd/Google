@@ -17,6 +17,7 @@ import {
   RunEngine,
   isActive,
   planRun,
+  residualResourceRecords,
   type RunRecord,
   type RunStore,
   type Scheduler,
@@ -90,30 +91,44 @@ class MemoryStore implements RunStore {
 }
 
 class NullScheduler implements Scheduler {
-  async schedule(): Promise<void> {}
-  async cancel(): Promise<void> {}
+  readonly scheduled: string[] = [];
+  readonly cancelled: string[] = [];
+  async schedule(runId: string): Promise<void> { this.scheduled.push(runId); }
+  async cancel(runId: string): Promise<void> { this.cancelled.push(runId); }
 }
 
 class CountingExecutor implements StepExecutor {
   readonly applied: string[] = [];
+  readonly appliedRequestIds: Array<string | undefined> = [];
   readonly rolledBack: string[] = [];
+  readonly rolledBackRequestIds: Array<string | undefined> = [];
   /** Throw after recording, simulating a crash once the call has landed. */
   crashAfterApplying: string | null = null;
   failFor: string | null = null;
 
-  async apply(target: ResourceChange): Promise<void> {
+  async apply(
+    target: ResourceChange,
+    _spec: DeploymentSpec,
+    context?: { requestId: string },
+  ): Promise<void> {
     if (this.failFor === target.resource_name) {
       throw new Error(`permanent failure on ${target.resource_name}`);
     }
     this.applied.push(target.resource_name);
+    this.appliedRequestIds.push(context?.requestId);
     if (this.crashAfterApplying === target.resource_name) {
       this.crashAfterApplying = null;
       throw new Error("worker terminated after the call landed");
     }
   }
 
-  async rollback(target: ResourceChange): Promise<void> {
+  async rollback(
+    target: ResourceChange,
+    _spec: DeploymentSpec,
+    context: { requestId: string },
+  ): Promise<void> {
     this.rolledBack.push(target.resource_name);
+    this.rolledBackRequestIds.push(context.requestId);
   }
 }
 
@@ -130,7 +145,8 @@ function newRun(): RunRecord {
 {
   const store = new MemoryStore();
   const executor = new CountingExecutor();
-  const engine = new RunEngine(store, executor, new NullScheduler());
+  const scheduler = new NullScheduler();
+  const engine = new RunEngine(store, executor, scheduler);
   await store.save(newRun());
   const record = await engine.drain("run-1", SPEC);
 
@@ -139,6 +155,17 @@ function newRun(): RunRecord {
     "every change applied exactly once, in order",
     executor.applied.join(",") === CHANGES.map((c) => c.resource_name).join(","),
     executor.applied.join(","),
+  );
+  check(
+    "terminal success remains durably pending until ownership finalization",
+    record.finalizationPending === true && scheduler.cancelled.length === 0,
+    JSON.stringify({ pending: record.finalizationPending, cancelled: scheduler.cancelled }),
+  );
+  const afterWorkerDeath = await store.load("run-1");
+  check(
+    "a crash before inventory commit leaves a resumable finalization marker",
+    afterWorkerDeath?.state === "succeeded" && afterWorkerDeath.finalizationPending === true,
+    JSON.stringify(afterWorkerDeath),
   );
 }
 
@@ -228,6 +255,22 @@ function newRun(): RunRecord {
     !executor.rolledBack.includes("upstream-access"),
     executor.rolledBack.join(","),
   );
+  const createRequestIds = new Map(
+    record.steps.map((step) => [step.change.resource_name, step.requestId]),
+  );
+  check(
+    "rollback uses a distinct deterministic request id for each create operation",
+    executor.rolledBackRequestIds.every((rollbackId, index) => {
+      const createId = createRequestIds.get(executor.rolledBack[index] ?? "");
+      return typeof rollbackId === "string" && rollbackId !== createId &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          .test(rollbackId);
+    }),
+    JSON.stringify({
+      createRequestIds: Object.fromEntries(createRequestIds),
+      rollbackRequestIds: executor.rolledBackRequestIds,
+    }),
+  );
 }
 
 // -- rollback also survives termination ---------------------------------------
@@ -278,6 +321,149 @@ function newRun(): RunRecord {
   check(
     "request ids are UUIDs",
     after.every((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)),
+  );
+  check(
+    "the persisted request id is passed to every external apply",
+    executor.appliedRequestIds.every((id, index) => id === after[index]),
+    executor.appliedRequestIds.join(","),
+  );
+}
+
+// -- compensation data is committed before a shared mutation -----------------
+{
+  const store = new MemoryStore();
+  let restored: unknown;
+  class CheckpointExecutor implements StepExecutor {
+    async apply(
+      _target: ResourceChange,
+      _spec: DeploymentSpec,
+      context: Parameters<StepExecutor["apply"]>[2],
+    ): Promise<void> {
+      await context.checkpointBeforeImage?.({ etag: "before-shared-write" });
+      throw new Error("write outcome could not be confirmed");
+    }
+
+    async rollback(
+      _target: ResourceChange,
+      _spec: DeploymentSpec,
+      context: Parameters<NonNullable<StepExecutor["rollback"]>>[2],
+    ): Promise<void> {
+      restored = context.beforeImage;
+    }
+  }
+  const target = { ...change("shared-policy"), owned_after_apply: true };
+  await store.save(
+    planRun({
+      runId: "run-1",
+      approvalId: "approval-1",
+      configurationHash: "a".repeat(64),
+      changes: [target],
+    }),
+  );
+  const engine = new RunEngine(store, new CheckpointExecutor(), new NullScheduler());
+  const record = await engine.drain("run-1", SPEC);
+  check("checkpointed before-image survives failure", record.steps[0]?.beforeImage !== undefined);
+  check(
+    "rollback receives the checkpoint saved before mutation",
+    (restored as { etag?: unknown } | undefined)?.etag === "before-shared-write",
+    JSON.stringify(restored),
+  );
+}
+
+// -- rollback failure is terminal but never reported as success ---------------
+{
+  const store = new MemoryStore();
+  class RollbackFailureExecutor extends CountingExecutor {
+    override async rollback(): Promise<void> {
+      throw new Error("delete denied");
+    }
+  }
+  const executor = new RollbackFailureExecutor();
+  executor.failFor = "application";
+  await store.save(newRun());
+  const engine = new RunEngine(store, executor, new NullScheduler());
+  const record = await engine.drain("run-1", SPEC);
+  check(
+    "a failed compensation is not reported as rolled back",
+    record.state === "rollback_failed" && record.finalizationPending === true,
+    record.state,
+  );
+  const residual = residualResourceRecords(record);
+  check(
+    "failed compensations remain in exact teardown inventory",
+    residual.map((item) => item.resourceName).join(",") ===
+      "gateway,gateway-iam,application",
+    residual.map((item) => item.resourceName).join(","),
+  );
+  check(
+    "residual inventory retains stable Apply request ids",
+    residual.every((item) => typeof item.requestId === "string" && item.requestId.length > 0),
+  );
+}
+
+// -- a shared before-image survives a failed restore for later teardown -------
+{
+  const record = planRun({
+    runId: "run-residual-shared",
+    approvalId: "approval-1",
+    configurationHash: "a".repeat(64),
+    changes: [change("shared-policy", false)],
+  });
+  record.state = "rollback_failed";
+  record.steps[0]!.status = "rollback_failed";
+  record.steps[0]!.beforeImage = { etag: "before-shared-write" };
+  const residual = residualResourceRecords(record);
+  check(
+    "failed shared restore remains shared rather than becoming owned",
+    residual.length === 1 && residual[0]!.owned === false && residual[0]!.shared === true,
+    JSON.stringify(residual),
+  );
+  check(
+    "failed shared restore retains its exact before-image",
+    (residual[0]?.beforeImage as { etag?: unknown } | undefined)?.etag ===
+      "before-shared-write",
+    JSON.stringify(residual[0]?.beforeImage),
+  );
+}
+
+// -- a modified shared resource is restored, not deleted ----------------------
+{
+  const store = new MemoryStore();
+  const restored: string[] = [];
+  class SharedMutationExecutor implements StepExecutor {
+    async apply(target: ResourceChange): Promise<{ beforeImage?: unknown }> {
+      if (target.resource_name === "later-failure") throw new Error("stop");
+      return { beforeImage: { etag: "shared-before" } };
+    }
+
+    async rollback(
+      target: ResourceChange,
+      _spec: DeploymentSpec,
+      context: Parameters<NonNullable<StepExecutor["rollback"]>>[2],
+    ): Promise<void> {
+      if ((context.beforeImage as { etag?: unknown } | undefined)?.etag === "shared-before") {
+        restored.push(target.resource_name);
+      }
+    }
+  }
+  await store.save(
+    planRun({
+      runId: "run-1",
+      approvalId: "approval-1",
+      configurationHash: "a".repeat(64),
+      changes: [
+        change("shared-iam", false),
+        change("later-failure"),
+      ],
+    }),
+  );
+  const engine = new RunEngine(store, new SharedMutationExecutor(), new NullScheduler());
+  const record = await engine.drain("run-1", SPEC);
+  check("shared mutation failure path terminates", record.state === "rolled_back", record.state);
+  check(
+    "completed shared mutation is restored from its before-image",
+    restored.join(",") === "shared-iam",
+    restored.join(","),
   );
 }
 

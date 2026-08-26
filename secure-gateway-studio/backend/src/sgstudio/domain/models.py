@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     StringConstraints,
     field_validator,
@@ -196,11 +197,49 @@ class DeploymentSpec(BaseModel):
         if not backend_network.is_private or not proxy_network.is_private:
             raise ValueError("Subnet CIDRs must use private IPv4 ranges")
         if (
+            self.backend_kind is not BackendKind.DIRECT_HTTPS
+            and self.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED
+        ):
+            labels = self.private_hostname.split(".")
+            reserved_suffixes = {
+                "alt",
+                "arpa",
+                "corp",
+                "example",
+                "home",
+                "internal",
+                "invalid",
+                "lan",
+                "local",
+                "localdomain",
+                "localhost",
+                "onion",
+                "test",
+            }
+            if (
+                len(labels) < 2
+                or not re.fullmatch(r"[a-z]{2,63}", labels[-1])
+                or labels[-1] in reserved_suffixes
+                or self.private_hostname
+                in {"example.com", "example.net", "example.org"}
+                or self.private_hostname.endswith(
+                    (".example.com", ".example.net", ".example.org")
+                )
+            ):
+                raise ValueError(
+                    "Public-trusted TLS requires a registrable public DNS hostname"
+                )
+        if (
             self.backend_kind is BackendKind.INTERNAL_HTTPS_LB
             and backend_network.overlaps(proxy_network)
         ):
             raise ValueError("ILB proxy-only subnet must not overlap the backend subnet")
         if self.mode is DeploymentMode.PRODUCTION:
+            if self.backend_kind is BackendKind.INTERNAL_HTTPS_LB:
+                raise ValueError(
+                    "Production internal HTTPS load balancing is unavailable in 0.2.1; "
+                    "use direct HTTPS or PoC ILB"
+                )
             if self.certificate_strategy is CertificateStrategy.LOCAL_POC:
                 raise ValueError("Production mode cannot use a local PoC CA")
             if not self.test_ou_confirmed:
@@ -227,8 +266,8 @@ class DeploymentSpec(BaseModel):
                 )
             if not self.endpoint_verification_confirmed:
                 raise ValueError("Production mode requires Endpoint Verification confirmation")
-            if self.backend_kind is not BackendKind.DIRECT_HTTPS and not self.source_image:
-                raise ValueError("Production mode requires an immutable hardened source image")
+        if self.backend_kind is not BackendKind.DIRECT_HTTPS and not self.source_image:
+            raise ValueError("Managed VM paths require an immutable hardened source image")
 
         if self.source_image and not re.fullmatch(
             r"projects/[a-z][a-z0-9-]{4,61}[a-z0-9]/global/images/"
@@ -271,11 +310,28 @@ class DeploymentSpec(BaseModel):
         if (
             self.backend_kind is not BackendKind.DIRECT_HTTPS
             and self.certificate_strategy is CertificateStrategy.ENTERPRISE_CA
-            and (
-            not self.ca_pool or not self.ca_name
-            )
+            and (not self.ca_pool or not self.ca_name)
         ):
             raise ValueError("Enterprise CA strategy requires ca_pool and ca_name")
+        if (
+            self.backend_kind is not BackendKind.DIRECT_HTTPS
+            and self.certificate_strategy is CertificateStrategy.ENTERPRISE_CA
+            and self.ca_pool
+            and self.ca_name
+        ):
+            pool_pattern = (
+                rf"projects/{re.escape(self.project_id)}/locations/[a-z0-9-]+/"
+                r"caPools/[A-Za-z0-9_-]+"
+            )
+            if not re.fullmatch(pool_pattern, self.ca_pool):
+                raise ValueError(
+                    "ca_pool must be a full CA pool name in the deployment project"
+                )
+            if not re.fullmatch(
+                rf"{re.escape(self.ca_pool)}/certificateAuthorities/[A-Za-z0-9_-]+",
+                self.ca_name,
+            ):
+                raise ValueError("ca_name must identify an authority in ca_pool")
         if (
             self.backend_kind is not BackendKind.DIRECT_HTTPS
             and
@@ -431,6 +487,45 @@ class DeploymentGate(BaseModel):
     detail: str
 
 
+class PublicCertificateBinding(BaseModel):
+    """Immutable identity of the operator-owned public TLS secret version."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    secret_version_name: str = Field(
+        min_length=1,
+        max_length=700,
+        pattern=(
+            r"^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/secrets/"
+            r"[A-Za-z0-9_-]{1,255}/versions/[1-9][0-9]*$"
+        ),
+    )
+    payload_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SourceImageBinding(BaseModel):
+    """Immutable numeric identity of the approved Compute Engine image."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(
+        min_length=1,
+        max_length=250,
+        pattern=(
+            r"^projects/[a-z][a-z0-9-]{4,61}[a-z0-9]/global/images/"
+            r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        ),
+    )
+    id: str = Field(pattern=r"^[1-9][0-9]*$")
+    self_link: str = Field(
+        pattern=(
+            r"^https://www\.googleapis\.com/compute/v1/projects/"
+            r"[a-z][a-z0-9-]{4,61}[a-z0-9]/global/images/"
+            r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        )
+    )
+
+
 class DiscoverySnapshot(BaseModel):
     existing_resource_keys: set[str] = Field(default_factory=set)
     conflicting_resource_keys: set[str] = Field(default_factory=set)
@@ -448,6 +543,7 @@ class DiscoverySnapshot(BaseModel):
     endpoint_verification_version: str | None = None
     secure_enterprise_browser_version: str | None = None
     chrome_extension_group_conflicts: list[str] = Field(default_factory=list)
+    chrome_group_policy_discovery_complete: bool = True
     chrome_enterprise_premium_license_count: int | None = Field(default=None, ge=0)
     chrome_root_store_config_count: int | None = Field(default=None, ge=0)
     chrome_root_store_config_names: list[str] = Field(default_factory=list)
@@ -458,6 +554,9 @@ class DiscoverySnapshot(BaseModel):
     # GKE ingresses, FQDN matchers, and non-GCP backends.
     application_global_access: bool | None = None
     application_forwarding_rule: str | None = None
+    application_global_access_discovery_complete: bool = True
+    public_certificate_binding: PublicCertificateBinding | None = None
+    source_image_binding: SourceImageBinding | None = None
 
 
 class PreflightDiagnostic(BaseModel):
@@ -499,15 +598,26 @@ class DeploymentPlan(BaseModel):
     gates: list[DeploymentGate]
     can_apply: bool
     destructive_change_count: int = 0
+    public_certificate_binding: PublicCertificateBinding | None = None
+    source_image_binding: SourceImageBinding | None = None
 
 
 class PreparedPlan(BaseModel):
     plan_id: str
+    plan_hash: str
     specification: DeploymentSpec
     preflight: PreflightResult
     plan: DeploymentPlan
     created_at: datetime
     expires_at: datetime
+
+
+class MutationIdentity(BaseModel):
+    operator_email: str = Field(min_length=3, max_length=320)
+    operator_subject: str = Field(min_length=1, max_length=255)
+    project_id: str = Field(min_length=6, max_length=30)
+    service_account_email: str = Field(min_length=3, max_length=320)
+    service_account_unique_id: str = Field(pattern=r"^\d{6,32}$")
 
 
 class ApprovedPlan(BaseModel):
@@ -520,6 +630,7 @@ class ApprovedPlan(BaseModel):
     approved_at: datetime
     expires_at: datetime
     consumed_at: datetime | None = None
+    mutation_identity: MutationIdentity | None = None
 
 
 class RunStatus(StrEnum):
@@ -530,6 +641,12 @@ class RunStatus(StrEnum):
     ROLLED_BACK = "rolled_back"
     ROLLBACK_FAILED = "rollback_failed"
     INTERRUPTED = "interrupted"
+
+
+class RunPhase(StrEnum):
+    APPLYING = "applying"
+    ROLLING_BACK = "rolling_back"
+    FINALIZED = "finalized"
 
 
 class OperationStatus(StrEnum):
@@ -544,10 +661,13 @@ class OperationStatus(StrEnum):
 
 class RunOperation(BaseModel):
     operation_id: str
+    request_id: str
     resource_key: str
     action: ChangeAction
     status: OperationStatus
     owned_after_apply: bool
+    intent_digest: str
+    checkpoint: dict[str, object] | None = None
     error_code: str | None = None
     started_at: datetime
     completed_at: datetime | None = None
@@ -558,9 +678,13 @@ class DeploymentRun(BaseModel):
     approval_id: str
     configuration_hash: str
     status: RunStatus
+    phase: RunPhase = RunPhase.APPLYING
     started_at: datetime
     completed_at: datetime | None = None
     operations: list[RunOperation] = Field(default_factory=list)
+    mutation_identity: MutationIdentity | None = None
+    public_certificate_binding: PublicCertificateBinding | None = None
+    source_image_binding: SourceImageBinding | None = None
 
 
 class DeploymentResource(BaseModel):

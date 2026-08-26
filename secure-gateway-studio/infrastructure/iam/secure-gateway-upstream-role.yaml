@@ -1,0 +1,9 @@
+title: Secure Gateway Studio Upstream VPC Manager
+description: Exact cross-project permissions for VPC discovery, use, and the managed upstreamAccess IAM binding.
+stage: GA
+includedPermissions:
+  - compute.networks.get
+  - compute.networks.use
+  - resourcemanager.projects.get
+  - resourcemanager.projects.getIamPolicy
+  - resourcemanager.projects.setIamPolicy

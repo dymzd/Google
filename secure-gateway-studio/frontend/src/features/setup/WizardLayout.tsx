@@ -64,7 +64,10 @@ export function WizardLayout({
         </span>
         <span>{messages.draftSaved}</span>
         <span>
-          {messages.lastSaved}: {messages.justNow}
+          {messages.lastSaved}:{" "}
+          {Date.parse(state.updatedAt) > 0
+            ? new Date(state.updatedAt).toLocaleTimeString()
+            : messages.justNow}
         </span>
       </footer>
     </>

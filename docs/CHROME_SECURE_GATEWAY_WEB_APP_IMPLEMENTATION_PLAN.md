@@ -1,5 +1,10 @@
 # Chrome Secure Gateway Local Web App — Implementation Plan
 
+> **Historical design record.** This document preserves the original product
+> plan. For version 0.2.1 runtime capabilities, release gates, and executable
+> commands, use [`secure-gateway-studio/README.md`](../secure-gateway-studio/README.md)
+> and [`secure-gateway-studio/docs/TEST_MATRIX.md`](../secure-gateway-studio/docs/TEST_MATRIX.md).
+
 Updated: 2026-08-04
 
 ## 1. Objective
@@ -70,7 +75,7 @@ policy.
 | Item | Value |
 |---|---|
 | Secure Gateway source range | `136.124.16.0/20` |
-| Secure Gateway extension | `ekajlcmdfcigmdbphhifahdfjbkciflj` |
+| Secure Enterprise Browser extension | `ekajlcmdfcigmdbphhifahdfjbkciflj` |
 | Endpoint Verification extension | `callobklhcbilhphinckomhgkigmfocg` |
 | Path A application port | `443` |
 | Path B application port | operator-supplied; defaults to `443` |

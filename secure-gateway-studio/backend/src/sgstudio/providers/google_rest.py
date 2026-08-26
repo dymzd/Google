@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -21,12 +22,14 @@ ALLOWED_GOOGLE_API_HOSTS = {
     "iam.googleapis.com",
     "licensing.googleapis.com",
     "logging.googleapis.com",
+    "openidconnect.googleapis.com",
     "privateca.googleapis.com",
     "secretmanager.googleapis.com",
     "serviceusage.googleapis.com",
 }
 
 DEFAULT_SCOPES = (
+    "openid",
     "https://www.googleapis.com/auth/admin.directory.group.readonly",
     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
     "https://www.googleapis.com/auth/admin.directory.user.readonly",
@@ -34,6 +37,7 @@ DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/chrome.management.policy",
     "https://www.googleapis.com/auth/chrome.management.profiles.readonly",
     "https://www.googleapis.com/auth/apps.licensing",
+    "https://www.googleapis.com/auth/userinfo.email",
 )
 
 
@@ -65,6 +69,12 @@ class CredentialMetadata:
     principal_hint: str
 
 
+@dataclass(frozen=True)
+class GoogleUserIdentity:
+    email: str
+    subject: str
+
+
 class GoogleAuthorizedTransport:
     """Allowlisted Google REST transport backed by local ADC.
 
@@ -78,6 +88,7 @@ class GoogleAuthorizedTransport:
         quota_project_id: str | None = None,
         timeout_seconds: int = 20,
     ) -> None:
+        self._credentials = credentials
         self._session = AuthorizedSession(credentials)
         self._timeout_seconds = timeout_seconds
         self.metadata = CredentialMetadata(
@@ -87,7 +98,9 @@ class GoogleAuthorizedTransport:
         )
 
     @classmethod
-    def from_adc(cls) -> GoogleAuthorizedTransport:
+    def from_adc(
+        cls, *, require_impersonation: bool = False
+    ) -> GoogleAuthorizedTransport:
         credentials, quota_project_id = google.auth.default(scopes=DEFAULT_SCOPES)
         if credentials.__class__.__module__ == "google.oauth2.service_account":
             raise RuntimeError(
@@ -95,7 +108,55 @@ class GoogleAuthorizedTransport:
                 "`gcloud auth application-default login "
                 "--impersonate-service-account=SERVICE_ACCOUNT_EMAIL`."
             )
+        if (
+            require_impersonation
+            and cls._credential_kind(credentials) != "ImpersonatedServiceAccount"
+        ):
+            raise RuntimeError(
+                "Cloud mutations require keyless impersonated service-account ADC; "
+                "ordinary user ADC is read-only in Secure Gateway Studio"
+            )
         return cls(credentials, quota_project_id=quota_project_id)
+
+    def impersonation_source_user(self) -> GoogleUserIdentity:
+        """Return the Google-attested human behind the impersonated ADC.
+
+        Cloud SDK's active account is deliberately not consulted: gcloud's CLI
+        credential store and Application Default Credentials are independent.
+        """
+        if self.metadata.kind != "ImpersonatedServiceAccount":
+            raise RuntimeError("Impersonated ADC is required to attest its source user")
+        source = getattr(self._credentials, "_source_credentials", None)
+        if source is None or source.__class__.__module__ != "google.oauth2.credentials":
+            raise RuntimeError(
+                "The impersonated ADC source must be a Google human user credential"
+            )
+        response = AuthorizedSession(source).get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            timeout=self._timeout_seconds,
+        )
+        if response.status_code != 200:
+            raise RuntimeError("Google could not attest the impersonated ADC source user")
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise RuntimeError(
+                "Google returned an invalid source-user attestation"
+            ) from error
+        email = payload.get("email") if isinstance(payload, dict) else None
+        subject = payload.get("sub") if isinstance(payload, dict) else None
+        if (
+            not isinstance(email, str)
+            or not email
+            or any(character.isspace() for character in email)
+            or email.count("@") != 1
+            or payload.get("email_verified") is not True
+            or not isinstance(subject, str)
+            or not subject
+            or any(character.isspace() for character in subject)
+        ):
+            raise RuntimeError("Google returned an invalid source-user attestation")
+        return GoogleUserIdentity(email=email.lower(), subject=subject)
 
     @staticmethod
     def _principal_hint(credentials: Credentials) -> str:
@@ -132,22 +193,48 @@ class GoogleAuthorizedTransport:
             allow_redirects=False,
             headers={"Accept": "application/json"},
         )
-        if response.status_code not in accepted_statuses:
-            detail = response.text[:500] if response.text else "No response body"
+        if response.status_code == 204:
+            if response.status_code in accepted_statuses:
+                return response.status_code, {}
             raise GoogleApiError(
                 status_code=response.status_code,
                 method=method.upper(),
                 host=parsed.hostname,
-                detail=detail,
+                detail="No response body",
             )
-        if response.status_code == 204 or not response.content:
-            return response.status_code, {}
-        payload = response.json()
+        if not response.content:
+            raise GoogleApiError(
+                status_code=response.status_code,
+                method=method.upper(),
+                host=parsed.hostname,
+                detail="Expected a non-empty JSON object response",
+            )
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise GoogleApiError(
+                status_code=response.status_code,
+                method=method.upper(),
+                host=parsed.hostname,
+                detail="Expected a valid JSON object response",
+            ) from error
         if not isinstance(payload, dict):
             raise GoogleApiError(
                 status_code=response.status_code,
                 method=method.upper(),
                 host=parsed.hostname,
                 detail="Expected a JSON object response",
+            )
+        if response.status_code not in accepted_statuses:
+            raise GoogleApiError(
+                status_code=response.status_code,
+                method=method.upper(),
+                host=parsed.hostname,
+                detail=json.dumps(
+                    payload,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
             )
         return response.status_code, payload

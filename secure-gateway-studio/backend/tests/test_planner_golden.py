@@ -70,7 +70,7 @@ def test_required_permissions_match_golden(case: dict[str, Any]) -> None:
 
 def test_golden_covers_both_paths_and_the_global_access_states() -> None:
     names = {case["name"] for case in _cases()}
-    assert {"path-a-poc-local-ca", "path-a-existing-vpc"} <= names
+    assert {"path-a-poc-local-ca", "path-a-enterprise-ca", "path-a-existing-vpc"} <= names
     assert {
         "path-b-minimal",
         "path-b-global-access-enabled",

@@ -37,13 +37,14 @@ _ROLE_MANIFEST = (
 )
 
 
-def _poc_role() -> dict[str, object]:
-    """The bundled PoC deployer role, as the IAM API expects it.
+def _bootstrap_role() -> dict[str, object]:
+    """The compatibility-named bootstrap role, as the IAM API expects it.
 
     The extension creates this role over REST instead of handing a YAML file to
     `gcloud`, so the manifest has to travel with the extension. Generating it
-    keeps one definition: the file the Python implementation uploads is the file
-    the extension uploads.
+    keeps one definition: the all-path manifest the Python implementation
+    uploads is the same role the extension uploads. The filename and exported
+    constant retain "poc" only because existing deployments use that role ID.
     """
     text = _ROLE_MANIFEST.read_text(encoding="utf-8")
     permissions = [
@@ -90,7 +91,7 @@ def main() -> None:
             _emit("DIRECT_HTTPS_APIS", set(DIRECT_HTTPS_APIS)),
             _emit("REQUIRED_PERMISSIONS", set(REQUIRED_PERMISSIONS)),
             "export const POC_DEPLOYER_ROLE = "
-            + json.dumps(_poc_role(), indent=2, sort_keys=True)
+            + json.dumps(_bootstrap_role(), indent=2, sort_keys=True)
             + " as const;\n",
         ]
     )

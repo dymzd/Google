@@ -20,19 +20,23 @@ import type {
 } from "../../lib/api";
 import {
   ApiError,
-  bootstrapSampleBackend,
   downloadLocalPocRootCertificate,
+  getRecommendedPocSourceImage,
   listAccessLevelOptions,
   listGroupOptions,
   listOrganizationalUnitOptions,
-  type SampleBackendResult,
+  listVpcNetworkOptions,
+  runtimeCapabilities,
 } from "../../lib/api";
-import type {
-  AccessPrincipal,
-  BackendKind,
-  BackendLocation,
-  PrincipalType,
-  SetupState,
+import {
+  isPublicTrustedHostnameCandidate,
+  isSupportedGoogleCloudProjectId,
+  isSupportedManagedChromeAccessLevel,
+  type AccessPrincipal,
+  type BackendKind,
+  type BackendLocation,
+  type PrincipalType,
+  type SetupState,
 } from "../../lib/setup-state";
 import { ChoiceCard } from "./ChoiceCard";
 
@@ -43,8 +47,12 @@ interface StepProps {
 }
 
 interface IdentitiesStepProps extends StepProps {
-  onBootstrapCloud: () => Promise<DeployerBootstrapResult>;
-  onValidateCloud: () => Promise<void>;
+  onBootstrapCloud: (
+    migrateExistingDeployer?: boolean,
+    createReplacementDeployer?: boolean,
+    recreateDeletedDeployer?: boolean,
+  ) => Promise<DeployerBootstrapResult>;
+  onValidateCloud: (retryAfterBootstrap?: boolean) => Promise<void>;
   onValidateWorkspace: () => Promise<void>;
 }
 
@@ -62,12 +70,14 @@ interface ApplyStepProps {
   busy: boolean;
   error: string;
   messages: Messages;
+  onResume: () => Promise<void>;
   preparedPlan: PreparedPlan | null;
   run: DeploymentRun | null;
   state: SetupState;
 }
 
 function Field({
+  disabled = false,
   label,
   max,
   min,
@@ -78,6 +88,7 @@ function Field({
   type = "text",
   value,
 }: {
+  disabled?: boolean;
   label: string;
   max?: number;
   min?: number;
@@ -93,6 +104,7 @@ function Field({
       <span>{label}</span>
       <input
         autoComplete="off"
+        disabled={disabled}
         max={max}
         min={min}
         onChange={(event) => onChange(event.target.value)}
@@ -146,7 +158,7 @@ function CatalogSelect({
       <label className="field">
         <span>{label}</span>
         <select
-          disabled={catalog.loading || Boolean(catalog.error)}
+          disabled={catalog.loading || (Boolean(catalog.error) && items.length === 0)}
           onChange={(event) => onChange(event.target.value)}
           value={value}
         >
@@ -230,13 +242,51 @@ export function IdentitiesStep({
     setBootstrapError("");
     setBootstrapResult(null);
     try {
-      console.log("[SGS Steps] Executing bootstrap...");
-      const result = await onBootstrapCloud();
-      console.log("[SGS Steps] Bootstrap success:", result);
+      let result: DeployerBootstrapResult;
+      try {
+        result = await onBootstrapCloud(false);
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.code === "service-account-pinned-identity-missing" &&
+          globalThis.confirm(copy.bootstrapDeletedDeployerConfirm)
+        ) {
+          result = await onBootstrapCloud(false, false, true);
+          setBootstrapResult(result);
+          await onValidateCloud(true);
+          return;
+        }
+        if (
+          !(error instanceof ApiError) ||
+          error.code !== "service-account-identity-unpinned" ||
+          !globalThis.confirm(copy.bootstrapLegacyMigrationConfirm)
+        ) {
+          throw error;
+        }
+        // A second, migration-specific confirmation is required. The worker
+        // then audits the immutable SA id, exact role, and IAM allowlists
+        // before it writes an ownership pin or grants anything.
+        try {
+          result = await onBootstrapCloud(true);
+        } catch (migrationError) {
+          if (
+            !(migrationError instanceof ApiError) ||
+            !migrationError.code.startsWith("legacy-deployer-") ||
+            !globalThis.confirm(copy.bootstrapReplacementConfirm)
+          ) {
+            throw migrationError;
+          }
+          // The failed legacy audit made no mutation. A third confirmation
+          // creates fresh isolated names and leaves the legacy identity intact.
+          result = await onBootstrapCloud(false, true);
+        }
+      }
       setBootstrapResult(result);
-      await onValidateCloud();
+      // Newly written service-account and project IAM bindings can be briefly
+      // unavailable to token impersonation. Retry only this post-bootstrap
+      // validation path; manual validation remains single-shot.
+      await onValidateCloud(true);
     } catch (error) {
-      console.error("[SGS Steps] Bootstrap error:", error);
       setBootstrapError(
         error instanceof ApiError || error instanceof Error
           ? `${copy.bootstrapFailed}: ${error.message}`
@@ -267,12 +317,14 @@ export function IdentitiesStep({
             </span>
           </div>
           <Field
+            disabled={bootstrapBusy}
             label={copy.projectId}
             onChange={(projectId) => {
               setBootstrapResult(null);
               setBootstrapError("");
               onPatch({
                 projectId,
+                accessPolicyId: "",
                 cloudConnection: "not_connected",
                 cloudConnectionError: "",
               });
@@ -287,7 +339,9 @@ export function IdentitiesStep({
             type="button"
           >
             <ShieldIcon size={18} />
-            {bootstrapBusy ? copy.bootstrapWorking : copy.bootstrapDeployer}
+            {bootstrapBusy
+              ? (bootstrapResult ? copy.bootstrapValidating : copy.bootstrapWorking)
+              : copy.bootstrapDeployer}
           </button>
           <small className="connection-help-hint">
             {copy.bootstrapDeployerHint}
@@ -392,40 +446,116 @@ export function IdentitiesStep({
 
 export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
   const copy = messages.workflow;
+  const [vpcNetworks, setVpcNetworks] = useState<CatalogState>(emptyCatalog);
+  const [sampleImageBusy, setSampleImageBusy] = useState(false);
+  const [sampleImageError, setSampleImageError] = useState("");
+  const [sampleImageResolved, setSampleImageResolved] = useState("");
   const legacyNginxSelected = ["managed_sample", "existing_http"].includes(
     state.backendKind,
   );
-  const [sampleBackendBusy, setSampleBackendBusy] = useState(false);
-  const [sampleBackendResult, setSampleBackendResult] =
-    useState<SampleBackendResult | null>(null);
-  const [sampleBackendError, setSampleBackendError] = useState("");
+  const usesDeploymentProjectVpc =
+    state.backendKind !== "direct_https" || !state.upstreamVpcProjectId.trim();
 
-  async function handleSampleBackendDeploy() {
-    setSampleBackendBusy(true);
-    setSampleBackendError("");
+  const loadVpcNetworks = useCallback(async () => {
+    if (
+      state.networkStrategy !== "existing" ||
+      !runtimeCapabilities.vpcNetworkCatalog ||
+      !usesDeploymentProjectVpc ||
+      state.cloudConnection !== "connected" ||
+      !isSupportedGoogleCloudProjectId(state.projectId)
+    ) {
+      setVpcNetworks(emptyCatalog);
+      return;
+    }
+    setVpcNetworks({ items: [], loading: true, error: "" });
     try {
-      const res = await bootstrapSampleBackend(
-        state.projectId,
-        state.region || "asia-northeast1",
-        state.zone || "asia-northeast1-b",
-      );
-      setSampleBackendResult(res);
-      onPatch({
-        vpcName: res.vpc_name,
-        subnetName: res.subnet_name,
-        existingBackendUrl:
-          state.backendKind === "direct_https"
-            ? `https://${res.hostname}:443`
-            : state.existingBackendUrl,
-        existingBackendConnectivityConfirmed: true,
+      setVpcNetworks({
+        items: await listVpcNetworkOptions(state.projectId),
+        loading: false,
+        error: "",
       });
-    } catch (err) {
-      setSampleBackendError(
-        err instanceof Error ? err.message : "Failed to deploy sample backend",
+    } catch (error) {
+      setVpcNetworks({
+        items: [],
+        loading: false,
+        error: catalogError(error, copy.vpcOptionsFailed, copy.adcUnavailable),
+      });
+    }
+  }, [
+    copy.adcUnavailable,
+    copy.vpcOptionsFailed,
+    state.cloudConnection,
+    state.networkStrategy,
+    state.projectId,
+    usesDeploymentProjectVpc,
+  ]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadVpcNetworks(), 250);
+    return () => window.clearTimeout(timer);
+  }, [loadVpcNetworks]);
+
+  async function resolveSampleImage(): Promise<void> {
+    if (
+      state.sourceImage.trim() ||
+      state.mode !== "poc" ||
+      !runtimeCapabilities.recommendedPocSourceImage
+    ) {
+      return;
+    }
+    if (
+      state.cloudConnection !== "connected" ||
+      !isSupportedGoogleCloudProjectId(state.projectId)
+    ) {
+      setSampleImageError(copy.sampleImageConnectionRequired);
+      return;
+    }
+    setSampleImageBusy(true);
+    setSampleImageError("");
+    setSampleImageResolved("");
+    try {
+      const option = await getRecommendedPocSourceImage(state.projectId);
+      onPatch({ sourceImage: option.value });
+      setSampleImageResolved(option.value);
+    } catch (error) {
+      setSampleImageError(
+        catalogError(error, copy.sampleImageResolveFailed, copy.adcUnavailable),
       );
     } finally {
-      setSampleBackendBusy(false);
+      setSampleImageBusy(false);
     }
+  }
+
+  async function selectInternalSampleVm() {
+    onPatch({
+      backendKind: "internal_https_lb",
+      networkStrategy: "dedicated",
+      proxySubnetCidr: state.proxySubnetCidr || "10.42.1.0/24",
+      privateHostname: state.privateHostname || "secgw-backend.internal",
+      deploymentName:
+        state.deploymentName === "secure-gateway-http-offload" ||
+        state.deploymentName === "secure-gateway-private-https"
+          ? "secure-gateway-ilb-https-offload"
+          : state.deploymentName,
+      existingBackendUrl: "",
+      existingBackendConnectivityConfirmed: false,
+    });
+    await resolveSampleImage();
+  }
+
+  async function selectManagedSampleVm() {
+    onPatch({
+      backendKind: "managed_sample",
+      privateHostname: state.privateHostname || "secgw-backend.internal",
+      deploymentName:
+        state.deploymentName === "secure-gateway-ilb-https-offload" ||
+        state.deploymentName === "secure-gateway-private-https"
+          ? "secure-gateway-http-offload"
+          : state.deploymentName,
+      existingBackendUrl: "",
+      existingBackendConnectivityConfirmed: false,
+    });
+    await resolveSampleImage();
   }
 
   return (
@@ -444,11 +574,15 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
             list="gcp-regions-list"
             onChange={(event) => {
               const newRegion = event.target.value;
-              onPatch({
-                region: newRegion,
-                zone: `${newRegion}-b`,
-                secondaryZone: `${newRegion}-c`,
-              });
+              const currentRegion = state.region;
+              const patch: Partial<SetupState> = { region: newRegion };
+              if (!state.zone || (currentRegion && state.zone.startsWith(`${currentRegion}-`))) {
+                patch.zone = `${newRegion}-b`;
+              }
+              if (!state.secondaryZone || (currentRegion && state.secondaryZone.startsWith(`${currentRegion}-`))) {
+                patch.secondaryZone = `${newRegion}-c`;
+              }
+              onPatch(patch);
             }}
             placeholder="asia-northeast1"
             spellCheck={false}
@@ -506,18 +640,24 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           </label>
         )}
       </div>
+      {state.backendKind !== "direct_https" && (
+        <div className="field-grid one">
+          <Field
+            label={copy.sourceImage}
+            onChange={(sourceImage) => onPatch({ sourceImage })}
+            placeholder="projects/my-image-project/global/images/sgs-nginx-20260730"
+            value={state.sourceImage}
+          />
+          <small className="field-hint">
+            {runtimeCapabilities.recommendedPocSourceImage && state.mode === "poc"
+              ? copy.sourceImageAutoHint
+              : copy.sourceImageHint}
+          </small>
+        </div>
+      )}
       {state.mode === "production" &&
         !["direct_https", "internal_https_lb"].includes(state.backendKind) && (
         <>
-          <div className="field-grid one">
-            <Field
-              label={copy.sourceImage}
-              onChange={(sourceImage) => onPatch({ sourceImage })}
-              placeholder="projects/my-image-project/global/images/sgs-nginx-20260730"
-              value={state.sourceImage}
-            />
-            <small className="field-hint">{copy.sourceImageHint}</small>
-          </div>
           <div className="field-grid three">
             <Field
               label={copy.minimumReplicas}
@@ -553,33 +693,81 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
       )}
 
       {state.networkStrategy === "existing" && (
-        <div className="field-grid two">
-          <Field
-            label={copy.vpcName}
-            onChange={(vpcName) => onPatch({ vpcName })}
-            value={state.vpcName}
-          />
-          {state.backendKind !== "direct_https" ? (
-            <Field
-              label={copy.subnetName}
-              onChange={(subnetName) => onPatch({ subnetName })}
-              value={state.subnetName}
-            />
+        <>
+          <div className="field-grid two">
+            {usesDeploymentProjectVpc && runtimeCapabilities.vpcNetworkCatalog ? (
+              <CatalogSelect
+                catalog={vpcNetworks}
+                emptyLabel={copy.noOptions}
+                label={copy.vpcName}
+                loadingLabel={copy.optionsLoading}
+                onChange={(vpcName) =>
+                  onPatch(
+                    state.backendKind === "direct_https"
+                      ? { vpcName, existingBackendConnectivityConfirmed: false }
+                      : { vpcName },
+                  )
+                }
+                onRetry={() => void loadVpcNetworks()}
+                placeholder={copy.chooseOption}
+                retryLabel={copy.retryOptions}
+                value={state.vpcName}
+              />
+            ) : (
+              <Field
+                label={copy.vpcName}
+                onChange={(vpcName) =>
+                  onPatch({ vpcName, existingBackendConnectivityConfirmed: false })
+                }
+                value={state.vpcName}
+              />
+            )}
+            {state.backendKind === "direct_https" ? (
+              <Field
+                label={copy.upstreamVpcProjectId}
+                onChange={(upstreamVpcProjectId) =>
+                  onPatch({
+                    upstreamVpcProjectId,
+                    existingBackendConnectivityConfirmed: false,
+                  })
+                }
+                placeholder={state.projectId || "upstream-network-project"}
+                value={state.upstreamVpcProjectId}
+              />
+            ) : (
+              <Field
+                label={copy.subnetName}
+                onChange={(subnetName) => onPatch({ subnetName })}
+                value={state.subnetName}
+              />
+            )}
+          </div>
+          {state.backendKind === "direct_https" ? (
+            <small className="field-hint">{copy.upstreamVpcProjectIdHint}</small>
           ) : null}
-        </div>
+          {usesDeploymentProjectVpc && runtimeCapabilities.vpcNetworkCatalog ? (
+            <small className="field-hint">{copy.vpcSameProjectHint}</small>
+          ) : null}
+          {state.backendKind === "direct_https" &&
+          state.upstreamVpcProjectId.trim() ? (
+            <Notice tone="security">
+              {copy.upstreamVpcCrossProjectPrerequisite}
+            </Notice>
+          ) : null}
+        </>
       )}
 
       <h3 className="subsection-title">{copy.network}</h3>
       <div className="mode-grid backend-grid">
         <ChoiceCard
           description={copy.directHttpsDescription}
+          cost={messages.guide.architectures[0].estimatedCost}
           icon={<ShieldIcon size={27} />}
           onSelect={() =>
             onPatch({
               backendKind: "direct_https",
               networkStrategy: "existing",
               privateHostname: "secgw-backend.internal",
-              vpcName: state.vpcName || "secgw-test-vpc",
               region: state.region || "asia-northeast1",
               deploymentName:
                 state.deploymentName === "secure-gateway-http-offload" ||
@@ -595,26 +783,16 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           selected={state.backendKind === "direct_https"}
           title={copy.directHttps}
         />
-        <ChoiceCard
-          description={copy.internalHttpsLbDescription}
-          icon={<ShieldIcon size={27} />}
-          onSelect={() =>
-            onPatch({
-              backendKind: "internal_https_lb",
-              proxySubnetCidr: state.proxySubnetCidr || "10.42.1.0/24",
-              privateHostname: state.privateHostname || "secgw-backend.internal",
-              deploymentName:
-                state.deploymentName === "secure-gateway-http-offload" ||
-                state.deploymentName === "secure-gateway-private-https"
-                  ? "secure-gateway-ilb-https-offload"
-                  : state.deploymentName,
-              existingBackendUrl: "",
-              existingBackendConnectivityConfirmed: false,
-            })
-          }
-          selected={state.backendKind === "internal_https_lb"}
-          title={copy.internalHttpsLb}
-        />
+        {runtimeCapabilities.internalHttpsLbArchitecture && state.mode === "poc" ? (
+          <ChoiceCard
+            description={copy.internalHttpsLbDescription}
+            cost={messages.guide.architectures[1].estimatedCost}
+            icon={<ShieldIcon size={27} />}
+            onSelect={selectInternalSampleVm}
+            selected={state.backendKind === "internal_https_lb"}
+            title={copy.internalHttpsLb}
+          />
+        ) : null}
       </div>
 
       <details className="legacy-options" open={legacyNginxSelected || undefined}>
@@ -627,22 +805,15 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
         <div className="mode-grid legacy-backend-grid">
           <ChoiceCard
             description={copy.managedSampleDescription}
+            cost={messages.guide.architectures[2].estimatedCost}
             icon={<NetworkIcon size={27} />}
-            onSelect={() =>
-              onPatch({
-                backendKind: "managed_sample",
-                deploymentName:
-                  state.deploymentName === "secure-gateway-ilb-https-offload" ||
-                  state.deploymentName === "secure-gateway-private-https"
-                    ? "secure-gateway-http-offload"
-                    : state.deploymentName,
-              })
-            }
+            onSelect={selectManagedSampleVm}
             selected={state.backendKind === "managed_sample"}
             title={copy.managedSample}
           />
           <ChoiceCard
             description={copy.existingBackendDescription}
+            cost={messages.guide.architectures[2].estimatedCost}
             icon={<NetworkIcon size={27} />}
             onSelect={() =>
               onPatch({
@@ -725,6 +896,70 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
         );
       })()}
 
+      {state.backendKind === "direct_https" ? (
+        <article className="sample-backend-box">
+          <div className="sample-backend-header">
+            <div>
+              <strong>{copy.directSampleVmAction}</strong>
+              <p>{copy.directSampleVmDescription}</p>
+            </div>
+            <button
+              className="connection-action"
+              disabled={sampleImageBusy}
+              onClick={() => void selectInternalSampleVm()}
+              type="button"
+            >
+              {sampleImageBusy ? copy.sampleImageResolving : copy.directSampleVmAction}
+            </button>
+          </div>
+        </article>
+      ) : null}
+      {state.backendKind === "managed_sample" ? (
+        <article className="sample-backend-box">
+          <div className="sample-backend-header">
+            <div>
+              <strong>{copy.managedSampleVmAction}</strong>
+              <p>{copy.managedSampleVmDescription}</p>
+            </div>
+            <button
+              className="connection-action"
+              disabled={sampleImageBusy}
+              onClick={() => void selectManagedSampleVm()}
+              type="button"
+            >
+              {sampleImageBusy ? copy.sampleImageResolving : copy.managedSampleVmAction}
+            </button>
+          </div>
+        </article>
+      ) : null}
+      {state.backendKind === "existing_http" ? (
+        <article className="sample-backend-box">
+          <div className="sample-backend-header">
+            <div>
+              <strong>{copy.managedSampleVmAction}</strong>
+              <p>{copy.existingSampleVmDescription}</p>
+            </div>
+            <button
+              className="connection-action"
+              disabled={sampleImageBusy}
+              onClick={() => void selectManagedSampleVm()}
+              type="button"
+            >
+              {sampleImageBusy ? copy.sampleImageResolving : copy.managedSampleVmAction}
+            </button>
+          </div>
+        </article>
+      ) : null}
+      {sampleImageResolved ? (
+        <p className="plan-result pass" role="status">
+          <CheckIcon size={18} />
+          <span>
+            <strong>{copy.sampleImageResolved}</strong>
+            <small>{sampleImageResolved}</small>
+          </span>
+        </p>
+      ) : null}
+
       <div className="field-grid two">
         {state.backendKind !== "direct_https" ? (
           <Field
@@ -779,15 +1014,36 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
         </>
       )}
       {state.backendKind === "internal_https_lb" && (
-        <div className="field-grid one">
-          <Field
-            label={copy.proxySubnetCidr}
-            onChange={(proxySubnetCidr) => onPatch({ proxySubnetCidr })}
-            placeholder="10.42.1.0/24"
-            value={state.proxySubnetCidr}
-          />
-        </div>
+        <>
+          <article className="sample-backend-box">
+            <div className="sample-backend-header">
+              <div>
+                <strong>{copy.configureSampleVm}</strong>
+                <p>{copy.configureSampleVmDescription}</p>
+              </div>
+              <button
+                className="connection-action"
+                disabled={sampleImageBusy}
+                onClick={() => void selectInternalSampleVm()}
+                type="button"
+              >
+                {sampleImageBusy ? copy.sampleImageResolving : copy.configureSampleVm}
+              </button>
+            </div>
+          </article>
+          <div className="field-grid one">
+            <Field
+              label={copy.proxySubnetCidr}
+              onChange={(proxySubnetCidr) => onPatch({ proxySubnetCidr })}
+              placeholder="10.42.1.0/24"
+              value={state.proxySubnetCidr}
+            />
+          </div>
+        </>
       )}
+      {sampleImageError ? (
+        <p className="connection-error" role="alert">{sampleImageError}</p>
+      ) : null}
       {state.backendKind === "direct_https" ? (
         <>
           <div className="field-grid two">
@@ -827,40 +1083,6 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
           <small className="field-hint">{copy.directHttpsConnectivityHint}</small>
         </>
       ) : null}
-
-      {state.mode === "poc" &&
-        ["direct_https", "internal_https_lb"].includes(state.backendKind) && (
-          <article className="sample-backend-box">
-            <div className="sample-backend-header">
-              <div>
-                <strong>{copy.deploySampleBackend}</strong>
-                <p>{copy.sampleBackendDescription}</p>
-              </div>
-              <button
-                className="connection-action"
-                disabled={sampleBackendBusy || state.cloudConnection !== "connected"}
-                onClick={() => void handleSampleBackendDeploy()}
-                type="button"
-              >
-                {sampleBackendBusy ? copy.deployingSampleBackend : copy.deploySampleBackend}
-              </button>
-            </div>
-            {sampleBackendResult && (
-              <div className="sample-backend-success">
-                <CheckIcon size={18} />
-                <div>
-                  <strong>{copy.sampleBackendReady}</strong>
-                  <small>
-                    VM: <code>{sampleBackendResult.vm_name}</code> (IP: <code>{sampleBackendResult.internal_ip}</code>) | VPC: <code>{sampleBackendResult.vpc_name}</code> | NAT Egress: <code>{sampleBackendResult.static_egress_ip}</code>
-                  </small>
-                </div>
-              </div>
-            )}
-            {sampleBackendError && (
-              <p className="connection-error" role="alert">{sampleBackendError}</p>
-            )}
-          </article>
-        )}
 
       {state.backendKind !== "direct_https" ? (
         <Notice tone="security">{copy.noExternalIpNotice}</Notice>
@@ -909,29 +1131,32 @@ export function CertificateStep({ messages, onPatch, state }: StepProps) {
           <Field
             label={copy.caPool}
             onChange={(caPool) => onPatch({ caPool })}
-            placeholder="projects/.../locations/.../caPools/..."
+            placeholder={`projects/${state.projectId || "{projectId}"}/locations/{location}/caPools/{pool}`}
             value={state.caPool}
           />
           <Field
             label={copy.caName}
             onChange={(caName) => onPatch({ caName })}
-            placeholder="projects/.../certificateAuthorities/..."
+            placeholder={`projects/${state.projectId || "{projectId}"}/locations/{location}/caPools/{pool}/certificateAuthorities/{authority}`}
             value={state.caName}
           />
         </div>
       )}
       {state.backendKind !== "direct_https" &&
         state.certificateStrategy === "public_trusted" && (
-        <div className="field-grid one">
-          <Field
-            label={copy.secretName}
-            onChange={(publicCertificateSecret) =>
-              onPatch({ publicCertificateSecret })
-            }
-            placeholder="projects/.../secrets/secgw-tls"
-            value={state.publicCertificateSecret}
-          />
-        </div>
+        <>
+          <div className="field-grid one">
+            <Field
+              label={copy.secretName}
+              onChange={(publicCertificateSecret) =>
+                onPatch({ publicCertificateSecret })
+              }
+              placeholder="projects/.../secrets/secgw-tls"
+              value={state.publicCertificateSecret}
+            />
+          </div>
+          <Notice tone="security">{messages.publicCertificateDescription}</Notice>
+        </>
       )}
       {state.backendKind !== "direct_https" &&
         state.certificateStrategy === "local_poc" && (
@@ -992,10 +1217,25 @@ export function AccessStep({ messages, onPatch, state }: StepProps) {
       listAccessLevelOptions(state.projectId),
       listGroupOptions(state.customerId),
     ]);
-    setOrganizationalUnits(
-      ouResult.status === "fulfilled"
-        ? { items: ouResult.value, loading: false, error: "" }
-        : {
+    if (ouResult.status === "fulfilled") {
+      const rootIds = new Set(
+        ouResult.value
+          .filter(
+            (item) =>
+              item.label.trim() === "/" || item.description?.trim() === "/",
+          )
+          .map((item) => item.value),
+      );
+      if (rootIds.has(state.targetOuId)) {
+        onPatch({ targetOuId: "", testOuConfirmed: false });
+      }
+      setOrganizationalUnits({
+        items: ouResult.value.filter((item) => !rootIds.has(item.value)),
+        loading: false,
+        error: "",
+      });
+    } else {
+      setOrganizationalUnits({
             items: [],
             loading: false,
             error: catalogError(
@@ -1003,24 +1243,32 @@ export function AccessStep({ messages, onPatch, state }: StepProps) {
               copy.ouOptionsFailed,
               copy.adcUnavailable,
             ),
-          },
-    );
+      });
+    }
     const rawAccessLevels =
       accessLevelResult.status === "fulfilled" ? accessLevelResult.value : [];
+    const noAccessLevel: SetupOption = {
+      value: "NONE",
+      label: copy.managedChromeAccessLevelNone,
+      description: copy.managedChromeAccessLevelNoneHint,
+    };
     const uniqueAccessLevels = Array.from(
-      new Map(rawAccessLevels.map((item) => [item.value, item])).values(),
+      new Map(
+        [
+          noAccessLevel,
+          ...rawAccessLevels.filter(
+            (item) =>
+              item.value !== "NONE" &&
+              isSupportedManagedChromeAccessLevel(item.value),
+          ),
+        ].map((item) => [item.value, item]),
+      ).values(),
     );
     setAccessLevels(
       accessLevelResult.status === "fulfilled"
         ? { items: uniqueAccessLevels, loading: false, error: "" }
         : {
-            items: [
-              {
-                value: "NONE",
-                label: "（アクセスレベル制限なし・認証済みグループ全ユーザー）",
-                description: "",
-              },
-            ],
+            items: [noAccessLevel],
             loading: false,
             error: catalogError(
               accessLevelResult.reason,
@@ -1046,6 +1294,8 @@ export function AccessStep({ messages, onPatch, state }: StepProps) {
     copy.adcUnavailable,
     copy.accessLevelOptionsFailed,
     copy.groupOptionsFailed,
+    copy.managedChromeAccessLevelNone,
+    copy.managedChromeAccessLevelNoneHint,
     copy.ouOptionsFailed,
     state.cloudConnection,
     state.customerId,
@@ -1106,7 +1356,11 @@ export function AccessStep({ messages, onPatch, state }: StepProps) {
           onRetry={() => void loadOptions()}
           placeholder={copy.chooseOption}
           retryLabel={copy.retryOptions}
-          value={state.managedChromeAccessLevel}
+          value={
+            isSupportedManagedChromeAccessLevel(state.managedChromeAccessLevel)
+              ? state.managedChromeAccessLevel
+              : ""
+          }
         />
         <small className="field-hint">{copy.managedChromeAccessLevelHint}</small>
       </div>
@@ -1244,25 +1498,50 @@ export function AccessStep({ messages, onPatch, state }: StepProps) {
   );
 }
 
-export function isConfigurationReady(state: SetupState): boolean {
-  const identitiesReady =
+export function isIdentitiesReady(state: SetupState): boolean {
+  return (
     state.cloudConnection === "connected" &&
-    state.workspaceConnection === "connected";
-  const environmentReady =
+    state.workspaceConnection === "connected"
+  );
+}
+
+export function isEnvironmentReady(
+  state: SetupState,
+  internalHttpsLbArchitecture = true,
+): boolean {
+  const minimumReplicas = Number(state.offloadMinReplicas);
+  const maximumReplicas = Number(state.offloadMaxReplicas);
+  const cpuTarget = Number(state.offloadCpuTarget);
+  const scalingIsValid =
+    Number.isInteger(minimumReplicas) &&
+    Number.isInteger(maximumReplicas) &&
+    minimumReplicas >= 2 &&
+    maximumReplicas >= minimumReplicas &&
+    maximumReplicas <= 1000 &&
+    cpuTarget >= 0.1 &&
+    cpuTarget <= 0.9;
+
+  return (
+    (internalHttpsLbArchitecture || state.backendKind !== "internal_https_lb") &&
+    !(state.mode === "production" && state.backendKind === "internal_https_lb") &&
     Boolean(
       state.deploymentName &&
         state.region &&
         state.zone &&
         (state.backendKind === "direct_https" ||
-          state.mode === "poc" ||
-          (state.secondaryZone &&
-            state.secondaryZone !== state.zone &&
-            state.sourceImage)) &&
+          (state.sourceImage &&
+            (state.mode === "poc" ||
+              (state.secondaryZone &&
+                state.secondaryZone !== state.zone &&
+                scalingIsValid)))) &&
         (state.backendKind === "direct_https" || state.privateHostname),
     ) &&
     (state.backendKind !== "internal_https_lb" || Boolean(state.proxySubnetCidr)) &&
     (state.backendKind === "direct_https"
-      ? state.networkStrategy === "existing" && Boolean(state.vpcName)
+      ? state.networkStrategy === "existing" &&
+        Boolean(state.vpcName) &&
+        (!state.upstreamVpcProjectId.trim() ||
+          isSupportedGoogleCloudProjectId(state.upstreamVpcProjectId))
       : state.networkStrategy === "dedicated" ||
         Boolean(state.vpcName && state.subnetName)) &&
     (state.backendKind === "managed_sample" ||
@@ -1272,25 +1551,43 @@ export function isConfigurationReady(state: SetupState): boolean {
         state.existingBackendConnectivityConfirmed) ||
       (state.backendKind === "direct_https" &&
         state.existingBackendUrl.startsWith("https://") &&
-        state.existingBackendConnectivityConfirmed));
-  const certificateReady =
+        state.existingBackendConnectivityConfirmed))
+  );
+}
+
+export function isCertificateReady(state: SetupState): boolean {
+  return (
     state.backendKind === "direct_https" ||
     state.certificateStrategy === "local_poc" ||
     (state.certificateStrategy === "enterprise_ca"
       ? Boolean(state.caPool && state.caName)
-      : Boolean(state.publicCertificateSecret));
-  const accessReady =
+      : Boolean(state.publicCertificateSecret) &&
+        isPublicTrustedHostnameCandidate(state.privateHostname))
+  );
+}
+
+export function isAccessReady(state: SetupState): boolean {
+  return (
     Boolean(state.customerId) &&
     Boolean(state.targetOuId) &&
-    Boolean(state.managedChromeAccessLevel) &&
+    isSupportedManagedChromeAccessLevel(state.managedChromeAccessLevel) &&
     (state.mode === "poc" ||
       (state.chromeEnterprisePremiumLicenseConfirmed &&
         state.workspaceServicesConfirmed &&
         state.endpointVerificationConfirmed)) &&
     state.testOuConfirmed &&
     state.principals.length > 0 &&
-    state.principals.every((principal) => principal.value.trim().length >= 3);
-  return identitiesReady && environmentReady && certificateReady && accessReady;
+    state.principals.every((principal) => principal.value.trim().length >= 3)
+  );
+}
+
+export function isConfigurationReady(state: SetupState): boolean {
+  return (
+    isIdentitiesReady(state) &&
+    isEnvironmentReady(state) &&
+    isCertificateReady(state) &&
+    isAccessReady(state)
+  );
 }
 
 export function ReviewStep({
@@ -1304,7 +1601,6 @@ export function ReviewStep({
   state,
 }: ReviewStepProps) {
   const copy = messages.workflow;
-  const ready = isConfigurationReady(state);
   const gatesReady =
     preparedPlan?.plan.gates.every(
       (gate) =>
@@ -1394,9 +1690,7 @@ export function ReviewStep({
       return { label: copy.verified, tone: "pass" };
     }
     if (!gate.blocking) {
-      return gate.gate_id === "immutable-image"
-        ? { label: copy.pocDefault, tone: "manual" }
-        : { label: copy.manualCheck, tone: "manual" };
+      return { label: copy.manualCheck, tone: "manual" };
     }
     return { label: copy.actionRequired, tone: "blocked" };
   }
@@ -1458,6 +1752,12 @@ export function ReviewStep({
                   : state.vpcName || messages.existingVpc}
               </dd>
             </div>
+            {state.backendKind === "direct_https" ? (
+              <div>
+                <dt>{copy.upstreamVpcProjectId}</dt>
+                <dd>{state.upstreamVpcProjectId || state.projectId || "—"}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>{copy.hostname}</dt>
               <dd>{state.privateHostname}</dd>
@@ -1550,7 +1850,7 @@ export function ReviewStep({
         </section>
       )}
       {busy && !preparedPlan && (
-        <article className="apply-progress" aria-live="polite" style={{ margin: "1.25rem 0" }}>
+        <article className="apply-progress apply-progress-spaced" aria-live="polite">
           <div className="apply-progress-heading">
             <span>
               <strong>{copy.preflightProgressTitle}</strong>
@@ -1568,16 +1868,15 @@ export function ReviewStep({
             </span>
             <strong className="apply-progress-percent">{preflightProgress}%</strong>
           </div>
-          <div
+          <progress
             aria-label={copy.preflightProgressTitle}
             aria-valuemax={100}
             aria-valuemin={0}
             aria-valuenow={preflightProgress}
             className="apply-progress-track"
-            role="progressbar"
-          >
-            <span style={{ width: `${preflightProgress}%` }} />
-          </div>
+            max={100}
+            value={preflightProgress}
+          />
           <div className="apply-progress-current">
             <span aria-hidden="true" className="progress-spinner" />
             <span>
@@ -1613,7 +1912,7 @@ export function ReviewStep({
       <div className="plan-actions">
         <button
           className="connection-action"
-          disabled={!ready || busy}
+          disabled={busy}
           onClick={() => void onPrepare()}
           type="button"
         >
@@ -1657,6 +1956,7 @@ export function ApplyStep({
   busy,
   error,
   messages,
+  onResume,
   preparedPlan,
   run,
   state,
@@ -1666,8 +1966,18 @@ export function ApplyStep({
   const [downloadError, setDownloadError] = useState("");
   const planReady = preparedPlan !== null;
   const approvalReady = approval !== null;
-  const runFinished =
-    run !== null && !["pending", "running"].includes(run.status);
+  const activeRunStatuses = new Set(["pending", "running", "rolling_back"]);
+  const runFinished = run !== null && !activeRunStatuses.has(run.status);
+  const runFinalized = run?.status === "succeeded" || run?.status === "rolled_back";
+  const hasManagedVmTier = state.backendKind !== "direct_https";
+  const networkProjectId =
+    state.backendKind === "direct_https" && state.upstreamVpcProjectId.trim()
+      ? state.upstreamVpcProjectId.trim()
+      : state.projectId;
+  const effectiveVpcName =
+    state.networkStrategy === "dedicated"
+      ? `${state.deploymentName}-vpc`
+      : state.vpcName || "—";
   const operations = Array.isArray(run?.operations) ? run.operations : [];
   const totalOperations =
     operations.length > 0
@@ -1685,29 +1995,53 @@ export function ApplyStep({
       terminalOperationStatuses.has(operation.status),
     ).length;
   const progressPercent =
-    run?.status === "succeeded"
+    runFinalized
       ? 100
       : totalOperations > 0
         ? Math.round((completedOperations / totalOperations) * 100)
         : 0;
-  const activeOperation =
-    operations.find((operation) =>
-      ["pending", "running"].includes(operation.status),
-    ) ?? operations.at(-1);
+  const failedOperations = operations.filter(
+    (operation) =>
+      operation.status === "rollback_failed" || operation.status === "failed" ||
+      operation.error_code !== null,
+  );
+  const residualResources = Array.isArray(run?.residual_resources)
+    ? run.residual_resources
+    : [];
+  const retryAvailable = run?.retry_available ?? (
+    run !== null && ["interrupted", "failed", "rollback_failed"].includes(run.status)
+  );
+  const activeOperation = runFinalized
+    ? undefined
+    : runFinished
+    ? operations.at(-1)
+    : run?.status === "rolling_back"
+      ? [...operations].reverse().find((operation) =>
+          ["succeeded", "failed", "rollback_failed"].includes(operation.status),
+        ) ?? operations.at(-1)
+      : operations.find((operation) => operation.status === "running") ??
+        operations.find((operation) => operation.status === "pending") ??
+        operations.at(-1);
   const runMessage =
     run?.status === "succeeded"
       ? copy.runSucceeded
-      : run?.status === "rolled_back"
-        ? copy.runRolledBack
-        : run?.status === "interrupted"
-          ? copy.runInterrupted
-        : run && ["pending", "running"].includes(run.status)
-          ? copy.applying
-          : runFinished
-          ? copy.runFailed
-          : busy
-            ? copy.applying
-            : copy.applyLocked;
+      : run?.status === "rolling_back"
+        ? copy.runRollingBack
+        : run?.status === "rollback_unavailable"
+          ? copy.runRollbackUnavailable
+          : run?.status === "rollback_failed"
+            ? copy.runRollbackFailed
+          : run?.status === "rolled_back"
+            ? copy.runRolledBack
+            : run?.status === "interrupted"
+              ? copy.runInterrupted
+              : run && ["pending", "running"].includes(run.status)
+                ? copy.applying
+                : runFinished
+                  ? copy.runFailed
+                  : busy
+                    ? copy.applying
+                    : copy.applyLocked;
 
   async function handleRootCertificateDownload() {
     setDownloadBusy(true);
@@ -1720,8 +2054,10 @@ export function ApplyStep({
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `${state.deploymentName}-poc-root.pem`;
+      document.body.appendChild(anchor);
       anchor.click();
-      URL.revokeObjectURL(url);
+      document.body.removeChild(anchor);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
       setDownloadError(copy.caDownloadFailed);
     } finally {
@@ -1763,98 +2099,167 @@ export function ApplyStep({
           </span>
         </article>
       </div>
+      {runFinished && run && (
+        <p
+          className={`plan-result ${
+            run.status === "succeeded"
+              ? "pass"
+              : run.status === "rolled_back"
+                ? "complete"
+                : "blocked"
+          }`}
+          role="status"
+        >
+          {run.status === "succeeded" ? <CheckIcon size={18} /> : <InfoIcon size={18} />}
+          <span>
+            <strong>{runMessage}</strong>
+            <small>
+              {runFinalized
+                ? `${copy.runFinalized} · ${copy.noActiveOperation}`
+                : copy.operationCount(operations.length)}
+            </small>
+          </span>
+        </p>
+      )}
       {run && totalOperations > 0 && (
         <article className="apply-progress" aria-live="polite">
           <div className="apply-progress-heading">
             <span>
               <strong>{copy.progressTitle}</strong>
-              <small>{copy.progressCount(completedOperations, totalOperations)}</small>
+              <small>
+                {runFinalized
+                  ? copy.finalizedOperationCount(totalOperations)
+                  : copy.progressCount(completedOperations, totalOperations)}
+              </small>
             </span>
             <strong className="apply-progress-percent">{progressPercent}%</strong>
           </div>
-          <div
+          <progress
             aria-label={copy.progressTitle}
             aria-valuemax={100}
             aria-valuemin={0}
             aria-valuenow={progressPercent}
             className="apply-progress-track"
-            role="progressbar"
-          >
-            <span style={{ width: `${progressPercent}%` }} />
-          </div>
+            max={100}
+            value={progressPercent}
+          />
           <div className="apply-progress-current">
-            {["pending", "running"].includes(run.status) && (
+            {["pending", "running", "rolling_back"].includes(run.status) && (
               <span aria-hidden="true" className="progress-spinner" />
             )}
             <span>
-              <small>{copy.currentOperation}</small>
-              <strong>
-                {activeOperation?.resource_key ?? copy.waitingForOperation}
-              </strong>
-              {activeOperation?.error_code && <code>{activeOperation.error_code}</code>}
+              {runFinalized ? (
+                <>
+                  <small>{copy.runFinalized}</small>
+                  <strong>{runMessage}</strong>
+                  <small>{copy.noActiveOperation}</small>
+                </>
+              ) : (
+                <>
+                  {runFinished && failedOperations.length > 0 ? (
+                    <>
+                      <small>{copy.failedOperations}</small>
+                      <ul className="apply-failure-list">
+                        {failedOperations.map((operation) => (
+                          <li key={`${operation.operation_id}:${operation.resource_key}`}>
+                            <strong>{operation.resource_key}</strong>
+                            <code>{operation.error_code ?? operation.status}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <small>{copy.currentOperation}</small>
+                      <strong>
+                        {activeOperation?.resource_key ?? copy.waitingForOperation}
+                      </strong>
+                      {activeOperation?.error_code && <code>{activeOperation.error_code}</code>}
+                    </>
+                  )}
+                </>
+              )}
             </span>
           </div>
         </article>
       )}
-      {runFinished && run && (
-        <p className="plan-result pass">
-          <CheckIcon size={18} />
-          <span>
-            <strong>{runMessage}</strong>
-            <small>{copy.operationCount(operations.length)}</small>
-          </span>
-        </p>
+      {run?.status === "rollback_unavailable" && residualResources.length > 0 && (
+        <article className="manual-cleanup-list" role="alert">
+          <h3>{copy.manualCleanupTitle}</h3>
+          <p>{copy.manualCleanupDescription}</p>
+          <ul>
+            {residualResources.map((resource) => (
+              <li key={resource.resource_key}>
+                <code>{resource.resource_key}</code>
+              </li>
+            ))}
+          </ul>
+        </article>
       )}
-      {run?.status === "succeeded" && (
+      {run && retryAvailable && (
+        <button
+          className="connection-action"
+          disabled={busy}
+          onClick={() => void onResume()}
+          type="button"
+        >
+          {run.status === "interrupted"
+            ? busy ? copy.resumingRun : copy.resumeRun
+            : busy ? copy.retryingRollback : copy.retryRollback}
+        </button>
+      )}
+      {run?.status === "succeeded" && state.certificateStrategy === "local_poc" && (
         <article className="ca-handoff">
-            <h3>{copy.caHandoffTitle}</h3>
-            <p>{copy.caHandoffDescription}</p>
-            <ol>
-              {copy.caHandoffSteps.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-            <div className="ca-handoff-actions">
-              <button
-                className="connection-action"
-                disabled={downloadBusy}
-                onClick={() => void handleRootCertificateDownload()}
-                type="button"
-              >
-                {downloadBusy ? copy.downloadingRootCa : copy.downloadRootCa}
-              </button>
-              <a
-                href="https://support.google.com/chrome/a/answer/16073278"
-                rel="noreferrer"
-                target="_blank"
-              >
-                {copy.openAdminConsoleGuide}
-              </a>
-            </div>
-            {downloadError && (
-              <p className="connection-error" role="alert">
-                {downloadError}
-              </p>
-            )}
-          </article>
-        )}
+          <h3>{copy.caHandoffTitle}</h3>
+          <p>{copy.caHandoffDescription}</p>
+          <ol>
+            {copy.caHandoffSteps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <div className="ca-handoff-actions">
+            <button
+              className="connection-action"
+              disabled={downloadBusy}
+              onClick={() => void handleRootCertificateDownload()}
+              type="button"
+            >
+              {downloadBusy ? copy.downloadingRootCa : copy.downloadRootCa}
+            </button>
+            <a
+              href="https://support.google.com/chrome/a/answer/16073278"
+              rel="noreferrer"
+              target="_blank"
+            >
+              {copy.openAdminConsoleGuide}
+            </a>
+          </div>
+          {downloadError && (
+            <p className="connection-error" role="alert">
+              {downloadError}
+            </p>
+          )}
+        </article>
+      )}
       {error && <p className="connection-error" role="alert">{error}</p>}
 
       <article className="cloud-console-panel">
         <h3>{copy.cloudConsoleLinks}</h3>
         <div className="cloud-console-grid">
-          <a
-            className="cloud-console-card"
-            href={`https://console.cloud.google.com/compute/instances?project=${encodeURIComponent(state.projectId)}`}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <CloudIcon size={20} />
-            <div>
-              <strong>{copy.computeInstancesLink}</strong>
-              <small>secgw-https-backend-01 (10.10.0.2)</small>
-            </div>
-          </a>
+          {hasManagedVmTier && (
+            <a
+              className="cloud-console-card"
+              href={`https://console.cloud.google.com/compute/instances?project=${encodeURIComponent(state.projectId)}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <CloudIcon size={20} />
+              <div>
+                <strong>{copy.computeInstancesLink}</strong>
+                <small>{copy.computeResourcesHint}</small>
+              </div>
+            </a>
+          )}
           <a
             className="cloud-console-card"
             href={`https://console.cloud.google.com/security/security-gateways?project=${encodeURIComponent(state.projectId)}`}
@@ -1864,33 +2269,35 @@ export function ApplyStep({
             <ShieldIcon size={20} />
             <div>
               <strong>{copy.securityGatewaysLink}</strong>
-              <small>BeyondCorp SGW (default / RUNNING)</small>
+              <small>{copy.securityGatewayHint}</small>
             </div>
           </a>
           <a
             className="cloud-console-card"
-            href={`https://console.cloud.google.com/networking/networks/list?project=${encodeURIComponent(state.projectId)}`}
+            href={`https://console.cloud.google.com/networking/networks/list?project=${encodeURIComponent(networkProjectId)}`}
             rel="noreferrer"
             target="_blank"
           >
             <NetworkIcon size={20} />
             <div>
               <strong>{copy.vpcNetworksLink}</strong>
-              <small>{state.vpcName || "secgw-test-vpc"} (10.10.0.0/24)</small>
+              <small>{effectiveVpcName}</small>
             </div>
           </a>
-          <a
-            className="cloud-console-card"
-            href={`https://console.cloud.google.com/net-services/nat/list?project=${encodeURIComponent(state.projectId)}`}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <LockIcon size={20} />
-            <div>
-              <strong>{copy.cloudNatLink}</strong>
-              <small>secgw-cloud-nat (secgw-nat-static-ip)</small>
-            </div>
-          </a>
+          {hasManagedVmTier && (
+            <a
+              className="cloud-console-card"
+              href={`https://console.cloud.google.com/net-services/nat/list?project=${encodeURIComponent(state.projectId)}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <LockIcon size={20} />
+              <div>
+                <strong>{copy.cloudNatLink}</strong>
+                <small>{copy.cloudNatHint}</small>
+              </div>
+            </a>
+          )}
           <a
             className="cloud-console-card"
             href="https://admin.google.com/ac/chrome/settings/user"

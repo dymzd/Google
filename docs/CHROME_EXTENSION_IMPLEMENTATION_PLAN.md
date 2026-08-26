@@ -1,5 +1,11 @@
 # Secure Gateway Studio — Chrome 拡張機能 移行実装計画
 
+> **履歴資料です。** これは移行時点の設計判断とフェーズを残す文書であり、0.2.1 の
+> 配布・対応機能・テスト手順を定める運用ガイドではありません。現行仕様は
+> [`secure-gateway-studio/README.md`](../secure-gateway-studio/README.md) と
+> [`extension/docs/WEB_STORE_SUBMISSION.md`](../secure-gateway-studio/extension/docs/WEB_STORE_SUBMISSION.md)
+> を参照してください。0.2.1 の配布物は Web Store 用 ZIP だけです。
+
 Updated: 2026-08-04
 Revision: 6（`7a50e0c` で取り込んだ Path B とコンフォーマンスレビューを反映。
 revision 1–5 の経緯は §19）
@@ -46,8 +52,10 @@ flowchart LR
 1. 配布物は拡張機能ひとつ。ローカルエージェントもホスト型 SPA も存在しない。
 2. UI は `chrome-extension://` オリジン。`test-domain.dev` は配布とドキュメントの
    入口に限定する。
-3. 認証は `chrome.identity`。最小権限デプロイヤ SA への impersonation は維持する
-   （§7.2）。長期 SA 鍵の禁止も維持。
+3. 認証は `chrome.identity`。拡張 A/C とローカル B の対応3実装で必要な
+   プロジェクト権限の和集合だけを持つデプロイヤ SA への impersonation は維持する
+   （§7.2）。選択した経路の Plan はその部分集合だけを要求・実行し、長期 SA 鍵の
+   禁止も維持する。
 4. 対応は Chrome と Edge のみ。
 5. ソース公開と再現ビルドを供給網対策の中核に据える（§11）。
 6. マルチテナントは導入しない。
@@ -138,7 +146,7 @@ Path A は Phase 4 で追加する。
 移植で最も壊れやすい箇所。**最初に着手する。**
 
 `planner.py` は正規化 JSON の SHA-256 で `plan_hash` を生成し、
-[`teardown.py:133`](../secure-gateway-studio/backend/src/sgstudio/domain/teardown.py:133)
+[`teardown.py`](../secure-gateway-studio/backend/src/sgstudio/domain/teardown.py)
 も同方式を使う。承認はこのハッシュに束縛され、監査は SHA-256 連鎖である。
 
 Python の `json.dumps(separators=(",", ":"), sort_keys=True)` と JavaScript の
@@ -163,7 +171,7 @@ Python の `json.dumps(separators=(",", ":"), sort_keys=True)` と JavaScript �
 リフレッシュトークンを保持しない。ユーザーはアカウント設定から失効できる。
 
 要求スコープは現行の `DEFAULT_SCOPES`
-（[`google_rest.py:29`](../secure-gateway-studio/backend/src/sgstudio/providers/google_rest.py:29)）
+（[`google_rest.py`](../secure-gateway-studio/backend/src/sgstudio/providers/google_rest.py)）
 を踏襲する。製品仕様 §17.2.4 の通り、Admin Directory・Chrome Management・
 Enterprise License Manager を含む。
 
@@ -176,9 +184,10 @@ Enterprise License Manager を含む。
 管理者トークンで IAM Credentials の `generateAccessToken` を呼び、デプロイヤ SA の
 短命トークンを得る。以降の操作はそのトークンで行う。
 
-これにより最小権限モデルが保存される。変更操作はプロジェクトカスタムロールを持つ SA
-の権限で走り、Chrome 管理ロールは test OU にスコープされたままになる。ローカル
-エージェント方式に対する権限面の後退はない。
+これにより管理者トークンと変更主体を分離する。変更操作は、拡張 A/C とローカル B の
+対応3実装で必要なプロジェクト権限の和集合を持つ SA で走る。ロールは経路ごとではないが、
+各 Plan の事前検査と実際の API 呼び出しは選択した経路の部分集合に限定する。Chrome 管理
+ロールは test OU にスコープされたままとし、将来は capability 別ロールへの分割を検討する。
 
 `gcloud_bootstrap.py`（186 行）の subprocess 呼び出しは IAM / Resource Manager の
 REST に置き換える。CLI 依存は前提から外れる。
@@ -201,7 +210,7 @@ REST に置き換える。CLI 依存は前提から外れる。
 
 ## 9. 実行モデル（MV3）
 
-[`google_executor.py:433`](../secure-gateway-studio/backend/src/sgstudio/providers/google_executor.py:433)
+[`google_executor.py`](../secure-gateway-studio/backend/src/sgstudio/providers/google_executor.py)
 以下に `_operation_timeout` を期限とする `time.sleep` ポーリングループが4か所ある。
 MV3 の service worker はアイドルで停止するため、この形は動かない。
 
@@ -225,7 +234,7 @@ Path B は長時間ポーリングを含まないため、この機構は Phase 
 ### 10.1 状態
 
 `storage/repository.py`（1,672 行）は SQLite 前提で、`0600` を機密性の根拠にしている
-（[`repository.py:45`](../secure-gateway-studio/backend/src/sgstudio/storage/repository.py:45)）。
+（[`repository.py`](../secure-gateway-studio/backend/src/sgstudio/storage/repository.py)）。
 IndexedDB への置き換えは移植ではなく再設計になる。
 
 | 現行 | 拡張 |
@@ -240,7 +249,7 @@ IndexedDB への置き換えは移植ではなく再設計になる。
 
 ### 10.2 暗号
 
-[`certificates.py:92`](../secure-gateway-studio/backend/src/sgstudio/providers/certificates.py:92)
+[`certificates.py`](../secure-gateway-studio/backend/src/sgstudio/providers/certificates.py)
 の `rsa.generate_private_key(public_exponent=65537, key_size=3072)` は WebCrypto で
 代替できる。`extractable: false` で生成できるため秘密鍵の取り出し不能性は現行より
 強い。CSR の DER 組み立ては WebCrypto に含まれないため PKI ライブラリを追加する。

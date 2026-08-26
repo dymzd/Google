@@ -13,8 +13,10 @@ from sgstudio.domain.models import (
     DeploymentSpec,
     DiscoverySnapshot,
     NetworkStrategy,
+    PublicCertificateBinding,
     ResourceChange,
     RiskLevel,
+    SourceImageBinding,
 )
 from sgstudio.domain.naming import service_account_id
 
@@ -59,13 +61,14 @@ REQUIRED_PERMISSIONS = {
     "beyondcorp.securityGateways.delete",
     "beyondcorp.securityGateways.get",
     "beyondcorp.securityGateways.getIamPolicy",
+    "beyondcorp.securityGateways.list",
     "beyondcorp.securityGateways.setIamPolicy",
-    "beyondcorp.securityGateways.update",
     "beyondcorp.operations.get",
     "beyondcorp.sgApplications.create",
     "beyondcorp.sgApplications.delete",
     "beyondcorp.sgApplications.get",
     "beyondcorp.sgApplications.getIamPolicy",
+    "beyondcorp.sgApplications.list",
     "beyondcorp.sgApplications.setIamPolicy",
     "compute.addresses.create",
     "compute.addresses.createInternal",
@@ -78,12 +81,14 @@ REQUIRED_PERMISSIONS = {
     "compute.autoscalers.delete",
     "compute.autoscalers.get",
     "compute.disks.create",
+    "compute.disks.get",
     "compute.firewalls.create",
     "compute.firewalls.delete",
     "compute.firewalls.get",
     "compute.forwardingRules.create",
     "compute.forwardingRules.delete",
     "compute.forwardingRules.get",
+    "compute.forwardingRules.list",
     "compute.healthChecks.create",
     "compute.healthChecks.delete",
     "compute.healthChecks.get",
@@ -123,6 +128,7 @@ REQUIRED_PERMISSIONS = {
     "compute.routers.get",
     "compute.routers.list",
     "compute.routers.update",
+    "compute.routes.list",
     "compute.regionOperations.get",
     "compute.regionBackendServices.create",
     "compute.regionBackendServices.delete",
@@ -146,6 +152,7 @@ REQUIRED_PERMISSIONS = {
     "compute.subnetworks.use",
     "compute.zoneOperations.get",
     "dns.changes.create",
+    "dns.changes.get",
     "dns.managedZones.create",
     "dns.managedZones.delete",
     "dns.managedZones.get",
@@ -174,6 +181,9 @@ REQUIRED_PERMISSIONS = {
     "secretmanager.secrets.update",
     "secretmanager.versions.add",
     "secretmanager.versions.disable",
+    "secretmanager.versions.destroy",
+    "secretmanager.versions.get",
+    "secretmanager.versions.list",
     "secretmanager.versions.access",
     "serviceusage.services.enable",
     "serviceusage.services.get",
@@ -189,11 +199,96 @@ def canonical_configuration_hash(spec: DeploymentSpec) -> str:
     return canonical_digest(payload)
 
 
+def canonical_plan_hash(plan: DeploymentPlan) -> str:
+    return canonical_digest(plan.model_dump(mode="json"))
+
+
+def requires_public_certificate_binding(spec: DeploymentSpec) -> bool:
+    return (
+        spec.backend_kind is not BackendKind.DIRECT_HTTPS
+        and spec.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED
+    )
+
+
+def public_certificate_binding_matches_spec(
+    spec: DeploymentSpec,
+    binding: PublicCertificateBinding | None,
+) -> bool:
+    if binding is None or spec.backend_kind is BackendKind.DIRECT_HTTPS:
+        return False
+    if spec.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED:
+        if not spec.public_certificate_secret:
+            return False
+        secret_name = spec.public_certificate_secret.rsplit("/", maxsplit=1)[-1]
+    else:
+        secret_name = f"{spec.name}-tls"
+    prefix = (
+        f"projects/{spec.project_id}/secrets/{secret_name}/versions/"
+    )
+    return binding.secret_version_name.startswith(prefix)
+
+
+def source_image_binding_matches_spec(
+    spec: DeploymentSpec,
+    binding: SourceImageBinding | None,
+) -> bool:
+    return (
+        spec.backend_kind is not BackendKind.DIRECT_HTTPS
+        and spec.source_image is not None
+        and binding is not None
+        and binding.name == spec.source_image
+        and binding.self_link
+        == f"https://www.googleapis.com/compute/v1/{spec.source_image}"
+    )
+
+
+def assert_plan_integrity(
+    plan: DeploymentPlan,
+    specification: DeploymentSpec,
+    *,
+    stored_configuration_hash: str | None = None,
+    stored_plan_hash: str | None = None,
+) -> None:
+    """Fail closed unless a stored plan is bound to its exact specification."""
+
+    expected_configuration_hash = canonical_configuration_hash(specification)
+    if plan.configuration_hash != expected_configuration_hash:
+        raise ValueError("Plan configuration hash does not match its specification")
+    if (
+        stored_configuration_hash is not None
+        and stored_configuration_hash != expected_configuration_hash
+    ):
+        raise ValueError("Stored configuration hash does not match its specification")
+    if stored_plan_hash is not None and stored_plan_hash != canonical_plan_hash(plan):
+        raise ValueError("Stored plan hash does not match the canonical plan")
+    binding_required = requires_public_certificate_binding(specification)
+    if plan.public_certificate_binding is not None and not public_certificate_binding_matches_spec(
+        specification,
+        plan.public_certificate_binding,
+    ):
+        raise ValueError("Plan public certificate binding does not match its specification")
+    if binding_required and plan.can_apply and plan.public_certificate_binding is None:
+        raise ValueError("Applyable public certificate plan lacks an immutable version binding")
+    if plan.source_image_binding is not None and not source_image_binding_matches_spec(
+        specification,
+        plan.source_image_binding,
+    ):
+        raise ValueError("Plan source image binding does not match its specification")
+    if (
+        specification.backend_kind is not BackendKind.DIRECT_HTTPS
+        and plan.can_apply
+        and plan.source_image_binding is None
+    ):
+        raise ValueError("Applyable managed-VM plan lacks an immutable source image binding")
+
+
 def _global_access_status(
     spec: DeploymentSpec, snapshot: DiscoverySnapshot
 ) -> Literal["pass", "pending", "blocked"]:
     if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
         return "pass"
+    if not snapshot.application_global_access_discovery_complete:
+        return "blocked"
     if spec.application_egress_region is not None:
         return "pass"
     if snapshot.application_global_access is True:
@@ -206,6 +301,12 @@ def _global_access_status(
 def _global_access_detail(spec: DeploymentSpec, snapshot: DiscoverySnapshot) -> str:
     if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
         return "Only direct private HTTPS applications reach a regional load balancer."
+    if not snapshot.application_global_access_discovery_complete:
+        return (
+            "Forwarding-rule discovery did not complete safely, so Global Access "
+            "cannot be approved. Retry preflight after the Compute API pagination "
+            "response is complete."
+        )
     if spec.application_egress_region is not None:
         return (
             "An explicit egress region pins Secure Gateway traffic to "
@@ -287,19 +388,26 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             "compute.regionUrlMaps.get",
             "compute.regionUrlMaps.use",
         }
-    if (
-        spec.network_strategy is NetworkStrategy.EXISTING
-        and spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB
-    ):
+    if spec.network_strategy is NetworkStrategy.EXISTING:
         permissions -= {
             "compute.networks.create",
             "compute.networks.delete",
             "compute.routers.create",
             "compute.routers.delete",
             "compute.routers.update",
-            "compute.subnetworks.create",
-            "compute.subnetworks.delete",
         }
+        # The ILB path still creates and owns its regional proxy-only subnet
+        # in the selected VPC. Other existing-VPC paths reuse the selected
+        # subnet and need no subnet mutation authority.
+        if spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB:
+            permissions -= {
+                "compute.subnetworks.create",
+                "compute.subnetworks.delete",
+            }
+    else:
+        # Existing-VPC VM paths must prove an active default-internet-gateway
+        # route before relying on an administrator-owned Public NAT.
+        permissions.discard("compute.routes.list")
     if spec.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED:
         permissions -= {
             "privateca.caPools.use",
@@ -312,6 +420,9 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             "secretmanager.secrets.update",
             "secretmanager.versions.add",
             "secretmanager.versions.disable",
+            "secretmanager.versions.destroy",
+            "secretmanager.versions.get",
+            "secretmanager.versions.list",
         }
     elif spec.certificate_strategy is CertificateStrategy.LOCAL_POC:
         if spec.backend_kind is not BackendKind.INTERNAL_HTTPS_LB:
@@ -402,6 +513,20 @@ class DesiredStatePlanner:
         gates = self._gates(spec, snapshot, changes)
         can_apply = all(gate.status == "pass" for gate in gates if gate.blocking)
 
+        public_certificate_binding = (
+            snapshot.public_certificate_binding
+            if public_certificate_binding_matches_spec(
+                spec,
+                snapshot.public_certificate_binding,
+            )
+            else None
+        )
+        source_image_binding = (
+            snapshot.source_image_binding
+            if source_image_binding_matches_spec(spec, snapshot.source_image_binding)
+            else None
+        )
+
         configuration_hash = canonical_configuration_hash(spec)
         return DeploymentPlan(
             configuration_hash=configuration_hash,
@@ -409,6 +534,8 @@ class DesiredStatePlanner:
             changes=changes,
             gates=gates,
             can_apply=can_apply,
+            public_certificate_binding=public_certificate_binding,
+            source_image_binding=source_image_binding,
         )
 
     def _classify(
@@ -429,6 +556,13 @@ class DesiredStatePlanner:
             action = ChangeAction.CREATE
             risk = resource.risk
 
+        owns_managed_delta = action is ChangeAction.CREATE and (
+            resource.provider == "chromepolicy"
+            or (
+                resource.provider == "cloudresourcemanager"
+                and resource.resource_type == "project_iam"
+            )
+        )
         return ResourceChange(
             provider=resource.provider,
             resource_type=resource.resource_type,
@@ -436,7 +570,11 @@ class DesiredStatePlanner:
             action=action,
             risk=risk,
             summary=resource.summary,
-            owned_after_apply=not resource.shared and action is not ChangeAction.CONFLICT,
+            # A run owns only mutations it actually performs.  Compatible
+            # pre-existing resources are NO_CHANGE/REUSE and must not enter
+            # this run's teardown inventory.
+            owned_after_apply=action is ChangeAction.CREATE
+            and (not resource.shared or owns_managed_delta),
             dependencies=list(resource.dependencies),
         )
 
@@ -782,6 +920,20 @@ class DesiredStatePlanner:
                 ]
             )
             if spec.certificate_strategy is not CertificateStrategy.PUBLIC_TRUSTED:
+                certificate_dependencies: tuple[str, ...] = ()
+                if spec.certificate_strategy is CertificateStrategy.ENTERPRISE_CA:
+                    resources.append(
+                        DesiredResource(
+                            "privateca",
+                            "certificate",
+                            f"{prefix}-certificate",
+                            RiskLevel.HIGH,
+                            "Run-scoped TLS certificate issued by Certificate Authority Service",
+                        )
+                    )
+                    certificate_dependencies = (
+                        f"privateca:certificate:{prefix}-certificate",
+                    )
                 resources.append(
                     DesiredResource(
                         "secretmanager",
@@ -789,7 +941,10 @@ class DesiredStatePlanner:
                         tls_secret_name,
                         RiskLevel.HIGH,
                         "Validated ILB certificate chain and private key payload",
-                        (f"secretmanager:secret:{tls_secret_name}",),
+                        (
+                            f"secretmanager:secret:{tls_secret_name}",
+                            *certificate_dependencies,
+                        ),
                     )
                 )
             if spec.certificate_strategy is CertificateStrategy.LOCAL_POC:
@@ -1036,6 +1191,20 @@ class DesiredStatePlanner:
             )
         )
         if spec.certificate_strategy is not CertificateStrategy.PUBLIC_TRUSTED:
+            certificate_dependencies: tuple[str, ...] = ()
+            if spec.certificate_strategy is CertificateStrategy.ENTERPRISE_CA:
+                resources.append(
+                    DesiredResource(
+                        "privateca",
+                        "certificate",
+                        f"{prefix}-certificate",
+                        RiskLevel.HIGH,
+                        "Run-scoped TLS certificate issued by Certificate Authority Service",
+                    )
+                )
+                certificate_dependencies = (
+                    f"privateca:certificate:{prefix}-certificate",
+                )
             resources.append(
                 DesiredResource(
                     "secretmanager",
@@ -1043,7 +1212,10 @@ class DesiredStatePlanner:
                     tls_secret_name,
                     RiskLevel.HIGH,
                     "Validated certificate chain and private key payload",
-                    (f"secretmanager:secret:{tls_secret_name}",),
+                    (
+                        f"secretmanager:secret:{tls_secret_name}",
+                        *certificate_dependencies,
+                    ),
                 )
             )
         if spec.certificate_strategy is CertificateStrategy.LOCAL_POC:
@@ -1384,6 +1556,16 @@ class DesiredStatePlanner:
             else "pending"
         )
         missing_permissions = sorted(required_permissions(spec) - snapshot.granted_permissions)
+        public_binding_required = requires_public_certificate_binding(spec)
+        public_binding_valid = public_certificate_binding_matches_spec(
+            spec,
+            snapshot.public_certificate_binding,
+        )
+        source_image_binding_required = spec.backend_kind is not BackendKind.DIRECT_HTTPS
+        source_image_binding_valid = source_image_binding_matches_spec(
+            spec,
+            snapshot.source_image_binding,
+        )
 
         return [
             DeploymentGate(
@@ -1391,18 +1573,17 @@ class DesiredStatePlanner:
                 title="Immutable hardened image",
                 status=(
                     "pass"
-                    if spec.backend_kind is BackendKind.DIRECT_HTTPS or spec.source_image
-                    else "pending"
-                    if spec.mode.value == "poc"
+                    if not source_image_binding_required or source_image_binding_valid
                     else "blocked"
                 ),
-                blocking=spec.mode.value == "production",
+                blocking=source_image_binding_required,
                 detail=(
                     "Direct HTTPS creates no Nginx VM, so no source image is required."
-                    if spec.backend_kind is BackendKind.DIRECT_HTTPS
-                    else "Production VM boot disks use an explicitly versioned image."
-                    if spec.source_image
-                    else "PoC uses the current Debian 12 image family."
+                    if not source_image_binding_required
+                    else "The approved plan is bound to the immutable Compute image ID."
+                    if source_image_binding_valid
+                    else "Discovery must bind the exact image name, selfLink, and numeric ID "
+                    "before approval."
                 ),
             ),
             DeploymentGate(
@@ -1607,8 +1788,13 @@ class DesiredStatePlanner:
                 # Path B targets rather than failures.
                 blocking=(
                     spec.backend_kind is BackendKind.DIRECT_HTTPS
-                    and spec.application_egress_region is None
-                    and snapshot.application_global_access is False
+                    and (
+                        not snapshot.application_global_access_discovery_complete
+                        or (
+                            spec.application_egress_region is None
+                            and snapshot.application_global_access is False
+                        )
+                    )
                 ),
                 detail=_global_access_detail(spec, snapshot),
             ),
@@ -1616,7 +1802,7 @@ class DesiredStatePlanner:
                 gate_id="test-ou",
                 title="Dedicated test OU",
                 status="pass" if spec.test_ou_confirmed else "blocked",
-                blocking=spec.mode.value == "production",
+                blocking=True,
                 detail="Chrome policy changes require prior validation in a test OU.",
             ),
             DeploymentGate(
@@ -1657,6 +1843,40 @@ class DesiredStatePlanner:
                     "The Cloud operator has the required project permissions."
                     if not missing_permissions
                     else f"{len(missing_permissions)} required permissions are missing."
+                ),
+            ),
+            DeploymentGate(
+                gate_id="group-policy-discovery",
+                title="Group policy discovery",
+                status=(
+                    "pass"
+                    if snapshot.chrome_group_policy_discovery_complete
+                    else "blocked"
+                ),
+                blocking=True,
+                detail=(
+                    "Higher-priority Chrome group policies were inspected."
+                    if snapshot.chrome_group_policy_discovery_complete
+                    else "Apply is blocked because higher-priority Chrome group policies "
+                    "could not be inspected completely."
+                ),
+            ),
+            DeploymentGate(
+                gate_id="public-certificate-binding",
+                title="Public certificate immutable version",
+                status=(
+                    "pass"
+                    if not public_binding_required or public_binding_valid
+                    else "blocked"
+                ),
+                blocking=public_binding_required,
+                detail=(
+                    "The selected topology does not consume an operator-owned TLS secret."
+                    if not public_binding_required
+                    else "The approved plan is bound to the validated numeric SecretVersion."
+                    if public_binding_valid
+                    else "Discovery must validate and bind the exact numeric public TLS "
+                    "SecretVersion before approval."
                 ),
             ),
             DeploymentGate(

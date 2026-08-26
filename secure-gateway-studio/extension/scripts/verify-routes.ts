@@ -19,13 +19,14 @@
  *   node --experimental-strip-types extension/scripts/verify-routes.ts
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const apiPath = resolve(here, "../../frontend/src/lib/api.ts");
 const routerPath = resolve(here, "../src/background/router.ts");
+const frontendSrc = resolve(here, "../../frontend/src");
 
 /** Collapse `${expr}` and query strings so paths compare as templates. */
 function templatise(path: string): string {
@@ -36,13 +37,36 @@ function templatise(path: string): string {
 }
 
 /**
+ * Scan UI source files to ensure no direct `/api/v1/...` href/src/action
+ * references bypass the background transport.
+ */
+function rawApiReferences(dir: string): string[] {
+  const hits: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      hits.push(...rawApiReferences(full));
+      continue;
+    }
+    if (!/\.tsx?$/.test(entry.name) || full === apiPath) continue;
+    const lines = readFileSync(full, "utf8").split("\n");
+    for (const [index, line] of lines.entries()) {
+      if (/(href|src|action)\s*=\s*["'`]\/api\/v1\//.test(line)) {
+        hits.push(`${full}:${index + 1}: ${line.trim()}`);
+      }
+    }
+  }
+  return hits;
+}
+
+/**
  * Every `/api/v1/...` literal in `api.ts`, paired with the verb of the helper
- * that issues it. `postJson`/`putJson` imply POST/PUT; `getJson` and bare
- * `fetch` GETs imply GET.
+ * that issues it. `postJson`/`putJson` imply POST/PUT; `getJson`, `getBlob`,
+ * and bare `fetch` GETs imply GET.
  */
 function callsFromUi(source: string): Set<string> {
   const calls = new Set<string>();
-  const pattern = /(postJson|putJson|getJson|agentFetch|fetch)\s*(?:<[^>]*>)?\s*\(\s*[`"']([^`"']*\/api\/v1\/[^`"']*)[`"']/g;
+  const pattern = /(postJson|putJson|getJson|getBlob|agentFetch|fetch)\s*(?:<[^>]*>)?\s*\(\s*[`"']([^`"']*\/api\/v1\/[^`"']*)[`"']/g;
   for (const match of source.matchAll(pattern)) {
     const helper = match[1];
     const method = helper === "postJson" ? "POST" : helper === "putJson" ? "PUT" : "GET";
@@ -77,8 +101,24 @@ function isServed(call: string, served: Set<string>): boolean {
   return served.has(call);
 }
 
+const raw = rawApiReferences(frontendSrc);
+if (raw.length > 0) {
+  console.error(
+    `FAIL ${raw.length} raw /api/v1 references bypass the extension transport:\n`,
+  );
+  for (const hit of raw) console.error(`    ${hit}`);
+  process.exit(1);
+}
+
 const apiSource = readFileSync(apiPath, "utf8");
 const routerSource = readFileSync(routerPath, "utf8");
+
+if (!routerSource.includes("specification: specToJson(spec)")) {
+  console.error(
+    "FAIL the plan POST route must return the JSON deployment specification, not its Set-backed domain object.",
+  );
+  process.exit(1);
+}
 
 const calls = callsFromUi(apiSource);
 const served = routesFromWorker(routerSource);

@@ -15,6 +15,7 @@ from sgstudio.domain.models import (
     TeardownPlan,
     TeardownRun,
 )
+from sgstudio.domain.teardown_instruction import teardown_instruction
 from sgstudio.storage.repository import StateRepository
 
 
@@ -97,7 +98,8 @@ def deployment_details(repository: StateRepository, run_id: str) -> DeploymentDe
         application_port=spec.application_port,
         resources=resources,
         teardown_available=(
-            run.status is RunStatus.SUCCEEDED
+            run.status
+            not in {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.INTERRUPTED}
             and any(item.teardown_action != "retain" for item in resources)
         ),
     )
@@ -113,15 +115,14 @@ def build_teardown_plan(repository: StateRepository, run_id: str) -> TeardownPla
         item for item in reversed(details.resources) if item.teardown_action != "retain"
     ]
     retained = [item for item in details.resources if item.teardown_action == "retain"]
+    ownership_metadata = repository.active_owned_resource_metadata(effective_run_id)
     plan_hash = canonical_digest(
-        {
-            "run_id": effective_run_id,
-            "configuration_hash": effective_run.configuration_hash,
-            "resources": [
-                {"key": item.resource_key, "action": item.teardown_action}
-                for item in delete_resources
-            ],
-        }
+        teardown_instruction(
+            run_id=effective_run_id,
+            configuration_hash=effective_run.configuration_hash,
+            resources=delete_resources,
+            ownership_metadata=ownership_metadata,
+        )
     )
     return TeardownPlan(
         run_id=effective_run_id,
@@ -139,53 +140,120 @@ class TeardownExecutor:
         self._repository = repository
 
     def execute(self, teardown: TeardownRun, *, actor: str) -> TeardownRun:
+        if teardown.status == "interrupted":
+            teardown = self._repository.resume_teardown_run(teardown.teardown_id)
         run = self._repository.get_run(teardown.source_run_id)
         if run is None:
             raise ValueError("Deployment run was not found")
         approval = self._repository.get_approval(run.approval_id)
         if approval is None:
             raise ValueError("Deployment approval was not found")
-        plan = build_teardown_plan(self._repository, run.run_id)
-        if plan.plan_hash != teardown.plan_hash:
+        bind_run = getattr(self._provider, "bind_run", None)
+        if callable(bind_run):
+            bind_run(run.run_id)
+        bind_ownership_metadata = getattr(self._provider, "bind_ownership_metadata", None)
+        instruction = self._repository.get_teardown_instruction(teardown.teardown_id)
+        if instruction is None or canonical_digest(instruction) != teardown.plan_hash:
             return self._repository.finish_teardown_run(
                 teardown.teardown_id, status="failed", actor=actor
             )
+        if instruction.get("run_id") != run.run_id:
+            return self._repository.finish_teardown_run(
+                teardown.teardown_id, status="failed", actor=actor
+            )
+        instruction_resources = instruction.get("resources")
+        if not isinstance(instruction_resources, list):
+            return self._repository.finish_teardown_run(
+                teardown.teardown_id, status="failed", actor=actor
+            )
+        resources_by_key = {
+            item.get("resource_key"): item
+            for item in instruction_resources
+            if isinstance(item, dict) and isinstance(item.get("resource_key"), str)
+        }
+        immutable_metadata = {
+            key: value["ownership_metadata"]
+            for key, value in resources_by_key.items()
+            if isinstance(value.get("ownership_metadata"), dict)
+        }
+        if callable(bind_ownership_metadata):
+            bind_ownership_metadata(immutable_metadata)
         changes = {_key(change): change for change in approval.plan.changes}
-        for resource in plan.resources:
-            change = changes.get(resource.resource_key)
+        for operation in teardown.operations:
+            if operation.status in {"succeeded", "skipped"}:
+                continue
+            resource = resources_by_key.get(operation.resource_key)
+            if resource is None:
+                self._repository.finish_teardown_operation(
+                    teardown.teardown_id,
+                    operation.resource_key,
+                    status="failed",
+                    error_code="teardown-instruction-invalid",
+                )
+                return self._repository.finish_teardown_run(
+                    teardown.teardown_id, status="failed", actor=actor
+                )
+            expected_identity = {
+                "provider": resource.get("provider"),
+                "resource_type": resource.get("resource_type"),
+                "resource_name": resource.get("resource_name"),
+            }
+            change = changes.get(operation.resource_key)
+            if change is not None and expected_identity != {
+                "provider": change.provider,
+                "resource_type": change.resource_type,
+                "resource_name": change.resource_name,
+            }:
+                change = None
             if change is None:
                 self._repository.finish_teardown_operation(
                     teardown.teardown_id,
-                    resource.resource_key,
+                    operation.resource_key,
                     status="failed",
                     error_code="teardown-resource-missing-from-approved-plan",
                 )
                 return self._repository.finish_teardown_run(
                     teardown.teardown_id, status="failed", actor=actor
                 )
+            if resource.get("owned") is True:
+                current_metadata = self._repository.active_owned_resource_metadata(
+                    run.run_id
+                ).get(operation.resource_key)
+                if current_metadata != resource.get("ownership_metadata"):
+                    self._repository.finish_teardown_operation(
+                        teardown.teardown_id,
+                        operation.resource_key,
+                        status="failed",
+                        error_code="teardown-inventory-changed",
+                    )
+                    return self._repository.finish_teardown_run(
+                        teardown.teardown_id, status="failed", actor=actor
+                    )
             self._repository.start_teardown_operation(
-                teardown.teardown_id, resource.resource_key
+                teardown.teardown_id, operation.resource_key
             )
             try:
                 outcome = self._provider.destroy(change, approval.specification)
             except ProviderExecutionError as error:
                 self._repository.finish_teardown_operation(
                     teardown.teardown_id,
-                    resource.resource_key,
+                    operation.resource_key,
                     status="failed",
                     error_code=error.error_code,
                 )
                 return self._repository.finish_teardown_run(
                     teardown.teardown_id, status="failed", actor=actor
                 )
-            self._repository.finish_teardown_operation(
+            self._repository.complete_teardown_operation_and_release(
                 teardown.teardown_id,
-                resource.resource_key,
+                operation.resource_key,
+                run_id=run.run_id,
                 status="skipped" if outcome == "skipped" else "succeeded",
+                release=resource.get("owned") is True and outcome != "skipped",
             )
-            if resource.owned:
-                self._repository.release_resource(
-                    resource.resource_key, run_id=run.run_id
+            if outcome == "skipped":
+                return self._repository.finish_teardown_run(
+                    teardown.teardown_id, status="failed", actor=actor
                 )
         return self._repository.finish_teardown_run(
             teardown.teardown_id, status="succeeded", actor=actor

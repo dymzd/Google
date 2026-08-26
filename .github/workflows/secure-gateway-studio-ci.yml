@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - "secure-gateway-studio/**"
-      - "docs/CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md"
-      - "docs/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md"
+      - "LICENSE"
+      - "README.md"
+      # Public listing/privacy pages are part of the Web Store review contract;
+      # verify-auth reads them, so a docs-only change must not bypass CI.
+      - "docs/**"
       - ".github/workflows/secure-gateway-studio-ci.yml"
   push:
     paths:
       - "secure-gateway-studio/**"
-      - "docs/CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md"
-      - "docs/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md"
+      - "LICENSE"
+      - "README.md"
+      - "docs/**"
       - ".github/workflows/secure-gateway-studio-ci.yml"
   workflow_dispatch:
 
@@ -45,6 +49,10 @@ jobs:
         run: uv run ruff check src tests
       - name: Test
         run: uv run pytest --cov=sgstudio --cov-report=term-missing --cov-fail-under=75
+      - name: Audit runtime dependencies
+        run: |
+          uv export --locked --no-dev --no-emit-project --output-file .audit-requirements.txt
+          uvx pip-audit==2.10.1 --requirement .audit-requirements.txt
 
   extension-parity:
     name: Extension parity with the Python reference
@@ -57,6 +65,14 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: secure-gateway-studio/extension/package-lock.json
+      - name: Install locked extension dependencies
+        working-directory: secure-gateway-studio/extension
+        run: npm ci
+      - name: Audit all extension build dependencies
+        working-directory: secure-gateway-studio/extension
+        run: npm audit --audit-level=high
       # The domain parity checks all passed while the wizard could not get past
       # its first step: nothing verified that the UI's endpoints were reachable.
       # This is that check.
@@ -81,9 +97,10 @@ jobs:
       - name: Specification and configuration-hash parity
         working-directory: secure-gateway-studio
         run: node --experimental-strip-types extension/scripts/verify-spec.ts
-      # Mutations must run as the least-privilege deployer service account, not
-      # as the signed-in administrator. Losing that hop would widen the blast
-      # radius relative to the local application.
+      # Mutations must run as the product-scoped deployer service account, not
+      # as the signed-in administrator. The role is the reviewed union needed
+      # by every supported architecture; losing the impersonation hop would
+      # widen the blast radius relative to the local application.
       - name: Authentication and impersonation contract
         working-directory: secure-gateway-studio
         run: node --experimental-strip-types extension/scripts/verify-auth.ts
@@ -116,6 +133,24 @@ jobs:
       - name: Certificate and CSR encoding
         working-directory: secure-gateway-studio
         run: node --experimental-strip-types extension/scripts/verify-certificates.ts
+      # The package-level gate also includes TypeScript, CEP, HTTP failure,
+      # acceptance, ownership, evidence, and teardown safety regressions. Keep
+      # CI tied to that single release command so newly added checks cannot be
+      # silently omitted from the workflow.
+      - name: Full extension release verification
+        working-directory: secure-gateway-studio/extension
+        run: npm run verify
+      - name: Build the reproducible Web Store ZIP twice
+        working-directory: secure-gateway-studio/extension
+        run: |
+          version="$(node -p 'require("./manifest.json").version')"
+          archive="secure-gateway-studio-${version}.zip"
+          npm run package
+          first="$(sha256sum "$archive" | cut -d' ' -f1)"
+          npm run package
+          second="$(sha256sum "$archive" | cut -d' ' -f1)"
+          test "$first" = "$second"
+          echo "reproducible sha256 $second"
 
   generated-constants:
     name: Generated constants are in sync
@@ -167,8 +202,8 @@ jobs:
       - name: Install locked frontend dependencies
         run: pnpm install --frozen-lockfile
       - name: Test
-        run: pnpm test -- --run
+        run: pnpm test
       - name: Build
         run: pnpm build
-      - name: Audit production dependencies
-        run: pnpm audit --prod --audit-level high
+      - name: Audit all frontend build dependencies
+        run: pnpm audit --audit-level high

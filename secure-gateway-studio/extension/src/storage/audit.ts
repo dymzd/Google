@@ -72,12 +72,22 @@ export function verifyAuditChain(events: readonly AuditEventRecord[]): ChainVeri
     if (event.previousHash !== previous) {
       return { valid: false, eventCount: events.length, chainHeadHash: null, brokenAt: index };
     }
+    let persistedPayload: Record<string, unknown>;
+    try {
+      persistedPayload = JSON.parse(event.payloadJson) as Record<string, unknown>;
+      if (canonicalJson(persistedPayload) !== event.payloadJson ||
+          canonicalJson(event.payload) !== event.payloadJson) {
+        return { valid: false, eventCount: events.length, chainHeadHash: null, brokenAt: index };
+      }
+    } catch {
+      return { valid: false, eventCount: events.length, chainHeadHash: null, brokenAt: index };
+    }
     const expected = auditHash({
       eventId: event.eventId,
       deploymentId: event.deploymentId,
       eventType: event.eventType,
       actor: event.actor,
-      payload: JSON.parse(event.payloadJson) as Record<string, unknown>,
+      payload: persistedPayload,
       createdAt: event.createdAt,
       previousHash: event.previousHash,
     });

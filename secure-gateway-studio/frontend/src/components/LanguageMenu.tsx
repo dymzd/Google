@@ -37,6 +37,7 @@ export function LanguageMenu({ locale, messages, onChange }: LanguageMenuProps) 
       <button
         aria-expanded={isOpen}
         aria-haspopup="menu"
+        aria-label={messages.languages[localeLabels[locale]]}
         className="language-trigger"
         onClick={() => setIsOpen((open) => !open)}
         type="button"

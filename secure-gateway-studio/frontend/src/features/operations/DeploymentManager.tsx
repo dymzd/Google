@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckIcon, CloudIcon, InfoIcon, ShieldIcon } from "../../components/Icons";
+import { CheckIcon, CloudIcon, ShieldIcon } from "../../components/Icons";
 import type { OperationsMessages } from "../../i18n/messages";
 import {
   type DeploymentDetails,
@@ -8,19 +8,18 @@ import {
   type SetupOption,
   type TeardownPlan,
   type TeardownRun,
-  enableGatewayLogging,
   getDeploymentDetails,
+  getLatestTeardownRun,
   getTeardownPlan,
   getTeardownRun,
   listAccessLevelOptions,
   listGatewayLogs,
+  runtimeCapabilities,
+  resumeTeardownRun,
   startTeardown,
   updateAccessLevel,
-  cleanState,
-  bootstrapSampleBackend,
-  diagnoseGcp,
-  type SampleBackendResult,
 } from "../../lib/api";
+import { isSupportedManagedChromeAccessLevel } from "../../lib/setup-state";
 
 type ManagerTab = "overview" | "logs" | "resources" | "delete";
 
@@ -44,7 +43,7 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [accessLevel, setAccessLevel] = useState<string>("");
-  const [principals, setPrincipals] = useState<string>("user:admin@test-domain.dev");
+  const [principals, setPrincipals] = useState("");
   const [accessLevelOptions, setAccessLevelOptions] = useState<SetupOption[]>([]);
   const [accessLevelBusy, setAccessLevelBusy] = useState(false);
   const [accessLevelSuccess, setAccessLevelSuccess] = useState(false);
@@ -54,12 +53,10 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
   const [logs, setLogs] = useState<GatewayLogsResponse | null>(null);
   const [logsBusy, setLogsBusy] = useState(false);
   const [logsError, setLogsError] = useState("");
-  const [loggingBusy, setLoggingBusy] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [teardown, setTeardown] = useState<TeardownRun | null>(null);
+  const [teardownBusy, setTeardownBusy] = useState(false);
   const [teardownError, setTeardownError] = useState("");
-  const [cleanBusy, setCleanBusy] = useState(false);
-  const [cleanLogs, setCleanLogs] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,11 +65,40 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
     Promise.all([
       getDeploymentDetails(runId),
       getTeardownPlan(runId).catch(() => null),
+      getLatestTeardownRun(runId).catch(() => null),
     ])
-      .then(([nextDetails, nextPlan]) => {
+      .then(([nextDetails, nextPlan, latestTeardown]) => {
         if (cancelled) return;
         setDetails(nextDetails);
         setTeardownPlan(nextPlan);
+        setTeardown(latestTeardown);
+        setAccessLevel(nextDetails.managed_chrome_access_level ?? "NONE");
+        setPrincipals(
+          Array.isArray(nextDetails.policy_principals)
+            ? nextDetails.policy_principals
+                .filter((value): value is string => typeof value === "string")
+                .join(", ")
+            : "",
+        );
+        if (
+          runtimeCapabilities.postDeploymentAccessUpdate &&
+          nextDetails.project_id
+        ) {
+          void listAccessLevelOptions(nextDetails.project_id)
+            .then((options) => {
+              if (cancelled) return;
+              setAccessLevelOptions(
+                options.filter(
+                  (option) =>
+                    option.value !== "NONE" &&
+                    isSupportedManagedChromeAccessLevel(option.value),
+                ),
+              );
+            })
+            .catch(() => {
+              if (!cancelled) setAccessLevelOptions([]);
+            });
+        }
       })
       .catch(() => {
         if (!cancelled) setError(copy.loadFailed);
@@ -121,33 +147,6 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
     };
   }, [copy.teardownActionFailed, teardown]);
 
-  async function handleEnableLogging() {
-    setLoggingBusy(true);
-    setLogsError("");
-    try {
-      await enableGatewayLogging(runId);
-      await refreshLogs();
-    } catch {
-      setLogsError(copy.logQueryFailed);
-    } finally {
-      setLoggingBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    if (details?.managed_chrome_access_level) {
-      setAccessLevel(details.managed_chrome_access_level);
-    }
-    if (details?.target_group_email) {
-      setPrincipals(`group:${details.target_group_email}`);
-    }
-    if (details?.project_id) {
-      listAccessLevelOptions(details.project_id)
-        .then((options) => setAccessLevelOptions(options))
-        .catch(() => setAccessLevelOptions([]));
-    }
-  }, [details]);
-
   async function handleUpdateAccessLevel() {
     setAccessLevelBusy(true);
     setAccessLevelError("");
@@ -157,9 +156,19 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-      await updateAccessLevel(runId, accessLevel, principalList);
+      const result = await updateAccessLevel(runId, accessLevel, principalList);
+      setAccessLevel(result.access_level);
+      setPrincipals(result.policy_principals.join(", "));
       setAccessLevelSuccess(true);
-      setDetails((prev) => (prev ? { ...prev, managed_chrome_access_level: accessLevel } : prev));
+      setDetails((prev) =>
+        prev
+          ? {
+              ...prev,
+              managed_chrome_access_level: result.access_level,
+              policy_principals: result.policy_principals,
+            }
+          : prev,
+      );
     } catch (err: any) {
       setAccessLevelError(err?.message || "Failed to update access level");
     } finally {
@@ -168,81 +177,32 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
   }
 
   async function handleTeardown() {
-    if (!teardownPlan || confirmation !== teardownPlan.confirmation) return;
+    if (
+      teardownBusy ||
+      !teardownPlan ||
+      confirmation !== teardownPlan.confirmation
+    ) return;
+    setTeardownBusy(true);
     setTeardownError("");
     try {
       setTeardown(await startTeardown(runId, teardownPlan, confirmation));
     } catch {
       setTeardownError(copy.teardownActionFailed);
+    } finally {
+      setTeardownBusy(false);
     }
   }
 
-  async function handleCleanStateAll() {
-    const targetProject = details?.project_id || "";
-    if (!targetProject) {
-      setCleanLogs(["エラー: 対象の Google Cloud プロジェクト ID が特定できません。"]);
-      return;
-    }
-    if (
-      !window.confirm(
-        `Google Cloud プロジェクト（${targetProject}）上にデプロイされている BeyondCorp Security Gateway、Application、サンプルVM、VPC、Cloud DNS、およびローカル実行履歴をすべて完全に削除します。よろしいですか？`,
-      )
-    ) {
-      return;
-    }
-    setCleanBusy(true);
-    setCleanLogs(null);
+  async function handleResumeTeardown() {
+    if (!teardown || teardown.status !== "interrupted" || teardownBusy) return;
+    setTeardownBusy(true);
+    setTeardownError("");
     try {
-      const res = await cleanState(targetProject);
-      setCleanLogs(res.log);
-    } catch (err: any) {
-      setCleanLogs([`エラーが発生しました: ${err?.message || err}`]);
+      setTeardown(await resumeTeardownRun(teardown.teardown_id));
+    } catch {
+      setTeardownError(copy.teardownActionFailed);
     } finally {
-      setCleanBusy(false);
-    }
-  }
-
-  const [bootstrapBusy, setBootstrapBusy] = useState(false);
-  const [bootstrapResult, setBootstrapResult] = useState<SampleBackendResult | null>(null);
-  const [bootstrapError, setBootstrapError] = useState("");
-
-  async function handleBootstrapSampleBackend() {
-    const targetProject = details?.project_id || "";
-    if (!targetProject) {
-      setBootstrapError("対象の Google Cloud プロジェクト ID が設定されていません。");
-      return;
-    }
-    setBootstrapBusy(true);
-    setBootstrapError("");
-    try {
-      const res = await bootstrapSampleBackend(targetProject);
-      setBootstrapResult(res);
-    } catch (err: any) {
-      setBootstrapError(err?.message || "バックエンドの起動に失敗しました");
-    } finally {
-      setBootstrapBusy(false);
-    }
-  }
-
-  const [diagnoseBusy, setDiagnoseBusy] = useState(false);
-  const [diagnoseResult, setDiagnoseResult] = useState<Record<string, any> | null>(null);
-  const [diagnoseError, setDiagnoseError] = useState("");
-
-  async function handleDiagnoseGcp() {
-    const targetProject = details?.project_id || "";
-    if (!targetProject) {
-      setDiagnoseError("対象の Google Cloud プロジェクト ID が設定されていません。");
-      return;
-    }
-    setDiagnoseBusy(true);
-    setDiagnoseError("");
-    try {
-      const res = await diagnoseGcp(targetProject);
-      setDiagnoseResult(res.report);
-    } catch (err: any) {
-      setDiagnoseError(err?.message || "GCPリソースの診断に失敗しました");
-    } finally {
-      setDiagnoseBusy(false);
+      setTeardownBusy(false);
     }
   }
 
@@ -259,19 +219,23 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
   }
 
   const completedTeardownOperations =
-    teardown?.operations.filter((operation) =>
+    (teardown?.operations ?? []).filter((operation) =>
       ["succeeded", "failed", "skipped"].includes(operation.status),
-    ).length ?? 0;
+    ).length;
 
-  const isDeleted = Boolean(teardown?.status === "succeeded" || cleanLogs !== null);
+  const isDeleted = Boolean(
+    details?.run.status === "deleted" ||
+    details?.run.status === "torn_down" ||
+    teardown?.status === "succeeded",
+  );
 
   return (
     <section className="deployment-manager" aria-label={copy.manage}>
       <header className="deployment-manager-heading">
         <div>
           <span>{copy.deploymentName}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
-            <h2 style={{ margin: 0 }}>{details?.deployment_name ?? runId.slice(0, 12)}</h2>
+          <div className="deployment-title-row">
+            <h2>{details?.deployment_name ?? runId.slice(0, 12)}</h2>
             <span className={`status-pill status-${isDeleted ? "deleted" : "succeeded"}`}>
               {isDeleted ? (copy.statusDeleted || "Deleted") : (copy.statusSucceeded || "Success")}
             </span>
@@ -327,6 +291,7 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
             ) : null}
           </div>
 
+          {runtimeCapabilities.postDeploymentAccessUpdate ? (
           <div className="access-level-control-panel">
             <div className="access-level-header">
               <div className="access-level-title-group">
@@ -358,7 +323,7 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
                     }}
                     disabled={accessLevelBusy}
                   >
-                    <option value="">{copy.noAccessLevelRequired}</option>
+                    <option value="NONE">{copy.noAccessLevelRequired}</option>
                     {accessLevelOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label} ({opt.value.split("/").pop()})
@@ -385,7 +350,7 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
                 )}
               </div>
 
-              <div className="access-level-field" style={{ minWidth: "280px" }}>
+              <div className="access-level-field">
                 <label htmlFor="input-principals">
                   <strong>{copy.principalsLabel}</strong>
                 </label>
@@ -417,97 +382,8 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
               <p className="connection-error" role="alert">{accessLevelError}</p>
             )}
           </div>
+          ) : null}
 
-          <div className="summary-card" style={{ marginTop: "1rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <strong>🚀 テスト用バックエンドVM &amp; Cloud DNS</strong>
-                <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--color-text-secondary)" }}>
-                  Google Cloud VPC (<code>secgw-test-vpc</code>) 内に NGINX バックエンドVM (<code>10.10.0.2</code>) とプライベート DNS ゾーン (<code>secgw-backend.internal</code>) をプロビジョニングします。
-                </p>
-              </div>
-              <button
-                type="button"
-                className="primary-action"
-                disabled={bootstrapBusy}
-                onClick={() => void handleBootstrapSampleBackend()}
-              >
-                {bootstrapBusy ? "プロビジョニング中..." : "サンプルバックエンドを起動"}
-              </button>
-            </div>
-            {bootstrapResult && (
-              <div style={{ marginTop: "12px" }}>
-                <div className="sample-backend-success">
-                  <strong>✅ バックエンド起動状況 ({bootstrapResult.hostname})</strong>
-                  <p style={{ margin: "4px 0 0", fontSize: "0.85rem" }}>
-                    VM: <code>{bootstrapResult.vm_name}</code> (IP: <code>{bootstrapResult.internal_ip}</code>) | VPC: <code>{bootstrapResult.vpc_name}</code>
-                  </p>
-                </div>
-                {bootstrapResult.log && bootstrapResult.log.length > 0 && (
-                  <pre style={{
-                    background: "#070a12",
-                    border: "1px solid #22304d",
-                    borderRadius: "8px",
-                    padding: "0.8rem",
-                    marginTop: "8px",
-                    maxHeight: "260px",
-                    overflowY: "auto",
-                    fontSize: "0.78rem",
-                    color: "#34d399",
-                    lineHeight: "1.4",
-                  }}>
-                    {bootstrapResult.log.join("\n")}
-                  </pre>
-                )}
-              </div>
-            )}
-            {bootstrapError && (
-              <p className="connection-error" style={{ marginTop: "8px" }} role="alert">
-                {bootstrapError}
-              </p>
-            )}
-          </div>
-
-          <div className="summary-card" style={{ marginTop: "1rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <strong>🔍 GCP リソース完全診断 (リアルタイム)</strong>
-                <p style={{ margin: "4px 0 0", fontSize: "0.85rem", color: "var(--color-text-secondary)" }}>
-                  サービスアカウント権限を使って、GCP上の BeyondCorp Gateway、Application、IAM、VPC、サブネット、VM、ファイアウォール、Cloud DNS の実態を直接取得します。
-                </p>
-              </div>
-              <button
-                type="button"
-                className="secondary-action"
-                disabled={diagnoseBusy}
-                onClick={() => void handleDiagnoseGcp()}
-              >
-                {diagnoseBusy ? "診断中..." : "GCPリソース診断を実行"}
-              </button>
-            </div>
-            {diagnoseResult && (
-              <div style={{ marginTop: "12px" }}>
-                <pre style={{
-                  background: "#070a12",
-                  border: "1px solid #22304d",
-                  borderRadius: "8px",
-                  padding: "1rem",
-                  maxHeight: "360px",
-                  overflowY: "auto",
-                  fontSize: "0.8rem",
-                  color: "#38bdf8",
-                  lineHeight: "1.4",
-                }}>
-                  {JSON.stringify(diagnoseResult, null, 2)}
-                </pre>
-              </div>
-            )}
-            {diagnoseError && (
-              <p className="connection-error" style={{ marginTop: "8px" }} role="alert">
-                {diagnoseError}
-              </p>
-            )}
-          </div>
         </>
       ) : null}
 
@@ -516,16 +392,6 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
           <div className="deployment-panel-intro">
             <div><h3>{copy.logsTitle}</h3><p>{copy.logsIntro}</p></div>
             <div className="deployment-log-actions">
-              {logs?.logging_enabled === false ? (
-                <button
-                  className="secondary-action"
-                  disabled={loggingBusy}
-                  onClick={() => void handleEnableLogging()}
-                  type="button"
-                >
-                  {loggingBusy ? copy.enablingLogging : copy.enableLogging}
-                </button>
-              ) : null}
               <button
                 className="primary-action"
                 disabled={logsBusy}
@@ -558,12 +424,13 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
               <option value={168}>{copy.hours168}</option>
             </select>
           </div>
-          {logs?.logging_enabled === true ? (
-            <p className="inline-status success"><CheckIcon size={17} />{copy.loggingEnabled}</p>
-          ) : logs?.logging_enabled === false ? (
-            <p className="inline-status warning"><InfoIcon size={17} />{copy.loggingNotEnabled}</p>
-          ) : null}
           {logs?.data_access_notice ? <p className="deployment-notice">{copy.dataAccessNotice}</p> : null}
+          {logCategory === "connection" && logs?.logging_enabled === true ? (
+            <p className="deployment-notice">{copy.gatewayLoggingEnabled}</p>
+          ) : null}
+          {logCategory === "connection" && logs?.logging_enabled === false ? (
+            <p className="connection-error" role="alert">{copy.gatewayLoggingDisabled}</p>
+          ) : null}
           {logs?.setup_notice ? <p className="deployment-notice">{logs.setup_notice}</p> : null}
           {logCategory === "nginx" ? <p className="deployment-notice">{copy.nginxNotice}</p> : null}
           {logsError ? <p className="connection-error" role="alert">{logsError}</p> : null}
@@ -585,6 +452,7 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
                   {entry.principal ? <><dt>{copy.principal}</dt><dd>{entry.principal}</dd></> : null}
                   {entry.method ? <><dt>{copy.method}</dt><dd>{entry.method}</dd></> : null}
                   {entry.request_id ? <><dt>{copy.requestId}</dt><dd><code>{entry.request_id}</code></dd></> : null}
+                  {entry.caller_ip ? <><dt>{copy.callerIp}</dt><dd><code>{entry.caller_ip}</code></dd></> : null}
                 </dl>
                 <details><summary>{copy.payload}</summary><pre>{JSON.stringify(entry.payload, null, 2)}</pre></details>
               </article>
@@ -597,8 +465,15 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
         <div className="resource-inventory-grid">
           <ResourceList
             copy={copy}
-            resources={details.resources.filter((resource) => resource.teardown_action !== "retain")}
+            resources={details.resources.filter((resource) =>
+              ["delete", "delete_if_empty"].includes(resource.teardown_action),
+            )}
             title={copy.ownedResources}
+          />
+          <ResourceList
+            copy={copy}
+            resources={details.resources.filter((resource) => resource.teardown_action === "restore")}
+            title={copy.restoredResources}
           />
           <ResourceList
             copy={copy}
@@ -624,7 +499,12 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
                 <span>{copy.teardownConfirmation}</span>
                 <code>{teardownPlan.confirmation}</code>
                 <input
-                  disabled={Boolean(teardown && ["pending", "running", "succeeded"].includes(teardown.status))}
+                  disabled={Boolean(
+                    teardown &&
+                      ["pending", "running", "succeeded", "interrupted"].includes(
+                        teardown.status,
+                      ),
+                  )}
                   onChange={(event) => setConfirmation(event.target.value)}
                   placeholder={copy.teardownConfirmationHint}
                   value={confirmation}
@@ -639,7 +519,9 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
                         ? copy.teardownRunning
                         : teardown.status === "succeeded"
                           ? copy.teardownSucceeded
-                          : copy.teardownFailed}
+                          : teardown.status === "interrupted"
+                            ? copy.teardownInterrupted
+                            : copy.teardownFailed}
                     </strong>
                     <small>{copy.teardownProgress(completedTeardownOperations, teardown.operations.length)}</small>
                     <progress max={Math.max(teardown.operations.length, 1)} value={completedTeardownOperations} />
@@ -647,69 +529,40 @@ export function DeploymentManager({ copy, runId, onClose }: DeploymentManagerPro
                 </div>
               ) : null}
               {teardownError ? <p className="connection-error" role="alert">{teardownError}</p> : null}
-              <button
-                className="danger-action"
-                disabled={
-                  confirmation !== teardownPlan.confirmation ||
-                  Boolean(teardown && ["pending", "running", "succeeded"].includes(teardown.status))
-                }
-                onClick={() => void handleTeardown()}
-                type="button"
-              >
-                {teardown && ["pending", "running"].includes(teardown.status)
-                  ? copy.teardownRunning
-                  : copy.startTeardown}
-              </button>
+              {teardown?.status === "interrupted" ? (
+                <button
+                  className="danger-action"
+                  disabled={teardownBusy}
+                  onClick={() => void handleResumeTeardown()}
+                  type="button"
+                >
+                  {teardownBusy ? copy.resumingTeardown : copy.resumeTeardown}
+                </button>
+              ) : (
+                <button
+                  className="danger-action"
+                  disabled={
+                    teardownBusy ||
+                    confirmation !== teardownPlan.confirmation ||
+                    Boolean(
+                      teardown &&
+                        ["pending", "running", "succeeded"].includes(
+                          teardown.status,
+                        ),
+                    )
+                  }
+                  onClick={() => void handleTeardown()}
+                  type="button"
+                >
+                  {teardownBusy ||
+                  (teardown && ["pending", "running"].includes(teardown.status))
+                    ? copy.teardownRunning
+                    : copy.startTeardown}
+                </button>
+              )}
             </>
           )}
 
-          <div
-            className="clean-state-all-box"
-            style={{
-              marginTop: "28px",
-              padding: "16px 20px",
-              background: "rgba(239, 68, 68, 0.06)",
-              border: "1px solid rgba(239, 68, 68, 0.3)",
-              borderRadius: "8px",
-            }}
-          >
-            <h4 style={{ margin: "0 0 8px", color: "var(--color-danger, #ef4444)", display: "flex", alignItems: "center", gap: "8px" }}>
-              💥 全インフラ・SGWを完全クリーン削除 (Clean State All)
-            </h4>
-            <p style={{ margin: "0 0 14px", fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: "1.6" }}>
-              Google Cloud プロジェクト（<code>{details?.project_id || "対象プロジェクト"}</code>）に作成された SGW・Application・サンプルVM（10.10.0.2）・VPC（secgw-test-vpc）・Cloud DNS・ローカルDBをすべて一括削除し、初期クリーン状態に戻します。
-            </p>
-            <button
-              className="danger-action"
-              disabled={cleanBusy}
-              onClick={() => void handleCleanStateAll()}
-              type="button"
-            >
-              {cleanBusy ? "完全クリーン削除中..." : "全インフラ・SGWを一括完全削除"}
-            </button>
-            {cleanLogs ? (
-              <div
-                style={{
-                  marginTop: "14px",
-                  padding: "12px 16px",
-                  background: "#111827",
-                  color: "#10b981",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  fontFamily: "monospace",
-                  maxHeight: "220px",
-                  overflowY: "auto",
-                }}
-              >
-                <strong>削除ログ:</strong>
-                <ul style={{ margin: "6px 0 0", paddingLeft: "18px" }}>
-                  {cleanLogs.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
         </div>
       ) : null}
     </section>

@@ -4,6 +4,7 @@ export interface ConnectionValidation {
   principal_hint: string;
   resource_id: string;
   credential_kind: string;
+  access_policy_id: string | null;
   read_only: true;
 }
 
@@ -11,6 +12,7 @@ export interface DeployerBootstrapResult {
   project_id: string;
   operator_email: string;
   service_account_email: string;
+  service_account_unique_id: string;
   custom_role: string;
   access_policy_id: string | null;
   adc_command: string;
@@ -40,6 +42,7 @@ export interface DeploymentSpec {
   offload_cpu_target: number;
   vpc_name: string | null;
   subnet_name: string | null;
+  subnet_cidr: string;
   private_hostname: string;
   gateway_id: string;
   target_ou_id: string;
@@ -59,6 +62,7 @@ export interface DeploymentSpec {
   existing_backend_location: "gcp" | "aws" | "azure" | "on_prem" | null;
   existing_backend_connectivity_confirmed: boolean;
   application_egress_region: string | null;
+  upstream_vpc_project_id: string | null;
   ca_pool: string | null;
   ca_name: string | null;
   public_certificate_secret: string | null;
@@ -122,8 +126,10 @@ export interface PreparedPlan {
     gates: DeploymentGate[];
     can_apply: boolean;
   };
-  created_at: string;
-  expires_at: string;
+  /** Absent only when restoring a plan created by extension 0.2.9 or earlier. */
+  created_at?: string;
+  /** Approval freshness is authoritative after the server accepts approval. */
+  expires_at?: string;
 }
 
 export interface ApprovedPlan {
@@ -144,7 +150,9 @@ export interface DeploymentRun {
     | "running"
     | "succeeded"
     | "failed"
+    | "rolling_back"
     | "rolled_back"
+    | "rollback_unavailable"
     | "rollback_failed"
     | "interrupted"
     | "deleted"
@@ -152,6 +160,15 @@ export interface DeploymentRun {
     | "clean";
   started_at: string;
   completed_at: string | null;
+  retry_available?: boolean;
+  residual_resources?: Array<{
+    resource_key: string;
+    provider: string;
+    resource_type: string;
+    resource_name: string;
+    owned: boolean;
+    shared: boolean;
+  }>;
   operations: Array<{
     operation_id: string;
     resource_key: string;
@@ -161,6 +178,8 @@ export interface DeploymentRun {
   }>;
 }
 
+export type TeardownAction = "delete" | "delete_if_empty" | "restore" | "retain";
+
 export interface DeploymentResource {
   resource_key: string;
   summary: string;
@@ -168,7 +187,7 @@ export interface DeploymentResource {
   resource_type: string;
   resource_name: string;
   owned: boolean;
-  teardown_action: "delete" | "delete_if_empty" | "retain";
+  teardown_action: TeardownAction;
 }
 
 export interface DeploymentDetails {
@@ -186,6 +205,7 @@ export interface DeploymentDetails {
   application_port: number;
   resources: DeploymentResource[];
   managed_chrome_access_level?: string | null;
+  policy_principals: string[];
   target_group_email?: string | null;
   teardown_available: boolean;
 }
@@ -202,6 +222,7 @@ export interface GatewayLogEntry {
   method: string | null;
   resource: string | null;
   request_id: string | null;
+  caller_ip: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -308,9 +329,10 @@ import {
   getBlob,
   getJson,
   postJson,
+  runtimeCapabilities,
 } from "./transport";
 
-export { ApiError };
+export { ApiError, runtimeCapabilities };
 
 export function validateGoogleCloudConnection(
   projectId: string,
@@ -322,43 +344,67 @@ export function validateGoogleCloudConnection(
 
 export function bootstrapGoogleCloudDeployer(
   projectId: string,
+  accessPolicyId?: string | null,
+  migrateExistingDeployer = false,
+  createReplacementDeployer = false,
+  recreateDeletedDeployer = false,
 ): Promise<DeployerBootstrapResult> {
   return postJson("/api/v1/bootstrap/google-cloud/deployer", {
     project_id: projectId,
+    ...(runtimeCapabilities.bootstrapAccessPolicyId
+      ? { access_policy_id: accessPolicyId || null }
+      : {}),
     confirmation: "BOOTSTRAP",
+    ...(runtimeCapabilities.bootstrapAccessPolicyId && migrateExistingDeployer
+      ? { ownership_migration_confirmation: "MIGRATE_EXISTING_DEPLOYER" }
+      : {}),
+    ...(runtimeCapabilities.bootstrapAccessPolicyId && createReplacementDeployer
+      ? { replacement_deployer_confirmation: "CREATE_ISOLATED_REPLACEMENT" }
+      : {}),
+    ...(runtimeCapabilities.bootstrapAccessPolicyId && recreateDeletedDeployer
+      ? { deleted_deployer_rebootstrap_confirmation: "RECREATE_DELETED_DEPLOYER" }
+      : {}),
   });
 }
 
-export interface SampleBackendResult {
-  status: "ready" | "created" | "error";
-  log?: string[];
-  vm_name: string;
-  vpc_name: string;
-  subnet_name: string;
-  internal_ip: string;
-  hostname: string;
-  static_egress_ip: string;
-  region: string;
-  zone: string;
-  error?: string;
+export interface UserDataConsentStatus {
+  accepted: boolean;
+  migrationPrepared: boolean;
+  version: string | null;
 }
 
-export function bootstrapSampleBackend(
-  projectId: string,
-  region?: string,
-  zone?: string,
-): Promise<SampleBackendResult> {
-  return postJson("/api/v1/bootstrap/sample-backend", {
-    project_id: projectId,
-    region,
-    zone,
+export interface ExtensionClientState {
+  setup: unknown | null;
+  workflow: unknown | null;
+}
+
+export function getUserDataConsentStatus(): Promise<UserDataConsentStatus> {
+  return getJson<UserDataConsentStatus>("/api/v1/privacy/consent");
+}
+
+export function prepareUserDataConsent(options: {
+  legacySetup?: unknown;
+  legacyWorkflow?: unknown;
+}): Promise<{ prepared: true }> {
+  return postJson<{ prepared: true }>("/api/v1/privacy/consent/prepare", {
+    legacy_setup: options.legacySetup,
+    legacy_workflow: options.legacyWorkflow,
   });
 }
 
-export function diagnoseGcp(
-  projectId: string,
-): Promise<{ timestamp: string; project_id: string; report: Record<string, any> }> {
-  return postJson("/api/v1/admin/diagnose-gcp", { project_id: projectId });
+export function finalizeUserDataConsent(): Promise<UserDataConsentStatus> {
+  return postJson<UserDataConsentStatus>("/api/v1/privacy/consent/finalize", {});
+}
+
+export function getExtensionClientState(): Promise<ExtensionClientState> {
+  return getJson<ExtensionClientState>("/api/v1/client-state");
+}
+
+export function saveExtensionClientState(state: {
+  setup?: unknown | null;
+  workflow?: unknown | null;
+}): Promise<{ stored: true }> {
+  return postJson<{ stored: true }>("/api/v1/client-state", state);
 }
 
 export function validateWorkspaceConnection(
@@ -399,6 +445,24 @@ export async function listAccessLevelOptions(
   return Array.isArray(res) ? res : res?.options ?? [];
 }
 
+export async function listVpcNetworkOptions(projectId: string): Promise<SetupOption[]> {
+  const res = await postJson<{ options?: SetupOption[] } | SetupOption[]>(
+    "/api/v1/setup-options/vpc-networks",
+    { project_id: projectId },
+  );
+  return Array.isArray(res) ? res : (res.options ?? []);
+}
+
+export async function getRecommendedPocSourceImage(
+  projectId: string,
+): Promise<SetupOption> {
+  const res = await postJson<{ option: SetupOption }>(
+    "/api/v1/setup-options/recommended-poc-source-image",
+    { project_id: projectId },
+  );
+  return res.option;
+}
+
 export function preparePlan(
   specification: DeploymentSpec,
 ): Promise<PreparedPlan> {
@@ -436,6 +500,12 @@ export function getDeploymentRun(runId: string): Promise<DeploymentRun> {
   return getJson(`/api/v1/runs/${encodeURIComponent(runId)}`);
 }
 
+export function resumeDeploymentRun(runId: string): Promise<DeploymentRun> {
+  return postJson(`/api/v1/runs/${encodeURIComponent(runId)}/resume`, {
+    confirmation: "RESUME",
+  });
+}
+
 export function downloadLocalPocRootCertificate(
   deploymentName: string,
 ): Promise<Blob> {
@@ -463,12 +533,6 @@ export function listGatewayLogs(
   );
 }
 
-export function enableGatewayLogging(runId: string): Promise<{ enabled: boolean }> {
-  return postJson(`/api/v1/runs/${encodeURIComponent(runId)}/logs/enable`, {
-    confirmation: "ENABLE LOGGING",
-  });
-}
-
 export function getTeardownPlan(runId: string): Promise<TeardownPlan> {
   return getJson(`/api/v1/runs/${encodeURIComponent(runId)}/teardown-plan`);
 }
@@ -488,12 +552,39 @@ export function getTeardownRun(teardownId: string): Promise<TeardownRun> {
   return getJson(`/api/v1/teardowns/${encodeURIComponent(teardownId)}`);
 }
 
+export function getLatestTeardownRun(runId: string): Promise<TeardownRun> {
+  return getJson(
+    `/api/v1/runs/${encodeURIComponent(runId)}/teardowns/latest`,
+  );
+}
+
+export function resumeTeardownRun(teardownId: string): Promise<TeardownRun> {
+  return postJson(
+    `/api/v1/teardowns/${encodeURIComponent(teardownId)}/resume`,
+    { confirmation: "RESUME" },
+  );
+}
+
 export function listAuditEvents(): Promise<AuditEvent[]> {
   return getJson("/api/v1/evidence/audit-events?limit=100");
 }
 
 export function getAuditIntegrity(): Promise<AuditIntegrity> {
   return getJson("/api/v1/evidence/integrity");
+}
+
+export interface EvidenceBundle {
+  schema_version: number;
+  generated_at: string;
+  app_version: string;
+  integrity: AuditIntegrity;
+  runs: DeploymentRun[];
+  acceptance: AcceptanceResult[];
+  audit_events: AuditEvent[];
+}
+
+export function exportEvidenceBundle(): Promise<EvidenceBundle> {
+  return getJson<EvidenceBundle>("/api/v1/evidence/export");
 }
 
 export function getAcceptanceReadiness(
@@ -532,6 +623,7 @@ export function recordOperatorAcceptance(
 export interface UpdateAccessLevelResult {
   success: boolean;
   access_level: string;
+  policy_principals: string[];
   run_id: string;
 }
 
@@ -543,17 +635,6 @@ export function updateAccessLevel(
   return postJson<UpdateAccessLevelResult>(`/api/v1/runs/${encodeURIComponent(runId)}/update-access-level`, {
     access_level: accessLevel,
     principals,
-  });
-}
-
-export interface CleanStateResult {
-  status: string;
-  log: string[];
-}
-
-export function cleanState(projectId: string): Promise<CleanStateResult> {
-  return postJson<CleanStateResult>("/api/v1/admin/clean-state", {
-    project_id: projectId,
   });
 }
 
@@ -579,7 +660,7 @@ export type CepDlpRuleId =
   | "genai_block";
 
 /** What a rule does when it matches. `off` means do not create it. */
-export type CepDlpAction = "off" | "auditOnly" | "warnUser" | "blockContent";
+export type CepDlpAction = "off" | "warnUser" | "blockContent";
 
 export type CepDlpOperation = "upload" | "download" | "paste" | "print" | "watermark";
 
@@ -601,6 +682,8 @@ export interface CepProvisionConfig {
   target_ou_id: string;
   /** `orgUnitPath` of the same unit, needed to create sub OUs beneath it. */
   target_ou_path?: string;
+  /** Exact current OU path typed immediately before the provision mutation. */
+  target_ou_confirmation?: string;
   create_sub_ous?: boolean;
   core_policies?: boolean;
   force_extensions?: boolean;
@@ -630,21 +713,17 @@ export interface CepRollbackConfig {
   target_ou_path?: string;
   verify_match?: boolean;
   rollback_modules?: CepModule[];
-  /** Only an `AUTO_CREATE_*` level is deleted; a selected one is left alone. */
+  /** AUTO_CREATE candidates are inspected but retained without durable ownership. */
   access_level?: string;
-}
-
-export interface CepCustomRoleConfig {
-  project_id: string;
-  customer_id: string;
-  role_type: "administrator" | "auditor" | "both";
-  assigned_user_email?: string;
 }
 
 export interface CepLicenseAssignConfig {
   customer_id: string;
+  project_id: string;
   target_ou_id: string;
   target_ou_path?: string;
+  /** Exact current OU path typed immediately before the licence mutation. */
+  target_ou_confirmation?: string;
   product_id?: string;
   sku_id?: string;
 }
@@ -678,13 +757,6 @@ export interface CepProvisionResult {
   debug_trace: CepTraceItem[];
 }
 
-export interface CepRoleResult {
-  success: boolean;
-  message: string;
-  roles: string[];
-  debug_trace: CepTraceItem[];
-}
-
 export function provisionCepPolicies(
   config: CepProvisionConfig,
 ): Promise<CepProvisionResult> {
@@ -695,12 +767,6 @@ export function rollbackCepPolicies(
   config: CepRollbackConfig,
 ): Promise<CepProvisionResult> {
   return postJson<CepProvisionResult>("/api/v1/cep/rollback", config);
-}
-
-export function createCepCustomRoles(
-  config: CepCustomRoleConfig,
-): Promise<CepRoleResult> {
-  return postJson<CepRoleResult>("/api/v1/cep/roles", config);
 }
 
 export function assignCepLicenses(
@@ -716,6 +782,11 @@ export function generateCepScript(
     "/api/v1/cep/script",
     config,
   );
+}
+
+export async function signOutSession(): Promise<void> {
+  if (!runtimeCapabilities.sessionSignOut) return;
+  await postJson<{ success: boolean }>("/api/v1/auth/sign-out", {});
 }
 
 

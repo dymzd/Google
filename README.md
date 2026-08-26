@@ -60,4 +60,6 @@ For problems with the tools in this repository, open a GitHub issue. Best effort
 only, with no response time commitment.
 
 ## License
-All scripts in this repository are licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This repository is licensed under the Apache License 2.0. See [LICENSE](LICENSE)
+for the complete terms. Distributed artefacts also include the notices required
+for bundled third-party software.

@@ -39,7 +39,7 @@ python package.py
 
 `build.mjs` prints a SHA-256 for every file it produces, and writes the same
 digests to `dist/SHA256SUMS.json`. `package.py` prints the SHA-256 of
-`dist.zip`.
+`secure-gateway-studio-<manifest version>.zip`.
 
 Compare those against the digests published on the release tag. If they match,
 the artefact came from this source.
@@ -60,12 +60,15 @@ Compare that directory against your `dist/`. Chrome adds `_metadata/` and may
 rewrite `manifest.json` key ordering during install, so compare the code files
 directly:
 
+Use `dist/SHA256SUMS.json` to compare every emitted file. The two primary
+JavaScript entry bundles can also be spot-checked directly:
+
 ```bash
 sha256sum dist/src/background/service-worker.js dist/src/ui/app.js
 ```
 
-Those two files are the entire program. Everything else is markup, styling, and
-an icon.
+The complete extension also includes markup, styling, the manifest, and static
+assets, so verification must ultimately cover the full checksum manifest.
 
 ## Verifying the domain logic instead of trusting it
 
@@ -78,18 +81,35 @@ cd secure-gateway-studio/extension
 npm run verify
 ```
 
-That runs eight checks, none of which need a network or a Google project:
+That runs TypeScript checking plus 25 offline parity/behaviour scripts. None
+needs a network or a Google project:
 
 | Check | What it pins |
 |---|---|
+| routes | Every declared UI API route has a service-worker handler and unsupported methods fail predictably |
+| UI capabilities | Extension-only routes are hidden from the local app and the extension requires the user-data disclosure before tenant access |
+| coldstart | Durable state can be reconstructed after a fresh MV3 worker start, browser startup, or extension update |
+| Google response | Non-object, malformed, or unexpectedly empty Google REST bodies fail closed without retaining raw response text |
 | canonical | Both implementations serialise and hash identically, including non-ASCII |
 | spec | Specifications round-trip to the same `configuration_hash` approvals bind to |
-| auth | Mutations run as the least-privilege deployer account, not the administrator |
+| auth | Mutations run as the pinned product-scoped deployer account, not the administrator |
+| storage safety | OAuth tokens and private keys never enter durable extension storage; persisted identifiers and evidence are AES-GCM ciphertext |
+| IndexedDB migration | v3/0.2.0 rows are untouched before consent, then encrypt without semantic audit rewrites; raw storage, tamper/wrong-key failure, and non-extractable-key restart are exercised |
+| lifecycle durability | Apply, rollback, finalization, policy updates, and teardown share atomic global slots |
 | audit | The audit chain matches Python's, and tampering is detected |
 | planner | Both produce the same plan, gates, and required permissions |
-| executor | Both issue the same Google API requests, in order, with the same bodies |
+| executor | Both issue the same Google API requests in order; the extension additionally removes the obsolete top-level `Router.fingerprint` from Compute v1 Router PATCH bodies |
+| execution safety | Request identity, before-images, terminal cleanup, unsafe reset rejection, immutable deployer ownership pins, sole-operator 0.2.0 migration, explicitly audited deleted-deployer recreation (including etag-bound soft-deleted-role recovery), and bounded Gateway-application pagination stay fail-closed |
 | discovery | Both probe the same resources and assemble the same snapshot |
+| catalog | Cloud catalog reads use the bootstrapped deployer and select only an Access Policy applicable to the project number or an ancestor folder; missing or ambiguous access fails closed |
 | resume | Apply completes exactly once even when the worker is killed mid-operation |
+| certificates | RSA certificate/CSR generation, Secret Manager payloads, and public-root export stay valid |
+| acceptance | T01–T09 evidence is derived from real probes and cannot be asserted without proof |
+| evidence | Exported evidence is schema-bound, operation-bound, and tamper-evident |
+| IAM policy | Version 3 conditions, unrelated bindings, members, and etags are preserved |
+| teardown | Only exact, durably owned resources are destroyed and shared artifacts are retained |
+| observability | Logging partial responses and parsers exclude URL paths, query strings, free-form payloads, IP addresses, and principals |
+| CEP | Chrome Policy, Cloud Identity DLP, OU, licensing, read-only ownership-safe cleanup inspection, and the Admin-console role boundary match the selected controls |
 
 The Python side enforces the same fixtures:
 
@@ -102,12 +122,12 @@ uv run pytest
 A change that passes only one side fails the other, so neither implementation
 can drift alone.
 
-## Self-hosted distribution
+## Distribution artefact
 
-Enterprises that would rather control when updates arrive can serve the CRX
-themselves and point managed Chrome at it by policy, instead of taking updates
-from the Web Store. In that arrangement you decide when a new version reaches
-your fleet, and you can verify each one by the procedure above before it does.
+Version 0.2.24 produces one versioned ZIP for upload to the Chrome Web Store:
+`secure-gateway-studio-0.2.24.zip`. This repository does not produce or publish
+a CRX. Rebuild the ZIP with `npm run package` and compare the printed SHA-256
+before uploading it.
 
 See `docs/PERMISSIONS.md` for what to review in a new version, and the
 migration plan for how releases are sequenced.

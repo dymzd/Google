@@ -14,13 +14,20 @@
  */
 
 import { readFileSync } from "node:fs";
+import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 import { canonicalJson } from "../src/domain/canonical.ts";
 import { GoogleResourceExecutor, type Transport } from "../src/providers/executor.ts";
 import { parseDeploymentSpec } from "../src/domain/spec.ts";
-import type { ResourceChange } from "../src/domain/planner.ts";
+import { configurationHash, type ResourceChange } from "../src/domain/planner.ts";
+import {
+  crc32c,
+  issueLocalPoc,
+  secretPayload,
+} from "../src/providers/certificates.ts";
+import { sha256Hex } from "../src/domain/sha256.ts";
 
 interface RecordedRequest {
   method: string;
@@ -48,6 +55,21 @@ const goldenPath = resolve(
 /** Replays the responses the Python recording transport returned. */
 class ReplayTransport implements Transport {
   readonly calls: RecordedRequest[] = [];
+  private readonly expectedConfigurationHash: string;
+  private readonly expectedHostname: string;
+  private readonly publicCertificatePayload: Uint8Array | null;
+  private readonly genericResources = new Map<string, Record<string, unknown>>();
+  private genericIdentity = 1000;
+
+  constructor(
+    expectedConfigurationHash: string,
+    expectedHostname: string,
+    publicCertificatePayload: Uint8Array | null = null,
+  ) {
+    this.expectedConfigurationHash = expectedConfigurationHash;
+    this.expectedHostname = expectedHostname;
+    this.publicCertificatePayload = publicCertificatePayload;
+  }
 
   async requestJson(
     method: string,
@@ -64,9 +86,214 @@ class ReplayTransport implements Transport {
       body: options.jsonBody ?? null,
     });
 
+    if (method === "GET" && url.includes("/orgunits/id%3A")) {
+      return {
+        status: 200,
+        payload: { orgUnitId: "id:03-test-ou", orgUnitPath: "/Secure Gateway Test" },
+      };
+    }
+    if (method === "GET" && url.endsWith("/global/images/sgs-nginx-20260730")) {
+      return {
+        status: 200,
+        payload: {
+          name: "sgs-nginx-20260730",
+          id: "987654321",
+          selfLink: (
+            "https://www.googleapis.com/compute/v1/projects/" +
+            "enterprise-secgw-01/global/images/sgs-nginx-20260730"
+          ),
+        },
+      };
+    }
+    if (method === "POST" && url.endsWith("/listManagedInstances")) {
+      return {
+        status: 200,
+        payload: {
+          managedInstances: [
+            {
+              instance: (
+                "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+                "zones/asia-east1-c/instances/secure-gateway-http-offload-offload-a1"
+              ),
+              instanceStatus: "RUNNING",
+            },
+            {
+              instance: (
+                "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+                "zones/asia-east1-a/instances/secure-gateway-http-offload-offload-a2"
+              ),
+              instanceStatus: "RUNNING",
+            },
+          ],
+        },
+      };
+    }
+    if (
+      method === "GET" && url.includes("/zones/") &&
+      url.includes("/instances/secure-gateway-http-offload-offload-")
+    ) {
+      const zone = url.split("/zones/")[1]?.split("/")[0] ?? "";
+      const instanceName = url.split("/").pop() ?? "";
+      return {
+        status: 200,
+        payload: {
+          name: instanceName,
+          disks: [{
+            boot: true,
+            source: (
+              "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+              `zones/${zone}/disks/${instanceName}`
+            ),
+          }],
+        },
+      };
+    }
+    if (method === "POST" && /\/managedZones\/[^/]+\/changes$/.test(url)) {
+      return {
+        status: 200,
+        payload: { kind: "dns#change", id: "42", status: "done" },
+      };
+    }
+
+    const stored = this.genericResources.get(url);
+    if (method === "GET" && stored !== undefined) {
+      const payload = structuredClone(stored);
+      if (url.includes("/instances/")) {
+        const instanceName = url.split("/").pop()!;
+        payload.disks = [{
+          boot: true,
+          source: (
+            "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+            `zones/asia-east1-c/disks/${instanceName}`
+          ),
+        }];
+      }
+      if (url.includes("/addresses/")) {
+        payload.address = url.includes("-backend-ip") ? "10.42.0.20" : "10.42.0.10";
+      }
+      if (url.includes("/instanceGroupManagers/")) {
+        payload.status = { isStable: true, currentInstanceStatuses: { running: 2 } };
+        payload.targetSize = 2;
+      }
+      if (url.includes("/securityGateways/") && !url.includes("/applications/")) {
+        payload.state = "RUNNING";
+        payload.delegatingServiceAccount =
+          "sg-delegate@enterprise-secgw-01.iam.gserviceaccount.com";
+      }
+      return { status: 200, payload };
+    }
+
+    if (method === "GET" && url.includes("/zones/") && url.includes("/disks/")) {
+      const zone = url.split("/zones/")[1]?.split("/")[0] ?? "";
+      const diskName = url.split("/").pop()!;
+      const diskPath =
+        `projects/enterprise-secgw-01/zones/${zone}/disks/${diskName}`;
+      return {
+        status: 200,
+        payload: {
+          name: diskName,
+          selfLink: `https://www.googleapis.com/compute/v1/${diskPath}`,
+          zone: (
+            "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+            `zones/${zone}`
+          ),
+          status: "READY",
+          sizeGb: "20",
+          type: (
+            "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+            `zones/${zone}/diskTypes/pd-balanced`
+          ),
+          sourceImage: (
+            "https://www.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+            "global/images/sgs-nginx-20260730"
+          ),
+          sourceImageId: "987654321",
+        },
+      };
+    }
+
+    if (
+      method === "POST" &&
+      (url.includes("compute.googleapis.com") || url.includes("beyondcorp.googleapis.com")) &&
+      !url.endsWith(":setIamPolicy")
+    ) {
+      const resourceName = options.jsonBody?.name ?? options.params?.securityGatewayId ??
+        options.params?.applicationId;
+      if (typeof resourceName === "string") {
+        const resourceUrl = `${url.replace(/\/$/, "")}/${resourceName}`;
+        this.genericIdentity += 1;
+        const payload = structuredClone(options.jsonBody ?? {});
+        if (url.includes("compute.googleapis.com")) {
+          Object.assign(payload, {
+            id: String(this.genericIdentity),
+            selfLink: resourceUrl,
+            creationTimestamp: "2026-08-24T00:00:00.000Z",
+          });
+        } else {
+          Object.assign(payload, {
+            name: resourceUrl.replace("https://beyondcorp.googleapis.com/v1/", ""),
+            createTime: `2026-08-24T00:00:${String(this.genericIdentity % 60).padStart(2, "0")}Z`,
+          });
+        }
+        this.genericResources.set(resourceUrl, payload);
+      }
+    }
+
     if (method === "GET" && url.includes("/addresses/")) {
       const suffix = url.includes("-backend-ip") ? "20" : "10";
       return { status: 200, payload: { address: `10.42.0.${suffix}` } };
+    }
+    if (method === "GET" && url.includes("/routers/")) {
+      return {
+        status: 200,
+        payload: {
+          id: "9000000000000000001",
+          selfLink: url,
+          fingerprint: "router-fingerprint-1",
+          nats: [],
+        },
+      };
+    }
+    if (method === "GET" && url.endsWith("/getGuestAttributes")) {
+      return {
+        status: 200,
+        payload: {
+          queryValue: {
+            items: [
+              {
+                namespace: "sgstudio",
+                key: "T01",
+                value: JSON.stringify({
+                  status: 200,
+                  configuration_hash: this.expectedConfigurationHash,
+                }),
+              },
+              {
+                namespace: "sgstudio",
+                key: "T02",
+                value: JSON.stringify({
+                  status: 200,
+                  configuration_hash: this.expectedConfigurationHash,
+                }),
+              },
+              {
+                namespace: "sgstudio",
+                key: "T03",
+                value: JSON.stringify({
+                  http_status: 200,
+                  tls_version: "TLSv1.3",
+                  hostname: this.expectedHostname,
+                  trust_mode: this.publicCertificatePayload === null
+                    ? "presented_chain_pinned"
+                    : "public_system_roots",
+                  subject_alt_names: [this.expectedHostname],
+                  configuration_hash: this.expectedConfigurationHash,
+                }),
+              },
+            ],
+          },
+        },
+      };
     }
     if (method === "POST" && url.endsWith(":addVersion")) {
       return {
@@ -74,6 +301,22 @@ class ReplayTransport implements Transport {
         payload: {
           name:
             "projects/enterprise-secgw-01/secrets/secure-gateway-http-offload-tls/versions/1",
+        },
+      };
+    }
+    if (
+      method === "GET" &&
+      url.endsWith("/secrets/enterprise-tls/versions/latest:access") &&
+      this.publicCertificatePayload !== null
+    ) {
+      return {
+        status: 200,
+        payload: {
+          name: "projects/enterprise-secgw-01/secrets/enterprise-tls/versions/7",
+          payload: {
+            data: Buffer.from(this.publicCertificatePayload).toString("base64"),
+            dataCrc32c: String(crc32c(this.publicCertificatePayload)),
+          },
         },
       };
     }
@@ -110,6 +353,7 @@ class ReplayTransport implements Transport {
         status: 200,
         payload: {
           name: "projects/enterprise-secgw-01/locations/global/securityGateways/default",
+          state: "RUNNING",
           delegatingServiceAccount:
             "sg-delegate@enterprise-secgw-01.iam.gserviceaccount.com",
         },
@@ -167,6 +411,7 @@ const NOT_PORTED = new Set<string>();
  * the same token. Compared for presence and shape instead of equality.
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_FRAGMENT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 function withoutRequestId(
   params: Record<string, string | number> | null,
@@ -175,6 +420,67 @@ function withoutRequestId(
   const { requestId, ...rest } = params;
   void requestId;
   return Object.keys(rest).length === 0 ? null : rest;
+}
+
+/**
+ * Ownership tokens are stable within one implementation's durable run, but
+ * the Python fixture generator and the extension intentionally use different
+ * run ids. Preserve the surrounding marker and compare only the UUID's shape.
+ */
+function normaliseOwnershipTokens(value: unknown, key = ""): unknown {
+  if (Array.isArray(value)) return value.map((item) => normaliseOwnershipTokens(item));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([childKey, child]) => [
+        childKey,
+        normaliseOwnershipTokens(child, childKey),
+      ]),
+    );
+  }
+  if (typeof value !== "string") return value;
+  if (key === "data") {
+    try {
+      const decoded = JSON.parse(Buffer.from(value, "base64").toString("utf8")) as unknown;
+      if (
+        typeof decoded === "object" && decoded !== null && !Array.isArray(decoded) &&
+        "sgs_ownership_token" in decoded
+      ) {
+        return normaliseOwnershipTokens(decoded, "secret-payload");
+      }
+    } catch {
+      // Ordinary binary/base64 fields remain byte-for-byte compared.
+    }
+  }
+  if (key === "clientOperationId" || key === "sgs-owner-token") {
+    return UUID.test(value) ? "<ownership-uuid>" : value;
+  }
+  if (key === "sgs_ownership_token") {
+    return UUID.test(value) ? "<ownership-uuid>" : value;
+  }
+  if (value.includes("ownership-token=") || value.includes("sgs-owner=")) {
+    return value.replace(UUID_FRAGMENT, "<ownership-uuid>");
+  }
+  return value;
+}
+
+/**
+ * The shared Python fixture still carries Router.fingerprint, which the
+ * current Compute v1 Router schema no longer defines. Keep every other byte of
+ * the cross-runtime fixture comparison strict while requiring the extension's
+ * live PATCH body to follow the official schema.
+ */
+function officialExpectedBody(request: RecordedRequest): Record<string, unknown> | null {
+  if (
+    request.method === "PATCH" &&
+    /^https:\/\/compute\.googleapis\.com\/compute\/v1\/projects\/[^/]+\/regions\/[^/]+\/routers\/[^/]+$/.test(
+      request.url,
+    ) &&
+    request.body !== null
+  ) {
+    const { fingerprint: _obsoleteFingerprint, ...body } = request.body;
+    return body;
+  }
+  return request.body;
 }
 
 const PINNED_CERTIFICATE = {
@@ -186,6 +492,9 @@ const PINNED_CERTIFICATE = {
 };
 
 const golden = JSON.parse(readFileSync(goldenPath, "utf8")) as { scenarios: Scenario[] };
+const publicCertificateBytes = new TextEncoder().encode(
+  secretPayload(await issueLocalPoc("gw.example-company.com", 30)),
+);
 let excluded = 0;
 const failures: string[] = [];
 let comparedRequests = 0;
@@ -199,15 +508,36 @@ for (const scenario of golden.scenarios) {
       excluded += 1;
       continue;
     }
-    const transport = new ReplayTransport();
+    const consumesPublicCertificate =
+      spec.backend_kind !== "direct_https" && spec.certificate_strategy === "public_trusted";
+    const transport = new ReplayTransport(
+      configurationHash(spec),
+      spec.private_hostname,
+      consumesPublicCertificate ? publicCertificateBytes : null,
+    );
     const executor = new GoogleResourceExecutor(transport, {
       // The same pinned bundle the Python generator injects; issuance produces
       // a fresh key each run and would make the recorded payload unstable.
       certificate: PINNED_CERTIFICATE,
+      publicCertificateBinding: consumesPublicCertificate
+        ? {
+            secret_version_name:
+              "projects/enterprise-secgw-01/secrets/enterprise-tls/versions/7",
+            payload_sha256: sha256Hex(publicCertificateBytes),
+          }
+        : null,
+      sourceImageBinding: spec.backend_kind === "direct_https"
+        ? null
+        : {
+            name: spec.source_image!,
+            id: "987654321",
+            self_link: `https://www.googleapis.com/compute/v1/${spec.source_image!}`,
+          },
       exportArtifact: async () => {},
     });
 
     try {
+      await executor.prepareApply(spec);
       await executor.apply(change(operation), spec);
     } catch (error) {
       failures.push(`${label}: threw ${(error as Error).message}`);
@@ -243,20 +573,23 @@ for (const scenario of golden.scenarios) {
         );
       }
       if (
-        canonicalJson(withoutRequestId(expected.params)) !==
-        canonicalJson(withoutRequestId(produced.params))
+        canonicalJson(normaliseOwnershipTokens(withoutRequestId(expected.params))) !==
+        canonicalJson(normaliseOwnershipTokens(withoutRequestId(produced.params)))
       ) {
         failures.push(
           `${label} request[${index}]: params\n` +
-            `    python    ${canonicalJson(withoutRequestId(expected.params))}\n` +
-            `    extension ${canonicalJson(withoutRequestId(produced.params))}`,
+            `    python    ${canonicalJson(normaliseOwnershipTokens(withoutRequestId(expected.params)))}\n` +
+            `    extension ${canonicalJson(normaliseOwnershipTokens(withoutRequestId(produced.params)))}`,
         );
       }
-      if (canonicalJson(expected.body ?? null) !== canonicalJson(produced.body ?? null)) {
+      if (
+        canonicalJson(normaliseOwnershipTokens(officialExpectedBody(expected))) !==
+        canonicalJson(normaliseOwnershipTokens(produced.body ?? null))
+      ) {
         failures.push(
           `${label} request[${index}]: body\n` +
-            `    python    ${canonicalJson(expected.body ?? null)}\n` +
-            `    extension ${canonicalJson(produced.body ?? null)}`,
+            `    reference ${canonicalJson(normaliseOwnershipTokens(officialExpectedBody(expected)))}\n` +
+            `    extension ${canonicalJson(normaliseOwnershipTokens(produced.body ?? null))}`,
         );
       }
     }
@@ -271,5 +604,6 @@ if (failures.length > 0) {
 }
 console.log(
   `OK ${golden.scenarios.length} scenarios, ${comparedRequests} requests match the ` +
-    `Python reference (${excluded} excluded).`,
+    `Python reference after the documented Compute Router schema correction ` +
+    `(${excluded} excluded).`,
 );

@@ -136,6 +136,20 @@ function chain(count: number): AuditEventRecord[] {
   check("reports the event count", result.eventCount === 5);
 }
 
+{
+  const events = chain(2);
+  const unboundPublicPayload = [...events];
+  unboundPublicPayload[1] = {
+    ...unboundPublicPayload[1],
+    payload: { index: 99, configuration_hash: "c".repeat(64) },
+  };
+  const result = verifyAuditChain(unboundPublicPayload);
+  check(
+    "editing exported payload while retaining payloadJson is detected",
+    !result.valid && result.brokenAt === 1,
+  );
+}
+
 // -- an empty chain is valid --------------------------------------------------
 {
   const result = verifyAuditChain([]);

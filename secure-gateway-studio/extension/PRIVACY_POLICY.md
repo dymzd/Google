@@ -3,7 +3,7 @@
 The published privacy policy for the Secure Gateway Studio Chrome extension is
 at:
 
-**<https://dymzd.github.io/Google/privacy.html>**
+**<https://test-domain.dev/privacy.html>**
 
 That page is the copy referenced from the Chrome Web Store listing and the
 Google OAuth consent screen, and it is the one to read.

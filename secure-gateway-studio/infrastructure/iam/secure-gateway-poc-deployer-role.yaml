@@ -1,18 +1,19 @@
-title: Secure Gateway PoC Deployer
-description: Least-privilege project permissions for Secure Gateway Studio PoC apply and rollback.
+title: Secure Gateway Studio Deployer
+description: Project permissions for every Secure Gateway Studio apply, rollback, and teardown path.
 stage: GA
 includedPermissions:
   - beyondcorp.securityGateways.create
   - beyondcorp.securityGateways.delete
   - beyondcorp.securityGateways.get
   - beyondcorp.securityGateways.getIamPolicy
+  - beyondcorp.securityGateways.list
   - beyondcorp.securityGateways.setIamPolicy
-  - beyondcorp.securityGateways.update
   - beyondcorp.operations.get
   - beyondcorp.sgApplications.create
   - beyondcorp.sgApplications.delete
   - beyondcorp.sgApplications.get
   - beyondcorp.sgApplications.getIamPolicy
+  - beyondcorp.sgApplications.list
   - beyondcorp.sgApplications.setIamPolicy
   - compute.addresses.create
   - compute.addresses.createInternal
@@ -21,13 +22,24 @@ includedPermissions:
   - compute.addresses.get
   - compute.addresses.use
   - compute.addresses.useInternal
+  - compute.autoscalers.create
+  - compute.autoscalers.delete
+  - compute.autoscalers.get
   - compute.disks.create
+  - compute.disks.get
   - compute.firewalls.create
   - compute.firewalls.delete
   - compute.firewalls.get
   - compute.globalOperations.get
   - compute.images.get
   - compute.images.useReadOnly
+  - compute.instanceGroupManagers.create
+  - compute.instanceGroupManagers.delete
+  - compute.instanceGroupManagers.get
+  - compute.instanceGroupManagers.update
+  - compute.instanceTemplates.create
+  - compute.instanceTemplates.delete
+  - compute.instanceTemplates.get
   - compute.instanceTemplates.useReadOnly
   - compute.instanceGroups.create
   - compute.instanceGroups.delete
@@ -52,6 +64,7 @@ includedPermissions:
   - compute.forwardingRules.create
   - compute.forwardingRules.delete
   - compute.forwardingRules.get
+  - compute.forwardingRules.list
   - compute.healthChecks.create
   - compute.healthChecks.delete
   - compute.healthChecks.get
@@ -77,12 +90,14 @@ includedPermissions:
   - compute.routers.get
   - compute.routers.list
   - compute.routers.update
+  - compute.routes.list
   - compute.subnetworks.create
   - compute.subnetworks.delete
   - compute.subnetworks.get
   - compute.subnetworks.use
   - compute.zoneOperations.get
   - dns.changes.create
+  - dns.changes.get
   - dns.managedZones.create
   - dns.managedZones.delete
   - dns.managedZones.get
@@ -95,6 +110,11 @@ includedPermissions:
   - iam.serviceAccounts.delete
   - iam.serviceAccounts.get
   - logging.logEntries.list
+  - privateca.caPools.use
+  - privateca.certificates.create
+  - privateca.certificates.get
+  - privateca.certificates.update
+  - privateca.operations.get
   - resourcemanager.projects.setIamPolicy
   - secretmanager.secrets.create
   - secretmanager.secrets.delete
@@ -105,4 +125,7 @@ includedPermissions:
   - secretmanager.versions.add
   - secretmanager.versions.access
   - secretmanager.versions.disable
+  - secretmanager.versions.destroy
+  - secretmanager.versions.get
+  - secretmanager.versions.list
   - serviceusage.services.enable

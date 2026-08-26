@@ -45,6 +45,7 @@ RecordingTransport = _generate.RecordingTransport
 _change = _generate._change
 _FIXED_EXECUTION_ID = _generate._FIXED_EXECUTION_ID
 _PINNED_CERTIFICATE = _generate._PINNED_CERTIFICATE
+_pin_executor_inputs = _generate._pin_executor_inputs
 _configuration_hash = _generate.canonical_configuration_hash
 
 from sgstudio.providers.google_executor import GoogleResourceExecutor  # noqa: E402
@@ -62,16 +63,16 @@ def _ids(scenario: dict[str, Any]) -> str:
 def test_recorded_requests_match_the_executor(scenario: dict[str, Any]) -> None:
     spec = DeploymentSpec.model_validate(scenario["spec"])
     for operation in scenario["operations"]:
-        transport = RecordingTransport(_configuration_hash(spec))
+        transport = RecordingTransport(_configuration_hash(spec), spec.private_hostname)
         executor = GoogleResourceExecutor(
             transport, poll_interval_seconds=0, operation_timeout_seconds=5
         )
-        # `requestId` is uuid5(execution_id, key) and execution_id is a fresh
-        # uuid4 per executor, so it must be pinned to compare against the file.
+        # `requestId` is derived from execution_id plus the exact request, and
+        # execution_id is a fresh uuid4, so it is pinned for fixture comparison.
         executor._execution_id = _FIXED_EXECUTION_ID
         # Issuance generates a fresh key per run; pin the bundle so the recorded
         # secret payload is reproducible.
-        executor._certificate = _PINNED_CERTIFICATE
+        _pin_executor_inputs(executor, spec)
         executor.apply(
             _change(
                 operation["change"]["provider"],
@@ -137,5 +138,11 @@ def test_chrome_policy_reads_the_schema_before_writing() -> None:
             if operation["change"]["provider"] != "chromepolicy":
                 continue
             urls = [request["url"] for request in operation["requests"]]
-            assert "/policySchemas/" in urls[0]
+            schema_index = next(
+                index for index, url in enumerate(urls) if "/policySchemas/" in url
+            )
+            target_guard_index = next(
+                index for index, url in enumerate(urls) if "/orgunits/id%3A" in url
+            )
+            assert target_guard_index < schema_index
             assert urls[-1].endswith("/policies/orgunits:batchModify")

@@ -12,6 +12,7 @@ import {
   LockIcon,
   PlusCircleIcon,
   ShieldNetworkIcon,
+  SignOutIcon,
 } from "./Icons";
 import { LanguageMenu } from "./LanguageMenu";
 
@@ -26,6 +27,8 @@ interface AppShellProps {
   workspaceAdmin: string;
   onLocaleChange: (locale: Locale) => void;
   onNavigate: (view: AppView) => void;
+  onSignOut: () => void;
+  showCepDeployer: boolean;
 }
 
 export function AppShell({
@@ -37,6 +40,8 @@ export function AppShell({
   workspaceAdmin,
   onLocaleChange,
   onNavigate,
+  onSignOut,
+  showCepDeployer,
 }: AppShellProps) {
   const isSgwActive =
     activeView === "setup" ||
@@ -44,7 +49,7 @@ export function AppShell({
     activeView === "evidence" ||
     activeView === "guide";
 
-  const [sgwMenuOpen, setSgwMenuOpen] = useState<boolean>(isSgwActive);
+  const [sgwMenuOpen, setSgwMenuOpen] = useState(false);
 
   const sgwSubItems: Array<{
     label: string;
@@ -73,20 +78,23 @@ export function AppShell({
           <ShieldNetworkIcon size={44} />
         </div>
         <nav aria-label="Primary navigation" className="primary-nav">
-          {/* 1. Easy PoC (Top-level primary tab) */}
-          <button
-            aria-current={activeView === "cepDeployer" ? "page" : undefined}
-            className={activeView === "cepDeployer" ? "nav-item active" : "nav-item"}
-            onClick={() => onNavigate("cepDeployer")}
-            type="button"
-          >
-            <ShieldNetworkIcon size={24} />
-            <span>{messages.nav.easyPoc}</span>
-          </button>
+          {showCepDeployer && (
+            <button
+              aria-label={messages.nav.easyPoc}
+              aria-current={activeView === "cepDeployer" ? "page" : undefined}
+              className={activeView === "cepDeployer" ? "nav-item active" : "nav-item"}
+              onClick={() => onNavigate("cepDeployer")}
+              type="button"
+            >
+              <ShieldNetworkIcon size={24} />
+              <span>{messages.nav.easyPoc}</span>
+            </button>
+          )}
 
           {/* 2. Secure Gateway Deployer (Collapsible dropdown parent) */}
           <div className={`nav-dropdown-group ${isSgwActive ? "active-parent" : ""} ${sgwMenuOpen ? "open" : ""}`}>
             <button
+              aria-label={messages.nav.sgwDeployer}
               aria-expanded={sgwMenuOpen}
               className={`nav-item nav-dropdown-trigger ${isSgwActive ? "active" : ""}`}
               onClick={handleToggleSgw}
@@ -110,7 +118,10 @@ export function AppShell({
                       aria-current={active ? "page" : undefined}
                       className={`nav-subitem ${active ? "active" : ""}`}
                       key={item.view}
-                      onClick={() => onNavigate(item.view)}
+                      onClick={() => {
+                        setSgwMenuOpen(false);
+                        onNavigate(item.view);
+                      }}
                       type="button"
                     >
                       <SubIcon size={15} />
@@ -122,6 +133,18 @@ export function AppShell({
             )}
           </div>
         </nav>
+
+        <div className="sidebar-bottom">
+          <button
+            className="nav-item sidebar-sign-out"
+            onClick={onSignOut}
+            title={messages.signOut}
+            type="button"
+          >
+            <SignOutIcon size={22} />
+            <span>{messages.signOut}</span>
+          </button>
+        </div>
       </aside>
 
       <div className="app-frame">

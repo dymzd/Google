@@ -96,6 +96,60 @@ async function main(): Promise<void> {
     }
   }
 
+  const enterpriseCase = golden.cases.find(
+    (testCase) => testCase.spec.certificate_strategy === "enterprise_ca",
+  );
+  if (enterpriseCase === undefined) {
+    failures.push("golden set has no enterprise CA specification");
+  } else {
+    for (const [label, patch] of [
+      [
+        "cross-project CA pool",
+        { ca_pool: "projects/other-project/locations/asia-east1/caPools/enterprise" },
+      ],
+      [
+        "authority outside selected pool",
+        {
+          ca_name:
+            "projects/enterprise-secgw-01/locations/asia-east1/caPools/other/" +
+            "certificateAuthorities/issuing",
+        },
+      ],
+      [
+        "authority name with query",
+        {
+          ca_name:
+            "projects/enterprise-secgw-01/locations/asia-east1/caPools/enterprise/" +
+            "certificateAuthorities/issuing?alt=json",
+        },
+      ],
+    ] as const) {
+      try {
+        parseDeploymentSpec({ ...enterpriseCase.spec, ...patch });
+        failures.push(`${label}: unsafe CA resource name was accepted`);
+      } catch {
+        // Expected: provider URLs and authority selection stay project/pool scoped.
+      }
+    }
+  }
+
+  if (enterpriseCase !== undefined) {
+    try {
+      parseDeploymentSpec({
+        ...enterpriseCase.spec,
+        mode: "production",
+        backend_kind: "internal_https_lb",
+        test_ou_confirmed: true,
+        chrome_enterprise_premium_license_confirmed: true,
+        workspace_services_confirmed: true,
+        endpoint_verification_confirmed: true,
+      });
+      failures.push("production ILB: unsupported 0.2.1 architecture was accepted");
+    } catch {
+      // Expected: Production ILB needs durable versioned certificate/proxy rotation first.
+    }
+  }
+
   if (failures.length > 0) {
     console.error(`FAIL ${failures.length} problem(s) across ${golden.cases.length} cases\n`);
     for (const failure of failures) console.error(`  ${failure}`);

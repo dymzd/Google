@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from sgstudio.domain.canonical import canonical_json
 from sgstudio.domain.models import (
     AcceptanceStatus,
     AcceptanceTestId,
     BackendKind,
+    CertificateStrategy,
     DeploymentMode,
     DeploymentSpec,
 )
@@ -108,7 +109,16 @@ class GoogleAcceptanceVerifier:
                 }
                 for zone, instance in instances
             ]
-            expected_count = 2 if spec.mode is DeploymentMode.PRODUCTION else 1
+            expected_count = (
+                spec.offload_min_replicas
+                if spec.mode is DeploymentMode.PRODUCTION
+                else 1
+            )
+            expected_trust_mode = (
+                "public_system_roots"
+                if spec.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED
+                else "presented_chain_pinned"
+            )
             t02_passed = len(t02_evidence) >= expected_count and all(
                 item.get("status") == 200
                 and self._has_hash(item)
@@ -118,8 +128,14 @@ class GoogleAcceptanceVerifier:
             t03_passed = len(t03_evidence) >= expected_count and all(
                 item.get("http_status") == 200
                 and item.get("hostname") == spec.private_hostname
+                and item.get("trust_mode") == expected_trust_mode
                 and item.get("tls_version") in {"TLSv1.2", "TLSv1.3"}
-                and spec.private_hostname in item.get("subject_alt_names", [])
+                and isinstance(item.get("subject_alt_names"), list)
+                and all(
+                    isinstance(name, str)
+                    for name in item["subject_alt_names"]
+                )
+                and spec.private_hostname in item["subject_alt_names"]
                 and self._has_hash(item)
                 and self._matches_configuration(item, spec)
                 for item in t03_evidence
@@ -135,7 +151,10 @@ class GoogleAcceptanceVerifier:
                 self._finding(
                     AcceptanceTestId.T03,
                     t03_passed,
-                    "Every offload instance passed hostname-validating TLS and HTTP checks",
+                    (
+                        "Every offload instance passed the configured trust-mode, "
+                        "hostname-validating TLS, and HTTP checks"
+                    ),
                     "One or more TLS termination runtime probes failed",
                     {"instances": t03_evidence},
                 ),
@@ -157,32 +176,73 @@ class GoogleAcceptanceVerifier:
     def _offload_instances(self, spec: DeploymentSpec) -> list[tuple[str, str]]:
         if spec.mode is DeploymentMode.POC:
             return [(spec.zone, f"{spec.name}-offload")]
-        _, payload = self._transport.request_json(
-            "POST",
-            (
-                f"https://compute.googleapis.com/compute/v1/projects/"
-                f"{spec.project_id}/regions/{spec.region}/instanceGroupManagers/"
-                f"{spec.name}-offload-mig/listManagedInstances"
-            ),
-            json_body={},
+        url = (
+            f"https://compute.googleapis.com/compute/v1/projects/"
+            f"{spec.project_id}/regions/{spec.region}/instanceGroupManagers/"
+            f"{spec.name}-offload-mig/listManagedInstances"
         )
-        managed = payload.get("managedInstances")
-        if not isinstance(managed, list):
-            raise ValueError("invalid-managed-instance-response")
-        instances: list[tuple[str, str]] = []
+        managed: list[Any] = []
+        seen_tokens: set[str] = set()
+        page_token: str | None = None
+        complete = False
+        page_size = 500
+        page_limit = 100
+        for _ in range(page_limit):
+            body: dict[str, Any] = {"maxResults": page_size}
+            if page_token is not None:
+                body["pageToken"] = page_token
+            _, payload = self._transport.request_json("POST", url, json_body=body)
+            page_items = payload.get("managedInstances")
+            if not isinstance(page_items, list):
+                raise ValueError("invalid-managed-instance-response")
+            if len(page_items) > page_size:
+                raise ValueError("managed-instance-page-limit")
+            managed.extend(page_items)
+            if len(managed) > page_size * page_limit:
+                raise ValueError("managed-instance-item-limit")
+            if "nextPageToken" not in payload or payload["nextPageToken"] == "":
+                complete = True
+                break
+            next_token = payload["nextPageToken"]
+            if not isinstance(next_token, str) or next_token in seen_tokens:
+                raise ValueError("invalid-managed-instance-page-token")
+            seen_tokens.add(next_token)
+            page_token = next_token
+        if not complete:
+            raise ValueError("managed-instance-pagination-incomplete")
+
+        instances: set[tuple[str, str]] = set()
         for item in managed:
             if not isinstance(item, dict) or item.get("instanceStatus") != "RUNNING":
-                continue
+                raise ValueError("managed-instance-not-running")
             instance_url = item.get("instance")
             if not isinstance(instance_url, str):
-                continue
-            parts = instance_url.rstrip("/").split("/")
-            try:
-                zone_index = parts.index("zones")
-                instance_index = parts.index("instances")
-            except ValueError:
-                continue
-            instances.append((parts[zone_index + 1], parts[instance_index + 1]))
+                raise ValueError("invalid-managed-instance-name")
+            parsed = urlsplit(instance_url)
+            parts = parsed.path.split("/")
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname not in {"compute.googleapis.com", "www.googleapis.com"}
+                or parsed.port is not None
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or len(parts) != 9
+                or parts[1:4] != ["compute", "v1", "projects"]
+                or parts[4] != spec.project_id
+                or parts[5] != "zones"
+                or parts[7] != "instances"
+                or not parts[6]
+                or not parts[8]
+                or "%" in parts[6]
+                or "%" in parts[8]
+            ):
+                raise ValueError("invalid-managed-instance-name")
+            identity = (parts[6], parts[8])
+            if identity in instances:
+                raise ValueError("duplicate-managed-instance")
+            instances.add(identity)
         return sorted(instances)
 
     def _guest_attribute(
@@ -283,14 +343,13 @@ class GoogleAcceptanceVerifier:
                 ),
             )
             matchers = payload.get("endpointMatchers", payload.get("endpoint_matchers"))
-            exact = False
-            if isinstance(matchers, list):
-                exact = any(
-                    isinstance(matcher, dict)
-                    and matcher.get("hostname") == spec.application_hostname
-                    and matcher.get("ports") == [spec.application_port]
-                    for matcher in matchers
-                )
+            exact = (
+                isinstance(matchers, list)
+                and len(matchers) == 1
+                and isinstance(matchers[0], dict)
+                and matchers[0].get("hostname") == spec.application_hostname
+                and matchers[0].get("ports") == [spec.application_port]
+            )
             upstreams = payload.get("upstreams")
             network_name = (
                 spec.vpc_name
@@ -298,26 +357,24 @@ class GoogleAcceptanceVerifier:
                 else f"{spec.name}-vpc"
             )
             expected_network = (
-                f"projects/{spec.project_id}/global/networks/{network_name}"
+                f"projects/{spec.upstream_project_id}/global/networks/{network_name}"
             )
             upstream_exact = False
-            if isinstance(upstreams, list):
-                for upstream in upstreams:
-                    if not isinstance(upstream, dict):
-                        continue
+            if isinstance(upstreams, list) and len(upstreams) == 1:
+                upstream = upstreams[0]
+                if isinstance(upstream, dict):
                     network = upstream.get("network")
-                    if not isinstance(network, dict) or network.get("name") != expected_network:
-                        continue
-                    if not spec.application_egress_region:
-                        upstream_exact = True
-                        break
                     policy = upstream.get("egressPolicy", upstream.get("egress_policy"))
-                    if (
-                        isinstance(policy, dict)
-                        and policy.get("regions") == [spec.application_egress_region]
-                    ):
-                        upstream_exact = True
-                        break
+                    expected_policy = (
+                        {"regions": [spec.application_egress_region]}
+                        if spec.application_egress_region
+                        else None
+                    )
+                    upstream_exact = (
+                        isinstance(network, dict)
+                        and network.get("name") == expected_network
+                        and policy == expected_policy
+                    )
             exact = exact and upstream_exact
             return self._finding(
                 AcceptanceTestId.T05,
@@ -389,5 +446,9 @@ class GoogleAcceptanceVerifier:
         )
 
 
-def create_google_acceptance_verifier() -> GoogleAcceptanceVerifier:
-    return GoogleAcceptanceVerifier(GoogleAuthorizedTransport.from_adc())
+def create_google_acceptance_verifier(
+    *, require_impersonation: bool = False
+) -> GoogleAcceptanceVerifier:
+    return GoogleAcceptanceVerifier(
+        GoogleAuthorizedTransport.from_adc(require_impersonation=require_impersonation)
+    )

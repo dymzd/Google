@@ -1,5 +1,5 @@
 title: Secure Gateway Studio Deployer
-description: Least-privilege deployment and rollback permissions used by Secure Gateway Studio.
+description: All-supported-path deployment and rollback permissions used by Secure Gateway Studio.
 stage: GA
 includedPermissions:
   - accesscontextmanager.accessLevels.get
@@ -7,13 +7,14 @@ includedPermissions:
   - beyondcorp.securityGateways.delete
   - beyondcorp.securityGateways.get
   - beyondcorp.securityGateways.getIamPolicy
+  - beyondcorp.securityGateways.list
   - beyondcorp.securityGateways.setIamPolicy
-  - beyondcorp.securityGateways.update
   - beyondcorp.operations.get
   - beyondcorp.sgApplications.create
   - beyondcorp.sgApplications.delete
   - beyondcorp.sgApplications.get
   - beyondcorp.sgApplications.getIamPolicy
+  - beyondcorp.sgApplications.list
   - beyondcorp.sgApplications.setIamPolicy
   - compute.addresses.create
   - compute.addresses.createInternal
@@ -26,12 +27,14 @@ includedPermissions:
   - compute.autoscalers.delete
   - compute.autoscalers.get
   - compute.disks.create
+  - compute.disks.get
   - compute.firewalls.create
   - compute.firewalls.delete
   - compute.firewalls.get
   - compute.forwardingRules.create
   - compute.forwardingRules.delete
   - compute.forwardingRules.get
+  - compute.forwardingRules.list
   - compute.globalOperations.get
   - compute.healthChecks.create
   - compute.healthChecks.delete
@@ -88,12 +91,14 @@ includedPermissions:
   - compute.routers.get
   - compute.routers.list
   - compute.routers.update
+  - compute.routes.list
   - compute.subnetworks.create
   - compute.subnetworks.delete
   - compute.subnetworks.get
   - compute.subnetworks.use
   - compute.zoneOperations.get
   - dns.changes.create
+  - dns.changes.get
   - dns.managedZones.create
   - dns.managedZones.delete
   - dns.managedZones.get
@@ -123,6 +128,9 @@ includedPermissions:
   - secretmanager.versions.access
   - secretmanager.versions.add
   - secretmanager.versions.disable
+  - secretmanager.versions.destroy
+  - secretmanager.versions.get
+  - secretmanager.versions.list
   - serviceusage.operations.get
   - serviceusage.services.enable
   - serviceusage.services.get

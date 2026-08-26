@@ -22,21 +22,33 @@ export class ApiError extends Error {
   }
 }
 
+/** Features implemented by this concrete transport. */
+export const runtimeCapabilities = {
+  bootstrapAccessPolicyId: false,
+  cepDeployer: false,
+  internalHttpsLbArchitecture: true,
+  postDeploymentAccessUpdate: false,
+  sessionSignOut: false,
+  recommendedPocSourceImage: false,
+  userDataDisclosure: false,
+  vpcNetworkCatalog: false,
+} as const;
+
 export async function postJson<TResponse>(
   path: string,
   body: unknown,
 ): Promise<TResponse> {
-  const sessionNonce = await getSessionNonce();
-  const response = await fetch(path, {
+  const serializedBody = JSON.stringify(body);
+  const response = await fetchWithSessionRetry(path, (sessionNonce) => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-Requested-With": "SecureGatewayStudio",
       "X-SGS-Session": sessionNonce,
     },
-    body: JSON.stringify(body),
+    body: serializedBody,
     credentials: "omit",
-  });
+  }));
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     let code = "request-failed";
@@ -94,16 +106,39 @@ function getSessionNonce(): Promise<string> {
   return sessionNoncePromise;
 }
 
+async function fetchWithSessionRetry(
+  path: string,
+  init: (sessionNonce: string) => RequestInit,
+): Promise<Response> {
+  const request = async () => fetch(path, init(await getSessionNonce()));
+  let response = await request();
+  if (response.status !== 403) return response;
+  try {
+    const payload = (await response.clone().json()) as {
+      detail?: { code?: string };
+    };
+    if (payload.detail?.code !== "session-invalid") return response;
+  } catch {
+    return response;
+  }
+
+  // A backend restart rotates the in-memory loopback session nonce. The 403
+  // above is emitted by the session dependency before the endpoint body runs,
+  // so refreshing and retrying this exact request cannot duplicate a mutation.
+  sessionNoncePromise = null;
+  response = await request();
+  return response;
+}
+
 export async function getJson<TResponse>(path: string): Promise<TResponse> {
-  const sessionNonce = await getSessionNonce();
-  const response = await fetch(path, {
+  const response = await fetchWithSessionRetry(path, (sessionNonce) => ({
     method: "GET",
     headers: {
       "X-Requested-With": "SecureGatewayStudio",
       "X-SGS-Session": sessionNonce,
     },
     credentials: "omit",
-  });
+  }));
   if (!response.ok) {
     throw new ApiError(response.status, "request-failed", `Request failed (${response.status})`);
   }
@@ -112,15 +147,14 @@ export async function getJson<TResponse>(path: string): Promise<TResponse> {
 
 
 export async function getBlob(path: string, failureCode: string): Promise<Blob> {
-  const sessionNonce = await getSessionNonce();
-  const response = await fetch(path, {
+  const response = await fetchWithSessionRetry(path, (sessionNonce) => ({
     method: "GET",
     headers: {
       "X-Requested-With": "SecureGatewayStudio",
       "X-SGS-Session": sessionNonce,
     },
     credentials: "omit",
-  });
+  }));
   if (!response.ok) {
     throw new ApiError(response.status, failureCode, `Request failed (${response.status})`);
   }

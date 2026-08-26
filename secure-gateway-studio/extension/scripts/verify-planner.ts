@@ -137,6 +137,117 @@ for (const testCase of golden.cases) {
   }
 }
 
+{
+  const testCase = golden.cases.find((candidate) =>
+    candidate.spec.backend_kind === "direct_https"
+  );
+  if (testCase === undefined) {
+    failures.push("ownership classifier: no direct HTTPS fixture was available");
+  } else {
+    const spec = parseDeploymentSpec(testCase.spec);
+    const applicationKey = `beyondcorp:application:${spec.name}-app`;
+    const plan = buildPlan(spec, {
+      ...testCase.snapshot,
+      existing_resource_keys: [
+        ...(testCase.snapshot.existing_resource_keys ?? []),
+        applicationKey,
+      ],
+    });
+    const application = plan.changes.find((change) =>
+      `${change.provider}:${change.resource_type}:${change.resource_name}` === applicationKey
+    );
+    if (application?.action !== "no_change" || application.owned_after_apply !== false) {
+      failures.push(
+        "ownership classifier: a pre-existing managed application was claimed by the new run",
+      );
+    }
+    const projectIamKey =
+      `cloudresourcemanager:project_iam:${spec.name}-upstream-access`;
+    const createdProjectIam = buildPlan(spec, testCase.snapshot).changes.find((change) =>
+      `${change.provider}:${change.resource_type}:${change.resource_name}` === projectIamKey
+    );
+    const reusedProjectIam = buildPlan(spec, {
+      ...testCase.snapshot,
+      existing_resource_keys: [
+        ...(testCase.snapshot.existing_resource_keys ?? []),
+        projectIamKey,
+      ],
+    }).changes.find((change) =>
+      `${change.provider}:${change.resource_type}:${change.resource_name}` === projectIamKey
+    );
+    if (
+      createdProjectIam?.action !== "create" ||
+      createdProjectIam.owned_after_apply !== true ||
+      reusedProjectIam?.action !== "reuse" ||
+      reusedProjectIam.owned_after_apply !== false
+    ) {
+      failures.push(
+        "ownership classifier: project IAM managed delta was not owned exactly for CREATE",
+      );
+    }
+  }
+}
+
+{
+  const baseCase = golden.cases.find((candidate) =>
+    candidate.spec.backend_kind === "managed_sample" && candidate.spec.mode === "poc"
+  );
+  if (baseCase === undefined) {
+    failures.push("Option B planner: no PoC VM fixture was available");
+  } else {
+    const spec = parseDeploymentSpec({
+      ...baseCase.spec,
+      backend_kind: "internal_https_lb",
+      network_strategy: "dedicated",
+      vpc_name: null,
+      subnet_name: null,
+      proxy_subnet_cidr: "10.42.1.0/24",
+      existing_backend_url: null,
+      existing_backend_location: null,
+      existing_backend_connectivity_confirmed: false,
+    });
+    const plan = buildPlan(spec, baseCase.snapshot);
+    const keys = new Set(plan.changes.map((change) =>
+      `${change.provider}:${change.resource_type}:${change.resource_name}`
+    ));
+    for (const required of [
+      `compute:subnetwork:${spec.name}-proxy-subnet`,
+      `compute:instance:${spec.name}-backend`,
+      `compute:instance_group:${spec.name}-backend-ig`,
+      `compute:health_check:${spec.name}-ilb-hc`,
+      `compute:backend_service:${spec.name}-ilb-bs`,
+      `compute:ssl_certificate:${spec.name}-ilb-cert`,
+      `compute:url_map:${spec.name}-ilb-map`,
+      `compute:target_https_proxy:${spec.name}-ilb-proxy`,
+      `compute:forwarding_rule:${spec.name}-ilb-fr`,
+    ]) {
+      if (!keys.has(required)) failures.push(`Option B planner: missing ${required}`);
+    }
+    const permissions = requiredPermissions(spec);
+    for (const permission of [
+      "compute.instanceGroups.create",
+      "compute.regionSslCertificates.create",
+      "compute.regionTargetHttpsProxies.create",
+      "compute.regionUrlMaps.create",
+      "compute.forwardingRules.create",
+      "secretmanager.versions.access",
+    ]) {
+      if (!permissions.has(permission)) {
+        failures.push(`Option B planner: missing permission ${permission}`);
+      }
+    }
+    for (const excessive of [
+      "compute.autoscalers.create",
+      "compute.instanceTemplates.create",
+      "compute.instanceGroupManagers.create",
+    ]) {
+      if (permissions.has(excessive)) {
+        failures.push(`Option B planner: excessive permission ${excessive}`);
+      }
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(`FAIL ${failures.length} difference(s) across ${compared} Path B cases\n`);
   for (const failure of failures) console.error(`  ${failure}`);

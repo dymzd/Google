@@ -4,6 +4,7 @@ interface ChoiceCardProps {
   title: string;
   description: string;
   detail?: string;
+  cost?: string;
   selected: boolean;
   disabled?: boolean;
   icon?: ReactNode;
@@ -14,6 +15,7 @@ export function ChoiceCard({
   title,
   description,
   detail,
+  cost,
   selected,
   disabled = false,
   icon,
@@ -40,6 +42,7 @@ export function ChoiceCard({
           {title}
           {detail ? <em>{detail}</em> : null}
         </strong>
+        {cost ? <em className="choice-cost">{cost}</em> : null}
         <span>{description}</span>
       </span>
     </button>

@@ -6,6 +6,7 @@ import {
   type AuditEvent,
   type AuditIntegrity,
   type DeploymentRun,
+  exportEvidenceBundle,
   getAcceptanceReadiness,
   getAuditIntegrity,
   listAuditEvents,
@@ -148,6 +149,25 @@ export function OperationsPage({ messages, view }: OperationsPageProps) {
     }
   }
 
+  async function handleExport() {
+    try {
+      const bundle = await exportEvidenceBundle();
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sgs-evidence-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch {
+      setActionMessage(copy.acceptanceActionFailed);
+    }
+  }
+
   return (
     <main className="operations-page">
       <header className="operations-heading">
@@ -157,14 +177,14 @@ export function OperationsPage({ messages, view }: OperationsPageProps) {
           <p>{intro}</p>
         </div>
         {view === "evidence" && (
-          <a
+          <button
+            type="button"
             className="primary-action evidence-download"
-            download
-            href="/api/v1/evidence/export"
+            onClick={handleExport}
           >
             <DocumentIcon size={19} />
             {copy.exportEvidence}
-          </a>
+          </button>
         )}
       </header>
 
@@ -454,12 +474,12 @@ export function OperationsPage({ messages, view }: OperationsPageProps) {
                     </button>
                   </form>
                 )}
-                {actionMessage && (
-                  <p className="acceptance-action-message" role="status">
-                    {actionMessage}
-                  </p>
-                )}
               </>
+            )}
+            {actionMessage && (
+              <p className="acceptance-action-message" role="status">
+                {actionMessage}
+              </p>
             )}
           </section>
           <section className="operations-panel">

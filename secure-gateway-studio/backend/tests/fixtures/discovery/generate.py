@@ -90,6 +90,11 @@ class RecordingTransport:
             return 200, {"permissions": list(requested)}
         if "cloudbilling.googleapis.com" in url:
             return 200, {"billingEnabled": True}
+        if "admin.googleapis.com" in url and "/orgunits/id%3A" in url:
+            return 200, {
+                "orgUnitId": "id:03-test-ou",
+                "orgUnitPath": "/Secure Gateway Test",
+            }
         if "/aggregated/forwardingRules" in url:
             if self._matcher_ip is None or self._global_access is None:
                 return 200, {"items": {}}
@@ -101,6 +106,9 @@ class RecordingTransport:
                                 "name": "app-ilb-fr",
                                 "IPAddress": self._matcher_ip,
                                 "allowGlobalAccess": self._global_access,
+                                "loadBalancingScheme": "INTERNAL_MANAGED",
+                                "IPProtocol": "TCP",
+                                "ports": ["8443"],
                             }
                         ]
                     }
@@ -112,7 +120,9 @@ class RecordingTransport:
             return 200, {"name": _ACCESS_LEVEL}
         if "/securityGateways/" in url:
             return 404, {}
-        if "chromepolicy" in url or "chromemanagement" in url or "licensing" in url:
+        if "chromepolicy" in url:
+            return 200, {"resolvedPolicies": []}
+        if "chromemanagement" in url or "licensing" in url:
             return 200, {}
         if "admin.googleapis.com" in url:
             return 200, {}

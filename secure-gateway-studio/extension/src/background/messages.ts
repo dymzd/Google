@@ -28,11 +28,9 @@ export type Request =
   | { kind: "signOut" }
   | { kind: "preflight"; spec: Record<string, unknown> }
   | { kind: "plan"; spec: Record<string, unknown> }
-  | { kind: "approve"; planHash: string; confirmation: string }
   | { kind: "apply"; approvalId: string }
   | { kind: "runState"; runId: string }
-  | { kind: "auditChain" }
-  | { kind: "exportEvidence" };
+  | { kind: "auditChain" };
 
 export type Response<T> = { ok: true; value: T } | { ok: false; code: string; message: string };
 

@@ -4,7 +4,7 @@
  * The local application used keyless ADC with `--impersonate-service-account`.
  * The extension cannot read `~/.config/gcloud`, so consent moves to
  * `chrome.identity`, but the impersonation step is deliberately preserved:
- * mutations must run as the least-privilege deployer service account, not as
+ * mutations must run as the pinned product-scoped deployer service account, not as
  * the administrator who happened to sign in.
  *
  *   administrator token (chrome.identity)
@@ -47,6 +47,16 @@ export const DEFAULT_SCOPES = [
   "https://www.googleapis.com/auth/apps.licensing",
 ] as const;
 
+/**
+ * The impersonated deployer only calls Google Cloud APIs. Workspace APIs use
+ * the administrator token directly, so carrying their scopes on the deployer
+ * token would add authority that can never be used legitimately.
+ */
+export const DEPLOYER_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"] as const;
+
+/** Chrome administrator token additionally carries OIDC identity claims. */
+export const ADMINISTRATOR_SCOPES = ["openid", ...DEFAULT_SCOPES] as const;
+
 /** Refresh a delegated token this many seconds before it actually expires. */
 const RENEW_MARGIN_SECONDS = 120;
 
@@ -82,32 +92,137 @@ export interface DelegatedToken {
 export interface IdentityBackend {
   getAuthToken(interactive: boolean): Promise<string>;
   removeCachedAuthToken(token: string): Promise<void>;
+  clearAllCachedAuthTokens(): Promise<void>;
 }
 
 /** `chrome.identity` wrapped so tests can substitute a fake. */
 export const chromeIdentity: IdentityBackend = {
   getAuthToken(interactive: boolean): Promise<string> {
     return new Promise((resolve, reject) => {
-      console.log("[SGS Auth] chrome.identity.getAuthToken starting (interactive:", interactive, ")");
-      chrome.identity.getAuthToken({ interactive, scopes: [...DEFAULT_SCOPES] }, (token) => {
+      chrome.identity.getAuthToken({ interactive, scopes: [...ADMINISTRATOR_SCOPES] }, (token) => {
         const error = chrome.runtime.lastError;
         if (error || !token) {
-          console.error("[SGS Auth] chrome.identity.getAuthToken failed:", error?.message, error);
           reject(consentRequired(error?.message ?? "No token was returned."));
           return;
         }
-        console.log("[SGS Auth] chrome.identity.getAuthToken succeeded");
         // Older Chrome hands back a bare string, newer a `{ token }` object.
         resolve(typeof token === "string" ? token : (token as { token: string }).token);
       });
     });
   },
   removeCachedAuthToken(token: string): Promise<void> {
-    return new Promise((resolve) => {
-      chrome.identity.removeCachedAuthToken({ token }, () => resolve());
+    return new Promise((resolve, reject) => {
+      chrome.identity.removeCachedAuthToken({ token }, () => {
+        const error = chrome.runtime.lastError;
+        if (error !== undefined) {
+          reject(new AuthenticationError(
+            "token-cache-remove-failed",
+            `Chrome could not invalidate the cached administrator token: ${error.message}`,
+          ));
+          return;
+        }
+        resolve();
+      });
+    });
+  },
+  clearAllCachedAuthTokens(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      chrome.identity.clearAllCachedAuthTokens(() => {
+        const error = chrome.runtime.lastError;
+        if (error !== undefined) {
+          reject(new AuthenticationError(
+            "administrator-signout-failed",
+            `Chrome could not clear the administrator OAuth session: ${error.message}`,
+          ));
+          return;
+        }
+        resolve();
+      });
     });
   },
 };
+
+export interface GoogleOperatorIdentity {
+  email: string;
+  /** Immutable OpenID Connect subject for the token's Google account. */
+  subject: string;
+}
+
+export interface GoogleOperatorIdentityOptions {
+  identity?: IdentityBackend;
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Resolve the actor attested by the current administrator OAuth token.
+ *
+ * This deliberately does not fall back to the Chrome profile account. A
+ * profile identifier is stable, but asking UserInfo with the very token used
+ * for administrator calls proves that the approval/mutation actor and the
+ * immutable subject are the same Google account. Background wakes are always
+ * non-interactive; only the explicit sign-in route is allowed to prompt.
+ */
+export async function googleOperatorIdentity(
+  options: GoogleOperatorIdentityOptions = {},
+): Promise<GoogleOperatorIdentity> {
+  const identity = options.identity ?? chromeIdentity;
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const token = await identity.getAuthToken(false);
+  let response: Response;
+  try {
+    response = await fetchImpl("https://openidconnect.googleapis.com/v1/userinfo", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (error) {
+    throw new AuthenticationError(
+      "operator-identity-unavailable",
+      `Google UserInfo could not attest the administrator token: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (response.status === 401) {
+    // Do not let a stale/revoked token keep looking like a live session. The
+    // next explicit sign-in is the only place Chrome may prompt again.
+    await identity.removeCachedAuthToken(token);
+    throw consentRequired("Google UserInfo rejected the cached administrator token.");
+  }
+  if (!response.ok) {
+    throw new AuthenticationError(
+      "operator-identity-unavailable",
+      `Google UserInfo could not attest the administrator token (HTTP ${response.status}).`,
+    );
+  }
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new AuthenticationError(
+      "operator-identity-unavailable",
+      "Google UserInfo returned malformed JSON.",
+    );
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    throw new AuthenticationError(
+      "operator-identity-unavailable",
+      "Google UserInfo returned a malformed identity.",
+    );
+  }
+  const claims = payload as Record<string, unknown>;
+  const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+  const subject = typeof claims.sub === "string" ? claims.sub : "";
+  if (
+    claims.email_verified !== true ||
+    !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ||
+    !/^[A-Za-z0-9_-]{6,255}$/.test(subject)
+  ) {
+    throw new AuthenticationError(
+      "operator-identity-unavailable",
+      "Google UserInfo did not return a verified email and immutable subject.",
+    );
+  }
+  return { email, subject };
+}
 
 export interface DeployerCredentialsOptions {
   serviceAccountEmail: string;
@@ -156,13 +271,21 @@ export class DeployerCredentials {
     try {
       const administrator = await this.identity.getAuthToken(false);
       await this.identity.removeCachedAuthToken(administrator);
-    } catch {
-      // Nothing cached to clear; re-consent will happen on the next mint.
+    } catch (error) {
+      if (error instanceof AuthenticationError && error.code === "consent-required") {
+        // No usable cached grant remains. The next explicit sign-in action is
+        // responsible for consent; background renewal must never prompt.
+        return;
+      }
+      throw error;
     }
   }
 
   private async mint(): Promise<DelegatedToken> {
-    const administrator = await this.identity.getAuthToken(true);
+    // Token renewal happens from alarms and cold workers too. Chrome permits
+    // interactive consent only from an explicit explanatory UI action; the
+    // sign-in handler performs that action and leaves a cached token here.
+    const administrator = await this.identity.getAuthToken(false);
     const url =
       "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/" +
       `${encodeURIComponent(this.serviceAccountEmail)}:generateAccessToken`;
@@ -173,7 +296,7 @@ export class DeployerCredentials {
         Authorization: `Bearer ${administrator}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ scope: [...DEFAULT_SCOPES], lifetime: "3600s" }),
+      body: JSON.stringify({ scope: [...DEPLOYER_SCOPES], lifetime: "3600s" }),
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -229,6 +352,14 @@ export function redactCredentials(value: unknown): unknown {
       output[key] = SENSITIVE_KEY.test(key) ? "[redacted]" : redactCredentials(item);
     }
     return output;
+  }
+  if (
+    typeof value === "string" &&
+    (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(value) ||
+      /\bBearer\s+[A-Za-z0-9._~+/-]{12,}/i.test(value) ||
+      /\bya29\.[A-Za-z0-9_-]+/.test(value))
+  ) {
+    return "[redacted]";
   }
   return value;
 }

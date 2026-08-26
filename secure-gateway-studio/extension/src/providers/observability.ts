@@ -23,6 +23,7 @@ export interface LogEntry {
   method: string | null;
   resource: string | null;
   request_id: string | null;
+  caller_ip: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -37,6 +38,27 @@ export interface LogsResponse {
 
 const LOGGING = "https://logging.googleapis.com/v2";
 const COMPUTE = "https://compute.googleapis.com/compute/v1";
+const BEYONDCORP = "https://beyondcorp.googleapis.com/v1";
+// Request only the fields needed for the operator-facing health/audit view.
+// In particular, never receive textPayload, requestMetadata/callerIp, an
+// authenticated principal, or Nginx URI/query fields. Chrome Web Store policy
+// classifies URL paths obtained from a cloud service as web-browsing activity;
+// this feature does not need that data.
+const LOG_ENTRY_FIELDS = [
+  "insertId",
+  "timestamp",
+  "severity",
+  "protoPayload.methodName",
+  "protoPayload.serviceName",
+  "protoPayload.resourceName",
+  "protoPayload.status",
+  "jsonPayload.status",
+  "jsonPayload.upstream_status",
+  "jsonPayload.request_id",
+  "jsonPayload.requestId",
+].join(",");
+const LOG_FIELDS = encodeURIComponent(`entries(${LOG_ENTRY_FIELDS}),nextPageToken`);
+const MAX_LOG_PAGES = 100;
 
 export class GatewayObservability {
   private readonly transport: Transport;
@@ -58,6 +80,7 @@ export class GatewayObservability {
     const filters = [`timestamp>="${since}"`];
     let setupNotice: string | null = null;
     let dataAccessNotice = false;
+    let loggingEnabled: boolean | null = null;
 
     if (options.category === "access") {
       filters.push(
@@ -69,6 +92,7 @@ export class GatewayObservability {
       // says so rather than showing an empty list as if nothing happened.
       dataAccessNotice = true;
     } else if (options.category === "connection") {
+      loggingEnabled = await this.gatewayLoggingEnabled(spec);
       filters.push('resource.type="beyondcorp.googleapis.com/SecurityGateway"');
     } else if (options.category === "admin") {
       filters.push(
@@ -82,7 +106,7 @@ export class GatewayObservability {
           run_id: options.runId,
           category: options.category,
           entries: [],
-          logging_enabled: await this.loggingEnabled(spec),
+          logging_enabled: loggingEnabled,
           setup_notice:
             spec.backend_kind === "direct_https"
               ? "Nginx logs require an HTTP-offload VM and the Google Cloud Ops Agent. " +
@@ -100,54 +124,78 @@ export class GatewayObservability {
         "to collect /var/log/nginx/sgstudio-access.log.";
     }
 
-    const { payload } = await this.transport.requestJson("POST", `${LOGGING}/entries:list`, {
-      jsonBody: {
-        resourceNames: [`projects/${spec.project_id}`],
-        filter: filters.join(" AND "),
-        orderBy: "timestamp desc",
-        pageSize: limit,
-      },
-    });
+    const raw: Record<string, unknown>[] = [];
+    const seenPageTokens = new Set<string>();
+    let pageToken: string | undefined;
+    for (let page = 0; page < MAX_LOG_PAGES; page += 1) {
+      const { payload } = await this.transport.requestJson(
+        "POST",
+        `${LOGGING}/entries:list?fields=${LOG_FIELDS}`,
+        {
+          jsonBody: {
+            resourceNames: [`projects/${spec.project_id}`],
+            filter: filters.join(" AND "),
+            orderBy: "timestamp desc",
+            pageSize: Math.min(limit - raw.length, 200),
+            ...(pageToken === undefined ? {} : { pageToken }),
+          },
+        },
+      );
+      const pageEntries = payload.entries === undefined ? [] : payload.entries;
+      if (
+        !Array.isArray(pageEntries) ||
+        pageEntries.some((item) => item === null || typeof item !== "object" || Array.isArray(item))
+      ) {
+        throw new Error("cloud-logging-entries-invalid");
+      }
+      raw.push(
+        ...(pageEntries as Record<string, unknown>[]).slice(0, limit - raw.length),
+      );
 
-    const raw = Array.isArray(payload.entries) ? payload.entries : [];
-    const entries = raw
-      .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object")
-      .map((item, index) => this.entry(item, options.category, index));
+      const next = payload.nextPageToken;
+      if (next === undefined || next === "") break;
+      if (typeof next !== "string" || seenPageTokens.has(next)) {
+        throw new Error("cloud-logging-page-token-invalid");
+      }
+      seenPageTokens.add(next);
+      if (raw.length >= limit) break;
+      if (page + 1 >= MAX_LOG_PAGES) {
+        throw new Error("cloud-logging-pagination-incomplete");
+      }
+      pageToken = next;
+    }
+
+    const entries = raw.map((item, index) => this.entry(item, options.category, index));
 
     return {
       run_id: options.runId,
       category: options.category,
       entries,
-      logging_enabled: await this.loggingEnabled(spec),
+      logging_enabled: loggingEnabled,
       data_access_notice: dataAccessNotice,
       setup_notice: setupNotice,
     };
   }
 
-  async loggingEnabled(spec: DeploymentSpec): Promise<boolean | null> {
-    try {
-      const { payload } = await this.transport.requestJson(
-        "GET",
-        `https://beyondcorp.googleapis.com/v1/projects/${spec.project_id}` +
-          `/locations/global/securityGateways/${spec.gateway_id}`,
-      );
-      const logging = payload.loggingConfig as { enabled?: unknown } | undefined;
-      return typeof logging?.enabled === "boolean" ? logging.enabled : null;
-    } catch {
-      return null;
-    }
-  }
-
-  async enableLogging(spec: DeploymentSpec): Promise<boolean> {
-    await this.transport.requestJson(
-      "PATCH",
-      `https://beyondcorp.googleapis.com/v1/projects/${spec.project_id}` +
-        `/locations/global/securityGateways/${spec.gateway_id}`,
-      {
-        params: { updateMask: "logging_config" },
-        jsonBody: { loggingConfig: { enabled: true } },
-      },
+  private async gatewayLoggingEnabled(spec: DeploymentSpec): Promise<boolean> {
+    // `logging: {}` is the current Security Gateway connection-logging enable
+    // marker. Request only that field so this state check cannot receive
+    // gateway addresses or any unrelated provider output.
+    const { payload } = await this.transport.requestJson(
+      "GET",
+      `${BEYONDCORP}/projects/${spec.project_id}/locations/global/` +
+        `securityGateways/${spec.gateway_id}?fields=logging`,
     );
+    if (!Object.prototype.hasOwnProperty.call(payload, "logging")) return false;
+    const logging = payload.logging;
+    if (
+      logging === null ||
+      typeof logging !== "object" ||
+      Array.isArray(logging) ||
+      Object.keys(logging as Record<string, unknown>).length !== 0
+    ) {
+      throw new Error("security-gateway-logging-state-invalid");
+    }
     return true;
   }
 
@@ -167,35 +215,38 @@ export class GatewayObservability {
   /**
    * Reduce an entry to what the UI shows.
    *
-   * Only a timestamp, a severity, and a short summary leave this function.
-   * Payloads can carry request paths and principal identifiers, and the views
-   * exist to answer "did access decisions happen", not to surface their
-   * contents.
+   * Only explicitly allowlisted operational metadata leaves this function.
+   * Payloads can carry request paths, query data, IP addresses, free text, and
+   * principal identifiers; the views exist to answer "did an operation happen"
+   * rather than to surface or persist those contents.
    */
   private entry(item: Record<string, unknown>, category: LogCategory, index: number): LogEntry {
     const proto = item.protoPayload as Record<string, unknown> | undefined;
     const json = item.jsonPayload as Record<string, unknown> | undefined;
-    let summary = String(item.textPayload ?? "");
-    if (!summary && proto) {
-      summary = String(proto.methodName ?? proto.serviceName ?? "audited event");
-    }
-    if (!summary && json) {
-      const status = json.status ?? json.upstream_status ?? "";
-      summary = `${json.method ?? ""} ${json.uri ?? ""} ${status}`.trim();
-    }
-    const authInfo = proto?.authenticationInfo as Record<string, unknown> | undefined;
-    const reqMeta = proto?.requestMetadata as Record<string, unknown> | undefined;
+    const status = json?.status ?? json?.upstream_status ??
+      (proto?.status as Record<string, unknown> | undefined)?.code;
+    const summary = String(proto?.methodName ?? proto?.serviceName ?? status ?? "audited event");
     return {
       insert_id: String(item.insertId ?? item.insert_id ?? `log-${index}`),
       category,
       timestamp: typeof item.timestamp === "string" ? item.timestamp : null,
       severity: String(item.severity ?? "DEFAULT"),
       summary: summary.slice(0, 500) || "(no summary)",
-      principal: typeof authInfo?.principalEmail === "string" ? authInfo.principalEmail : null,
+      principal: null,
       method: typeof proto?.methodName === "string" ? proto.methodName : null,
       resource: typeof proto?.resourceName === "string" ? proto.resourceName : null,
-      request_id: typeof reqMeta?.callerIp === "string" ? reqMeta.callerIp : null,
-      payload: (proto ?? json ?? item) as Record<string, unknown>,
+      request_id:
+        typeof json?.request_id === "string"
+          ? json.request_id
+          : typeof json?.requestId === "string"
+            ? json.requestId
+            : null,
+      caller_ip: null,
+      payload: {
+        method_name: proto?.methodName ?? null,
+        service_name: proto?.serviceName ?? null,
+        status: (json?.status ?? json?.upstream_status) ?? null,
+      },
     };
   }
 }

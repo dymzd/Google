@@ -77,9 +77,13 @@ class GoogleConnectionValidator:
         )
 
 
-def create_google_connection_validator() -> GoogleConnectionValidator:
+def create_google_connection_validator(
+    *, require_impersonation: bool = False
+) -> GoogleConnectionValidator:
     try:
-        transport = GoogleAuthorizedTransport.from_adc()
+        transport = GoogleAuthorizedTransport.from_adc(
+            require_impersonation=require_impersonation
+        )
     except (DefaultCredentialsError, RefreshError) as error:
         raise RuntimeError(
             "Application Default Credentials are unavailable. Run "

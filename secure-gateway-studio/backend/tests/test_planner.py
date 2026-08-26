@@ -8,6 +8,7 @@ from sgstudio.domain.models import (
     BackendKind,
     BackendLocation,
     CertificateStrategy,
+    ChangeAction,
     ChromePlatform,
     DeploymentGate,
     DeploymentMode,
@@ -16,6 +17,7 @@ from sgstudio.domain.models import (
     DiscoverySnapshot,
     NetworkStrategy,
     PrincipalType,
+    PublicCertificateBinding,
 )
 from sgstudio.domain.naming import service_account_id
 from sgstudio.domain.planner import (
@@ -41,7 +43,7 @@ def test_deployer_role_manifest_matches_preflight_permissions() -> None:
     assert manifest_permissions == REQUIRED_PERMISSIONS
 
 
-def test_poc_bootstrap_role_matches_poc_permissions_not_supplied_by_base_roles() -> None:
+def test_bootstrap_role_covers_every_supported_path_not_supplied_by_base_roles() -> None:
     manifest = (
         Path(__file__).parents[2]
         / "infrastructure"
@@ -53,20 +55,6 @@ def test_poc_bootstrap_role_matches_poc_permissions_not_supplied_by_base_roles()
         for line in manifest.read_text(encoding="utf-8").splitlines()
         if line.startswith("  - ")
     }
-    common = dict(
-        mode="poc",
-        certificate_strategy="local_poc",
-        source_image=None,
-        chrome_enterprise_premium_license_confirmed=False,
-        workspace_services_confirmed=False,
-        endpoint_verification_confirmed=False,
-    )
-    nginx_spec = production_spec(**common)
-    ilb_spec = production_spec(
-        **common,
-        backend_kind=BackendKind.INTERNAL_HTTPS_LB,
-        proxy_subnet_cidr="10.42.1.0/24",
-    )
     base_role_permissions = {
         "accesscontextmanager.accessLevels.get",
         "resourcemanager.projects.get",
@@ -77,11 +65,17 @@ def test_poc_bootstrap_role_matches_poc_permissions_not_supplied_by_base_roles()
         "serviceusage.services.use",
     }
 
-    expected_permissions = (
-        required_permissions(nginx_spec) | required_permissions(ilb_spec)
-    ) - base_role_permissions
+    expected_permissions = REQUIRED_PERMISSIONS - base_role_permissions
 
     assert manifest_permissions == expected_permissions
+    assert {
+        "privateca.certificates.create",
+        "privateca.certificates.get",
+        "privateca.certificates.update",
+        "compute.instanceTemplates.create",
+        "compute.instanceGroupManagers.create",
+        "compute.autoscalers.create",
+    } <= manifest_permissions
 
 
 def test_internal_https_lb_plans_managed_tls_offload_without_nginx() -> None:
@@ -89,7 +83,6 @@ def test_internal_https_lb_plans_managed_tls_offload_without_nginx() -> None:
         mode="poc",
         backend_kind=BackendKind.INTERNAL_HTTPS_LB,
         certificate_strategy=CertificateStrategy.LOCAL_POC,
-        source_image=None,
         proxy_subnet_cidr="10.42.1.0/24",
         chrome_enterprise_premium_license_confirmed=False,
         workspace_services_confirmed=False,
@@ -109,6 +102,8 @@ def test_internal_https_lb_plans_managed_tls_offload_without_nginx() -> None:
     assert ("compute", "target_https_proxy", f"{spec.name}-ilb-proxy") in resources
     assert ("compute", "forwarding_rule", f"{spec.name}-ilb-fr") in resources
     assert ("compute", "instance", f"{spec.name}-backend") in resources
+    assert ("compute", "router", f"{spec.name}-router") in resources
+    assert ("compute", "cloud_nat", f"{spec.name}-nat") in resources
     assert ("compute", "instance", f"{spec.name}-offload") not in resources
     assert not any(
         resource_type == "instance_group_manager" for _, resource_type, _ in resources
@@ -123,13 +118,52 @@ def test_internal_https_lb_plans_managed_tls_offload_without_nginx() -> None:
     )
 
 
+def test_internal_https_lb_existing_vpc_requires_egress_and_only_owns_proxy_subnet() -> None:
+    spec = production_spec(
+        mode="poc",
+        backend_kind=BackendKind.INTERNAL_HTTPS_LB,
+        certificate_strategy=CertificateStrategy.LOCAL_POC,
+        network_strategy=NetworkStrategy.EXISTING,
+        vpc_name="shared-vpc",
+        subnet_name="private-vms",
+        proxy_subnet_cidr="10.42.1.0/24",
+        chrome_enterprise_premium_license_confirmed=False,
+        workspace_services_confirmed=False,
+        endpoint_verification_confirmed=False,
+    )
+
+    permissions = required_permissions(spec)
+    assert {"compute.subnetworks.create", "compute.subnetworks.delete"} <= permissions
+    assert not {
+        "compute.networks.create",
+        "compute.networks.delete",
+        "compute.routers.create",
+        "compute.routers.delete",
+        "compute.routers.update",
+    } & permissions
+
+    blocked = DesiredStatePlanner().build_plan(
+        spec,
+        DiscoverySnapshot(private_egress_available=False),
+    )
+    blocked_gate = next(gate for gate in blocked.gates if gate.gate_id == "private-egress")
+    assert blocked_gate.status == "pending"
+    assert blocked_gate.blocking is True
+
+    verified = DesiredStatePlanner().build_plan(
+        spec,
+        DiscoverySnapshot(private_egress_available=True),
+    )
+    verified_gate = next(gate for gate in verified.gates if gate.gate_id == "private-egress")
+    assert verified_gate.status == "pass"
+
+
 def test_internal_https_lb_rejects_overlapping_proxy_subnet() -> None:
     with pytest.raises(ValidationError, match="must not overlap"):
         production_spec(
             mode="poc",
             backend_kind=BackendKind.INTERNAL_HTTPS_LB,
             certificate_strategy=CertificateStrategy.LOCAL_POC,
-            source_image=None,
             subnet_cidr="10.42.0.0/24",
             proxy_subnet_cidr="10.42.0.128/25",
             chrome_enterprise_premium_license_confirmed=False,
@@ -143,7 +177,6 @@ def test_internal_address_permissions_cover_create_and_rollback() -> None:
         production_spec(
             mode="poc",
             certificate_strategy="local_poc",
-            source_image=None,
             chrome_enterprise_premium_license_confirmed=False,
             workspace_services_confirmed=False,
             endpoint_verification_confirmed=False,
@@ -159,7 +192,6 @@ def test_instance_permissions_cover_labels_and_network_tags() -> None:
         production_spec(
             mode="poc",
             certificate_strategy="local_poc",
-            source_image=None,
             chrome_enterprise_premium_license_confirmed=False,
             workspace_services_confirmed=False,
             endpoint_verification_confirmed=False,
@@ -175,7 +207,6 @@ def test_private_dns_permissions_cover_network_binding() -> None:
         production_spec(
             mode="poc",
             certificate_strategy="local_poc",
-            source_image=None,
             chrome_enterprise_premium_license_confirmed=False,
             workspace_services_confirmed=False,
             endpoint_verification_confirmed=False,
@@ -191,7 +222,6 @@ def test_beyondcorp_permissions_cover_long_running_operations() -> None:
         production_spec(
             mode="poc",
             certificate_strategy="local_poc",
-            source_image=None,
             chrome_enterprise_premium_license_confirmed=False,
             workspace_services_confirmed=False,
             endpoint_verification_confirmed=False,
@@ -232,13 +262,60 @@ def test_production_rejects_local_poc_ca() -> None:
         production_spec(certificate_strategy=CertificateStrategy.LOCAL_POC)
 
 
+def test_production_rejects_ilb_until_durable_certificate_rotation_is_available() -> None:
+    with pytest.raises(ValidationError, match=r"unavailable in 0\.2\.1"):
+        production_spec(backend_kind=BackendKind.INTERNAL_HTTPS_LB)
+
+    poc = production_spec(
+        mode="poc",
+        backend_kind=BackendKind.INTERNAL_HTTPS_LB,
+        certificate_strategy=CertificateStrategy.LOCAL_POC,
+        managed_chrome_access_level=None,
+        chrome_enterprise_premium_license_confirmed=False,
+        workspace_services_confirmed=False,
+        endpoint_verification_confirmed=False,
+    )
+    assert poc.backend_kind is BackendKind.INTERNAL_HTTPS_LB
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "ca_pool",
+            "projects/other-project/locations/asia-east1/caPools/enterprise",
+            "ca_pool must be a full CA pool name in the deployment project",
+        ),
+        (
+            "ca_name",
+            "projects/enterprise-secgw-01/locations/asia-east1/caPools/other/"
+            "certificateAuthorities/issuing",
+            "ca_name must identify an authority in ca_pool",
+        ),
+        (
+            "ca_name",
+            "projects/enterprise-secgw-01/locations/asia-east1/caPools/enterprise/"
+            "certificateAuthorities/issuing?alt=json",
+            "ca_name must identify an authority in ca_pool",
+        ),
+    ],
+)
+def test_enterprise_ca_resources_are_exact_and_project_scoped(
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        production_spec(**{field: value})
+
+
 def test_production_requires_managed_chrome_access_level() -> None:
     with pytest.raises(ValidationError, match="requires a managed Chrome access level"):
         production_spec(managed_chrome_access_level=None)
 
 
 def test_production_requires_an_immutable_image_not_an_image_family() -> None:
-    with pytest.raises(ValidationError, match="requires an immutable hardened source image"):
+    with pytest.raises(ValidationError, match="require an immutable hardened source image"):
         production_spec(source_image=None)
     with pytest.raises(ValidationError, match="full immutable Compute Engine image"):
         production_spec(source_image="projects/debian-cloud/global/images/family/debian-12")
@@ -283,6 +360,21 @@ def test_poc_can_use_local_ca() -> None:
     assert root.owned_after_apply is True
 
 
+def test_poc_requires_the_operator_to_confirm_a_dedicated_test_ou() -> None:
+    poc_spec = production_spec(
+        mode=DeploymentMode.POC,
+        certificate_strategy=CertificateStrategy.LOCAL_POC,
+        test_ou_confirmed=False,
+    )
+
+    plan = DesiredStatePlanner().build_plan(poc_spec)
+    gate = next(item for item in plan.gates if item.gate_id == "test-ou")
+
+    assert gate.status == "blocked"
+    assert gate.blocking is True
+    assert plan.can_apply is False
+
+
 def test_local_poc_ca_accepts_profile_managed_desktop_chrome_targets() -> None:
     local_spec = production_spec(
         mode=DeploymentMode.POC,
@@ -317,7 +409,9 @@ def test_plan_overrides_legacy_pac_for_service_discovery() -> None:
 
     assert proxy_change.provider == "chromepolicy"
     assert proxy_change.resource_name == "03-test-ou"
-    assert proxy_change.owned_after_apply is False
+    # SGS owns the exact field delta (not the shared policy object) so teardown
+    # can perform a durable three-way restore.
+    assert proxy_change.owned_after_apply is True
     assert proxy_change.dependencies == [
         "chromepolicy:extension_configuration:ekajlcmdfcigmdbphhifahdfjbkciflj"
     ]
@@ -349,7 +443,6 @@ def test_poc_does_not_require_autoscaler_permissions() -> None:
     permissions = required_permissions(
         production_spec(
             mode="poc",
-            source_image=None,
             managed_chrome_access_level=None,
             chrome_enterprise_premium_license_confirmed=False,
             workspace_services_confirmed=False,
@@ -384,7 +477,6 @@ def test_api_verified_license_keeps_root_store_as_manual_t07_handoff() -> None:
     spec = production_spec(
         mode="poc",
         certificate_strategy="local_poc",
-        source_image=None,
         chrome_enterprise_premium_license_confirmed=False,
         workspace_services_confirmed=False,
         endpoint_verification_confirmed=False,
@@ -524,6 +616,19 @@ def test_default_gateway_is_shared_and_not_owned() -> None:
     assert gateway.owned_after_apply is False
 
 
+def test_preexisting_managed_resource_is_not_claimed_by_new_run() -> None:
+    key = "compute:instance_group_manager:secure-gateway-http-offload-offload-mig"
+    plan = DesiredStatePlanner().build_plan(
+        production_spec(),
+        DiscoverySnapshot(existing_resource_keys={key}),
+    )
+    manager = next(
+        change for change in plan.changes if change.resource_type == "instance_group_manager"
+    )
+    assert manager.action is ChangeAction.NO_CHANGE
+    assert manager.owned_after_apply is False
+
+
 def test_conflict_is_blocking() -> None:
     snapshot = DiscoverySnapshot(
         conflicting_resource_keys={
@@ -571,6 +676,108 @@ def test_direct_https_uses_existing_vpc_without_nginx_resources() -> None:
     assert "beyondcorp.googleapis.com" in required_apis(spec)
     assert "privateca.googleapis.com" not in required_apis(spec)
     assert "secretmanager.googleapis.com" not in required_apis(spec)
+
+
+def test_project_iam_create_is_owned_as_an_exact_managed_delta_only() -> None:
+    spec = production_spec(
+        mode="poc",
+        backend_kind=BackendKind.DIRECT_HTTPS,
+        network_strategy=NetworkStrategy.EXISTING,
+        vpc_name="private-app-vpc",
+        source_image=None,
+        certificate_strategy=CertificateStrategy.PUBLIC_TRUSTED,
+        existing_backend_url="https://10.20.0.10:8443",
+        existing_backend_location=BackendLocation.GCP,
+        existing_backend_connectivity_confirmed=True,
+    )
+    resource_key = f"cloudresourcemanager:project_iam:{spec.name}-upstream-access"
+    fresh = DesiredStatePlanner().build_plan(spec, DiscoverySnapshot())
+    created = next(change for change in fresh.changes if change.resource_type == "project_iam")
+    reused = next(
+        change
+        for change in DesiredStatePlanner()
+        .build_plan(
+            spec,
+            DiscoverySnapshot(existing_resource_keys={resource_key}),
+        )
+        .changes
+        if change.resource_type == "project_iam"
+    )
+
+    assert created.action is ChangeAction.CREATE
+    assert created.owned_after_apply is True
+    assert reused.action is ChangeAction.REUSE
+    assert reused.owned_after_apply is False
+
+
+def test_public_certificate_plan_binds_exact_discovered_numeric_version() -> None:
+    spec = production_spec(
+        certificate_strategy=CertificateStrategy.PUBLIC_TRUSTED,
+        private_hostname="gateway.secure.example-company.com",
+        public_certificate_secret=(
+            "projects/enterprise-secgw-01/secrets/operator-public-tls"
+        ),
+    )
+    binding = PublicCertificateBinding(
+        secret_version_name=(
+            "projects/enterprise-secgw-01/secrets/operator-public-tls/versions/7"
+        ),
+        payload_sha256="ab" * 32,
+    )
+
+    missing = DesiredStatePlanner().build_plan(spec, DiscoverySnapshot())
+    bound = DesiredStatePlanner().build_plan(
+        spec,
+        DiscoverySnapshot(public_certificate_binding=binding),
+    )
+
+    assert _gate(missing, "public-certificate-binding").status == "blocked"
+    assert missing.public_certificate_binding is None
+    assert _gate(bound, "public-certificate-binding").status == "pass"
+    assert bound.public_certificate_binding == binding
+
+
+def test_public_certificate_plan_rejects_binding_from_another_secret() -> None:
+    spec = production_spec(
+        certificate_strategy=CertificateStrategy.PUBLIC_TRUSTED,
+        private_hostname="gateway.secure.example-company.com",
+        public_certificate_secret=(
+            "projects/enterprise-secgw-01/secrets/operator-public-tls"
+        ),
+    )
+    snapshot = DiscoverySnapshot(
+        public_certificate_binding=PublicCertificateBinding(
+            secret_version_name=(
+                "projects/enterprise-secgw-01/secrets/other-public-tls/versions/7"
+            ),
+            payload_sha256="ab" * 32,
+        )
+    )
+
+    plan = DesiredStatePlanner().build_plan(spec, snapshot)
+
+    assert _gate(plan, "public-certificate-binding").status == "blocked"
+    assert plan.public_certificate_binding is None
+
+
+def test_public_trusted_tls_rejects_private_or_reserved_hostnames() -> None:
+    with pytest.raises(ValidationError, match="registrable public DNS hostname"):
+        production_spec(
+            certificate_strategy=CertificateStrategy.PUBLIC_TRUSTED,
+            public_certificate_secret=(
+                "projects/enterprise-secgw-01/secrets/operator-public-tls"
+            ),
+            private_hostname="demo-server-http.internal",
+        )
+
+    public = production_spec(
+        certificate_strategy=CertificateStrategy.PUBLIC_TRUSTED,
+        public_certificate_secret=(
+            "projects/enterprise-secgw-01/secrets/operator-public-tls"
+        ),
+        private_hostname="gateway.secure.example-company.com",
+    )
+    assert public.private_hostname == "gateway.secure.example-company.com"
 
 
 @pytest.mark.parametrize(

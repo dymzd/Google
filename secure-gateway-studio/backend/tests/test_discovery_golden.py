@@ -91,17 +91,13 @@ def test_unresolvable_matcher_reports_unknown_not_disabled() -> None:
     # The gate blocks only on a confirmed False. Collapsing "could not check"
     # into "disabled" would refuse every FQDN matcher, GKE ingress, and non-GCP
     # backend -- all supported Path B targets.
-    scenario = next(
-        item for item in _scenarios() if item["name"] == "fqdn-matcher-unresolvable"
-    )
+    scenario = next(item for item in _scenarios() if item["name"] == "fqdn-matcher-unresolvable")
     assert scenario["snapshot"]["application_global_access"] is None
     assert scenario["snapshot"]["application_forwarding_rule"] is None
 
 
 def test_global_access_states_are_distinguished() -> None:
-    states = {
-        item["name"]: item["snapshot"]["application_global_access"] for item in _scenarios()
-    }
+    states = {item["name"]: item["snapshot"]["application_global_access"] for item in _scenarios()}
     assert states["global-access-enabled"] is True
     assert states["global-access-disabled"] is False
 
@@ -112,19 +108,55 @@ def test_access_level_permission_is_never_probed_at_project_scope() -> None:
     for scenario in _scenarios():
         for request in scenario["requests"]:
             if request["url"].endswith(":testIamPermissions"):
-                assert "accesscontextmanager.accessLevels.get" not in request["body"][
-                    "permissions"
-                ]
+                assert "accesscontextmanager.accessLevels.get" not in request["body"]["permissions"]
 
 
 def test_cross_project_upstream_probes_the_owning_project() -> None:
-    scenario = next(
-        item for item in _scenarios() if item["name"] == "cross-project-upstream"
-    )
+    scenario = next(item for item in _scenarios() if item["name"] == "cross-project-upstream")
     network_probes = [
-        request["url"]
-        for request in scenario["requests"]
-        if "/global/networks/" in request["url"]
+        request["url"] for request in scenario["requests"] if "/global/networks/" in request["url"]
     ]
     assert network_probes
     assert all("projects/shared-network-prj/" in url for url in network_probes)
+    permission_probes = [
+        request
+        for request in scenario["requests"]
+        if request["url"].endswith("shared-network-prj:testIamPermissions")
+    ]
+    assert len(permission_probes) == 1
+    assert {
+        "compute.networks.get",
+        "compute.networks.use",
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.getIamPolicy",
+        "resourcemanager.projects.setIamPolicy",
+    } == set(permission_probes[0]["body"]["permissions"])
+
+
+def test_cross_project_permission_discovery_fails_closed() -> None:
+    class UpstreamDeniedTransport(RecordingTransport):
+        def request_json(self, method: str, url: str, **kwargs: Any) -> tuple[int, dict[str, Any]]:
+            status, payload = super().request_json(method, url, **kwargs)
+            if url.endswith("shared-network-prj:testIamPermissions"):
+                payload = {
+                    "permissions": [
+                        permission
+                        for permission in payload.get("permissions", [])
+                        if permission != "resourcemanager.projects.setIamPolicy"
+                    ]
+                }
+            return status, payload
+
+    _, spec, global_access, matcher_ip = next(
+        item for item in SCENARIOS if item[0] == "cross-project-upstream"
+    )
+    provider = GoogleDiscoveryProvider(
+        UpstreamDeniedTransport(global_access=global_access, matcher_ip=matcher_ip),
+        cloud_identity=_IDENTITY,
+        credential_kind="impersonated",
+        quota_project_id="enterprise-secgw-01",
+    )
+
+    result = provider.preflight(spec)
+
+    assert "resourcemanager.projects.setIamPolicy" not in result.snapshot.granted_permissions

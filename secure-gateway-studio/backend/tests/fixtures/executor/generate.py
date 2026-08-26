@@ -19,6 +19,8 @@ Only the Path B resource types are recorded. Path A is Phase 4.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import sys
 import uuid
@@ -36,13 +38,19 @@ from sgstudio.domain.models import (  # noqa: E402
     CertificateStrategy,
     ChangeAction,
     DeploymentSpec,
+    DiscoverySnapshot,
     NetworkStrategy,
     PrincipalType,
+    PublicCertificateBinding,
     ResourceChange,
     RiskLevel,
+    SourceImageBinding,
 )
-from sgstudio.domain.planner import canonical_configuration_hash  # noqa: E402
-from sgstudio.providers.certificates import CertificateBundle  # noqa: E402
+from sgstudio.domain.planner import (  # noqa: E402
+    DesiredStatePlanner,
+    canonical_configuration_hash,
+)
+from sgstudio.providers.certificates import CertificateBundle, CertificateIssuer  # noqa: E402
 from sgstudio.providers.google_executor import GoogleResourceExecutor  # noqa: E402
 
 
@@ -53,9 +61,16 @@ class RecordingTransport:
     executor *asks for*, which is exactly the part the port must reproduce.
     """
 
-    def __init__(self, configuration_hash: str = "") -> None:
+    def __init__(
+        self,
+        configuration_hash: str = "",
+        expected_hostname: str = "demo-server-http.internal",
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self._configuration_hash = configuration_hash
+        self._expected_hostname = expected_hostname
+        self._generic_resources: dict[str, dict[str, Any]] = {}
+        self._generic_identity = 1000
 
     def request_json(
         self,
@@ -70,6 +85,149 @@ class RecordingTransport:
         self.calls.append(
             {"method": method, "url": url, "params": params, "body": json_body}
         )
+        if method == "GET" and "/orgunits/id%3A" in url:
+            return 200, {
+                "orgUnitId": "id:03-test-ou",
+                "orgUnitPath": "/Secure Gateway Test",
+            }
+        if method == "GET" and url.endswith("/global/images/sgs-nginx-20260730"):
+            return 200, {
+                "name": "sgs-nginx-20260730",
+                "id": "987654321",
+                "selfLink": (
+                    "https://www.googleapis.com/compute/v1/projects/"
+                    "enterprise-secgw-01/global/images/sgs-nginx-20260730"
+                ),
+            }
+        if method == "POST" and url.endswith("/listManagedInstances"):
+            return 200, {
+                "managedInstances": [
+                    {
+                        "instance": (
+                            "https://www.googleapis.com/compute/v1/projects/"
+                            "enterprise-secgw-01/zones/asia-east1-c/instances/"
+                            "secure-gateway-http-offload-offload-a1"
+                        ),
+                        "instanceStatus": "RUNNING",
+                    },
+                    {
+                        "instance": (
+                            "https://www.googleapis.com/compute/v1/projects/"
+                            "enterprise-secgw-01/zones/asia-east1-a/instances/"
+                            "secure-gateway-http-offload-offload-a2"
+                        ),
+                        "instanceStatus": "RUNNING",
+                    },
+                ]
+            }
+        if (
+            method == "GET"
+            and "/zones/" in url
+            and "/instances/secure-gateway-http-offload-offload-" in url
+        ):
+            zone = url.split("/zones/", maxsplit=1)[1].split("/", maxsplit=1)[0]
+            instance_name = url.rsplit("/", maxsplit=1)[-1]
+            return 200, {
+                "name": instance_name,
+                "disks": [
+                    {
+                        "boot": True,
+                        "source": (
+                            "https://www.googleapis.com/compute/v1/projects/"
+                            f"enterprise-secgw-01/zones/{zone}/disks/{instance_name}"
+                        ),
+                    }
+                ],
+            }
+        if method == "POST" and "/managedZones/" in url and url.endswith("/changes"):
+            return 200, {"kind": "dns#change", "id": "42", "status": "done"}
+
+        if method == "GET" and url in self._generic_resources:
+            current = dict(self._generic_resources[url])
+            if "/instances/" in url:
+                instance_name = url.rsplit("/", maxsplit=1)[-1]
+                current["disks"] = [
+                    {
+                        "boot": True,
+                        "source": (
+                            "https://www.googleapis.com/compute/v1/projects/"
+                            "enterprise-secgw-01/zones/asia-east1-c/disks/"
+                            f"{instance_name}"
+                        ),
+                    }
+                ]
+            if "/addresses/" in url:
+                suffix = "20" if "-backend-ip" in url else "10"
+                current["address"] = f"10.42.0.{suffix}"
+            if "/instanceGroupManagers/" in url:
+                current.update(
+                    {
+                        "status": {
+                            "isStable": True,
+                            "currentInstanceStatuses": {"running": 2},
+                        },
+                        "targetSize": 2,
+                    }
+                )
+            if "/securityGateways/" in url and "/applications/" not in url:
+                current["delegatingServiceAccount"] = (
+                    "sg-delegate@enterprise-secgw-01.iam.gserviceaccount.com"
+                )
+                current["state"] = "RUNNING"
+            return 200, current
+
+        if method == "GET" and "/zones/" in url and "/disks/" in url:
+            disk_name = url.rsplit("/", maxsplit=1)[-1]
+            return 200, {
+                "name": disk_name,
+                "status": "READY",
+                "sourceImage": (
+                    "https://www.googleapis.com/compute/v1/projects/"
+                    "enterprise-secgw-01/global/images/sgs-nginx-20260730"
+                ),
+                "sourceImageId": "987654321",
+            }
+
+        if method == "GET" and "/routers/" in url:
+            return 200, {
+                "id": "9000000000000000001",
+                "selfLink": url,
+                "fingerprint": "router-fingerprint-1",
+                "nats": [],
+            }
+
+        if method == "POST" and (
+            "compute.googleapis.com" in url or "beyondcorp.googleapis.com" in url
+        ):
+            resource_name = (
+                (json_body or {}).get("name")
+                or (params or {}).get("securityGatewayId")
+                or (params or {}).get("applicationId")
+            )
+            if isinstance(resource_name, str) and not url.endswith(":setIamPolicy"):
+                resource_url = f"{url.rstrip('/')}/{resource_name}"
+                self._generic_identity += 1
+                current = dict(json_body or {})
+                if "compute.googleapis.com" in url:
+                    current.update(
+                        {
+                            "id": str(self._generic_identity),
+                            "selfLink": resource_url,
+                            "creationTimestamp": "2026-08-24T00:00:00.000Z",
+                        }
+                    )
+                else:
+                    current.update(
+                        {
+                            "name": resource_url.removeprefix(
+                                "https://beyondcorp.googleapis.com/v1/"
+                            ),
+                            "createTime": (
+                                f"2026-08-24T00:00:{self._generic_identity % 60:02d}Z"
+                            ),
+                        }
+                    )
+                self._generic_resources[resource_url] = current
 
         if method == "GET" and url.endswith("/getGuestAttributes"):
             # The offload VM writes its own T01-T03 self-test results into guest
@@ -93,8 +251,8 @@ class RecordingTransport:
                             "key": "T03",
                             "value": (
                                 '{"http_status":200,"tls_version":"TLSv1.3",'
-                                '"hostname":"demo-server-http.internal",'
-                                '"subject_alt_names":["demo-server-http.internal"],'
+                                f'"hostname":"{self._expected_hostname}",'
+                                f'"subject_alt_names":["{self._expected_hostname}"],'
                                 f'"configuration_hash":"{evidence}"}}'
                             ),
                         },
@@ -107,6 +265,19 @@ class RecordingTransport:
                     "projects/enterprise-secgw-01/secrets/"
                     "secure-gateway-http-offload-tls/versions/1"
                 )
+            }
+        if method == "GET" and url.endswith(
+            "/secrets/enterprise-tls/versions/latest:access"
+        ):
+            public_payload = _PUBLIC_VALIDATED_CERTIFICATE.secret_payload()
+            return 200, {
+                "name": (
+                    "projects/enterprise-secgw-01/secrets/enterprise-tls/versions/7"
+                ),
+                "payload": {
+                    "data": base64.b64encode(public_payload).decode("ascii"),
+                    "dataCrc32c": str(GoogleResourceExecutor._crc32c(public_payload)),
+                },
             }
         if method == "GET" and "/instanceGroupManagers/" in url:
             # Stable, with the configured baseline of replicas running, so the
@@ -169,6 +340,8 @@ class RecordingTransport:
             }
         if url.endswith("/policies:resolve"):
             return 200, {"resolvedPolicies": []}
+        if method == "POST" and url.endswith("/changes"):
+            return 200, {"kind": "dns#change", "id": "42", "status": "done"}
         if method in {"POST", "PATCH", "DELETE"}:
             if "compute.googleapis.com" in url:
                 return 200, {"status": "DONE"}
@@ -232,10 +405,13 @@ def _path_a_spec(**overrides: Any) -> DeploymentSpec:
             AccessPrincipal(type=PrincipalType.GROUP, value="secure-access@example.com")
         ],
         "certificate_strategy": CertificateStrategy.PUBLIC_TRUSTED,
+        "private_hostname": "gw.example-company.com",
         "public_certificate_secret": (
             "projects/enterprise-secgw-01/secrets/enterprise-tls"
         ),
-        "source_image": None,
+        "source_image": (
+            "projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+        ),
     }
     values.update(overrides)
     return DeploymentSpec(**values)
@@ -274,7 +450,7 @@ PATH_A_CHANGES: list[tuple[str, str, str]] = [
     ("compute", "instance", f"{PREFIX}-offload"),
     ("compute", "firewall_rule", f"{PREFIX}-gateway-ingress"),
     ("dns", "private_zone", f"{PREFIX}-zone"),
-    ("dns", "record_set", "demo-server-http.internal"),
+    ("dns", "record_set", "gw.example-company.com"),
 ]
 
 # A fixed certificate bundle. Issuance generates a fresh RSA key each run, so
@@ -293,6 +469,56 @@ _PINNED_CERTIFICATE = CertificateBundle(
         "/certificates/pinned"
     ),
 )
+_PUBLIC_VALIDATED_CERTIFICATE = CertificateIssuer().issue_local_poc(
+    hostname="gw.example-company.com",
+    lifetime_days=90,
+)
+
+
+def _pin_executor_inputs(
+    executor: GoogleResourceExecutor,
+    spec: DeploymentSpec,
+) -> None:
+    """Inject deterministic cryptographic fixture inputs without network issuance."""
+    executor._certificate = _PINNED_CERTIFICATE
+    snapshot = DiscoverySnapshot()
+    public_payload: bytes | None = None
+    if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
+        assert spec.source_image is not None
+        snapshot = snapshot.model_copy(
+            update={
+                "source_image_binding": SourceImageBinding(
+                    name=spec.source_image,
+                    id="987654321",
+                    self_link=(
+                        "https://www.googleapis.com/compute/v1/"
+                        f"{spec.source_image}"
+                    ),
+                )
+            }
+        )
+    if (
+        spec.backend_kind is not BackendKind.DIRECT_HTTPS
+        and spec.certificate_strategy is CertificateStrategy.PUBLIC_TRUSTED
+    ):
+        payload = _PUBLIC_VALIDATED_CERTIFICATE.secret_payload()
+        public_payload = payload
+        binding = PublicCertificateBinding(
+            secret_version_name=(
+                "projects/enterprise-secgw-01/secrets/enterprise-tls/versions/7"
+            ),
+            payload_sha256=hashlib.sha256(payload).hexdigest(),
+        )
+        snapshot = snapshot.model_copy(
+            update={"public_certificate_binding": binding}
+        )
+    plan = DesiredStatePlanner().build_plan(spec, snapshot)
+    executor.bind_plan(plan)
+    if public_payload is not None:
+        executor._public_certificate_payload = public_payload
+        executor._public_certificate_configuration_hash = canonical_configuration_hash(spec)
+    if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
+        executor._revalidate_source_image(spec)
 
 
 def _production_spec(**overrides):
@@ -373,20 +599,23 @@ def build() -> dict[str, Any]:
             changes = PATH_A_CHANGES
         recorded = []
         for provider, resource_type, resource_name in changes:
-            transport = RecordingTransport(canonical_configuration_hash(spec))
+            transport = RecordingTransport(
+                canonical_configuration_hash(spec),
+                spec.private_hostname,
+            )
             # A short deadline: with no sleep between polls, a long one would
             # busy-spin for minutes if a fixture ever stopped reaching DONE.
             executor = GoogleResourceExecutor(
                 transport, poll_interval_seconds=0, operation_timeout_seconds=5
             )
-            # `requestId` is uuid5(execution_id, change_key) and execution_id is
-            # a fresh uuid4 per executor. Pinning it here keeps this file stable
+            # `requestId` is derived from execution_id plus the exact request,
+            # and execution_id is a fresh uuid4 per executor. Pinning it keeps the file stable
             # across regenerations; the parity check treats the value as opaque
             # because the two implementations derive it differently by design.
             executor._execution_id = _FIXED_EXECUTION_ID
             # Issuance generates a fresh key per run; pin the bundle so
             # the recorded secret payload is stable.
-            executor._certificate = _PINNED_CERTIFICATE
+            _pin_executor_inputs(executor, spec)
             change = _change(provider, resource_type, resource_name)
             executor.apply(change, spec)
             recorded.append(

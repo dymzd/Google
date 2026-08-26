@@ -39,6 +39,8 @@ from sgstudio.domain.models import (  # noqa: E402
     DiscoverySnapshot,
     NetworkStrategy,
     PrincipalType,
+    PublicCertificateBinding,
+    SourceImageBinding,
 )
 from sgstudio.domain.planner import (  # noqa: E402
     DesiredStatePlanner,
@@ -48,6 +50,15 @@ from sgstudio.domain.planner import (  # noqa: E402
 )
 
 _PRINCIPALS = [AccessPrincipal(type=PrincipalType.GROUP, value="secure-access@example.com")]
+_SOURCE_IMAGE = "projects/enterprise-secgw-01/global/images/sgs-nginx-20260730"
+
+
+def _source_image_binding() -> SourceImageBinding:
+    return SourceImageBinding(
+        name=_SOURCE_IMAGE,
+        id="987654321",
+        self_link=f"https://www.googleapis.com/compute/v1/{_SOURCE_IMAGE}",
+    )
 
 
 def _base(**overrides: Any) -> dict[str, Any]:
@@ -82,7 +93,7 @@ def _path_a(**overrides: Any) -> DeploymentSpec:
     values = _base(
         mode="poc",
         certificate_strategy=CertificateStrategy.LOCAL_POC,
-        source_image=None,
+        source_image=_SOURCE_IMAGE,
         platforms={ChromePlatform.MACOS, ChromePlatform.WINDOWS},
     )
     values.update(overrides)
@@ -122,6 +133,38 @@ CASES: list[tuple[str, DeploymentSpec, DiscoverySnapshot]] = [
     ),
     ("path-a-poc-local-ca", _path_a(), DiscoverySnapshot()),
     (
+        "path-a-public-trusted",
+        _path_a(
+            certificate_strategy=CertificateStrategy.PUBLIC_TRUSTED,
+            private_hostname="gateway.secure.example-company.com",
+            public_certificate_secret=(
+                "projects/enterprise-secgw-01/secrets/operator-public-tls"
+            ),
+        ),
+        DiscoverySnapshot(
+            public_certificate_binding=PublicCertificateBinding(
+                secret_version_name=(
+                    "projects/enterprise-secgw-01/secrets/operator-public-tls/versions/7"
+                ),
+                payload_sha256="ab" * 32,
+            )
+        ),
+    ),
+    (
+        "path-a-enterprise-ca",
+        _path_a(
+            certificate_strategy=CertificateStrategy.ENTERPRISE_CA,
+            ca_pool=(
+                "projects/enterprise-secgw-01/locations/asia-east1/caPools/enterprise"
+            ),
+            ca_name=(
+                "projects/enterprise-secgw-01/locations/asia-east1/caPools/enterprise/"
+                "certificateAuthorities/issuing"
+            ),
+        ),
+        DiscoverySnapshot(),
+    ),
+    (
         "path-a-existing-vpc",
         _path_a(
             network_strategy=NetworkStrategy.EXISTING,
@@ -137,6 +180,10 @@ def build() -> dict[str, Any]:
     planner = DesiredStatePlanner()
     cases = []
     for name, spec, snapshot in CASES:
+        if spec.backend_kind is not BackendKind.DIRECT_HTTPS:
+            snapshot = snapshot.model_copy(
+                update={"source_image_binding": _source_image_binding()}
+            )
         plan = planner.build_plan(spec, snapshot)
         payload = plan.model_dump(mode="json")
         # Wall-clock; nothing hashes it and keeping it would make every

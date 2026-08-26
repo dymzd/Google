@@ -27,14 +27,14 @@ const DLP_REGIONS: Array<{ value: string; label: string }> = [
   { value: "IN", label: "India (Aadhaar)" },
 ];
 
-const ACTION_CYCLE: CepDlpAction[] = ["auditOnly", "warnUser", "blockContent", "off"];
+const ACTION_CYCLE: CepDlpAction[] = ["warnUser", "blockContent", "off"];
 
 export const DEFAULT_DLP_MATRIX: CepDlpMatrixState = {
-  universal_upload: { upload: "auditOnly", byodOnly: false },
-  universal_download: { download: "auditOnly", byodOnly: false },
-  payment_card: { upload: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: false },
-  national_id: { upload: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: false },
-  access_level: { upload: "warnUser", download: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: true },
+  universal_upload: { upload: "warnUser", byodOnly: false },
+  universal_download: { download: "warnUser", byodOnly: false },
+  payment_card: { upload: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: false },
+  national_id: { upload: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: false },
+  access_level: { upload: "off", download: "off", paste: "off", print: "off", byodOnly: false },
   watermark: { watermark: true, byodOnly: false },
   genai_block: { paste: "blockContent", upload: "blockContent", byodOnly: false },
 };
@@ -68,19 +68,15 @@ export function DlpMatrixTable({
     updateRule(id, (prev) => ({ ...prev, watermark: !prev.watermark }));
   }
 
-  function toggleByodOnly(id: CepDlpRuleId) {
-    updateRule(id, (prev) => ({ ...prev, byodOnly: !prev.byodOnly }));
-  }
-
   function applyPreset(presetName: "recommended" | "strict" | "genai" | "audit") {
     switch (presetName) {
       case "recommended":
         onChange({
-          universal_upload: { upload: "auditOnly", byodOnly: false },
-          universal_download: { download: "auditOnly", byodOnly: false },
-          payment_card: { upload: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: false },
-          national_id: { upload: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: false },
-          access_level: { upload: "warnUser", download: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: true },
+          universal_upload: { upload: "warnUser", byodOnly: false },
+          universal_download: { download: "warnUser", byodOnly: false },
+          payment_card: { upload: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: false },
+          national_id: { upload: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: false },
+          access_level: { upload: "off", download: "off", paste: "off", print: "off", byodOnly: false },
           watermark: { watermark: true, byodOnly: false },
           genai_block: { paste: "blockContent", upload: "blockContent", byodOnly: false },
         });
@@ -88,10 +84,10 @@ export function DlpMatrixTable({
       case "strict":
         onChange({
           universal_upload: { upload: "warnUser", byodOnly: false },
-          universal_download: { download: "auditOnly", byodOnly: false },
+          universal_download: { download: "warnUser", byodOnly: false },
           payment_card: { upload: "blockContent", paste: "blockContent", print: "blockContent", byodOnly: false },
           national_id: { upload: "blockContent", paste: "blockContent", print: "blockContent", byodOnly: false },
-          access_level: { upload: "blockContent", download: "blockContent", paste: "blockContent", print: "blockContent", byodOnly: true },
+          access_level: { upload: "off", download: "off", paste: "off", print: "off", byodOnly: false },
           watermark: { watermark: true, byodOnly: false },
           genai_block: { paste: "blockContent", upload: "blockContent", byodOnly: false },
         });
@@ -100,22 +96,22 @@ export function DlpMatrixTable({
         onChange({
           universal_upload: { upload: "off", byodOnly: false },
           universal_download: { download: "off", byodOnly: false },
-          payment_card: { upload: "auditOnly", paste: "auditOnly", print: "off", byodOnly: false },
-          national_id: { upload: "auditOnly", paste: "auditOnly", print: "off", byodOnly: false },
-          access_level: { upload: "auditOnly", download: "off", paste: "auditOnly", print: "off", byodOnly: true },
+          payment_card: { upload: "warnUser", paste: "warnUser", print: "off", byodOnly: false },
+          national_id: { upload: "warnUser", paste: "warnUser", print: "off", byodOnly: false },
+          access_level: { upload: "off", download: "off", paste: "off", print: "off", byodOnly: false },
           watermark: { watermark: false, byodOnly: false },
           genai_block: { paste: "blockContent", upload: "blockContent", byodOnly: false },
         });
         break;
       case "audit":
         onChange({
-          universal_upload: { upload: "auditOnly", byodOnly: false },
-          universal_download: { download: "auditOnly", byodOnly: false },
-          payment_card: { upload: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: false },
-          national_id: { upload: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: false },
-          access_level: { upload: "auditOnly", download: "auditOnly", paste: "auditOnly", print: "auditOnly", byodOnly: true },
-          watermark: { watermark: true, byodOnly: false },
-          genai_block: { paste: "auditOnly", upload: "auditOnly", byodOnly: false },
+          universal_upload: { upload: "warnUser", byodOnly: false },
+          universal_download: { download: "warnUser", byodOnly: false },
+          payment_card: { upload: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: false },
+          national_id: { upload: "warnUser", paste: "warnUser", print: "warnUser", byodOnly: false },
+          access_level: { upload: "off", download: "off", paste: "off", print: "off", byodOnly: false },
+          watermark: { watermark: false, byodOnly: false },
+          genai_block: { paste: "warnUser", upload: "warnUser", byodOnly: false },
         });
         break;
     }
@@ -128,8 +124,6 @@ export function DlpMatrixTable({
         ? "dlp-badge dlp-badge-block"
         : act === "warnUser"
         ? "dlp-badge dlp-badge-warn"
-        : act === "auditOnly"
-        ? "dlp-badge dlp-badge-audit"
         : "dlp-badge dlp-badge-off";
 
     const text =
@@ -137,8 +131,6 @@ export function DlpMatrixTable({
         ? m.dlpActionBadgeBlock
         : act === "warnUser"
         ? m.dlpActionBadgeWarn
-        : act === "auditOnly"
-        ? m.dlpActionBadgeAudit
         : m.dlpActionBadgeOff;
 
     return (
@@ -146,7 +138,7 @@ export function DlpMatrixTable({
         aria-label={`${label}: ${text}`}
         className={badgeClass}
         onClick={onClick}
-        title={`${label} (${text}) - クリックして変更`}
+        title={`${label} (${text})`}
         type="button"
       >
         {text}
@@ -241,13 +233,7 @@ export function DlpMatrixTable({
               <td className="cell-na">—</td>
               <td className="cell-na">—</td>
               <td>
-                <button
-                  className={`dlp-scope-pill ${currentMatrix.universal_upload?.byodOnly ? "byod" : "all"}`}
-                  onClick={() => toggleByodOnly("universal_upload")}
-                  type="button"
-                >
-                  {currentMatrix.universal_upload?.byodOnly ? m.dlpScopeByodOnly : m.dlpScopeAll}
-                </button>
+                <span className="dlp-scope-pill all fixed">{m.dlpScopeAll}</span>
               </td>
             </tr>
 
@@ -269,13 +255,7 @@ export function DlpMatrixTable({
               <td className="cell-na">—</td>
               <td className="cell-na">—</td>
               <td>
-                <button
-                  className={`dlp-scope-pill ${currentMatrix.universal_download?.byodOnly ? "byod" : "all"}`}
-                  onClick={() => toggleByodOnly("universal_download")}
-                  type="button"
-                >
-                  {currentMatrix.universal_download?.byodOnly ? m.dlpScopeByodOnly : m.dlpScopeAll}
-                </button>
+                <span className="dlp-scope-pill all fixed">{m.dlpScopeAll}</span>
               </td>
             </tr>
 
@@ -309,13 +289,7 @@ export function DlpMatrixTable({
               </td>
               <td className="cell-na">—</td>
               <td>
-                <button
-                  className={`dlp-scope-pill ${currentMatrix.payment_card?.byodOnly ? "byod" : "all"}`}
-                  onClick={() => toggleByodOnly("payment_card")}
-                  type="button"
-                >
-                  {currentMatrix.payment_card?.byodOnly ? m.dlpScopeByodOnly : m.dlpScopeAll}
-                </button>
+                <span className="dlp-scope-pill all fixed">{m.dlpScopeAll}</span>
               </td>
             </tr>
 
@@ -349,13 +323,7 @@ export function DlpMatrixTable({
               </td>
               <td className="cell-na">—</td>
               <td>
-                <button
-                  className={`dlp-scope-pill ${currentMatrix.national_id?.byodOnly ? "byod" : "all"}`}
-                  onClick={() => toggleByodOnly("national_id")}
-                  type="button"
-                >
-                  {currentMatrix.national_id?.byodOnly ? m.dlpScopeByodOnly : m.dlpScopeAll}
-                </button>
+                <span className="dlp-scope-pill all fixed">{m.dlpScopeAll}</span>
               </td>
             </tr>
 
@@ -366,36 +334,20 @@ export function DlpMatrixTable({
                 <small>{m.dlpRowAccessLevelDesc}</small>
               </th>
               <td>
-                {renderActionBadge(
-                  currentMatrix.access_level?.upload,
-                  () => cycleAction("access_level", "upload"),
-                  `${m.dlpRowAccessLevel} ${m.dlpColUpload}`,
-                )}
+                <span className="dlp-badge dlp-badge-off">{m.dlpActionBadgeAudit}</span>
               </td>
               <td>
-                {renderActionBadge(
-                  currentMatrix.access_level?.download,
-                  () => cycleAction("access_level", "download"),
-                  `${m.dlpRowAccessLevel} ${m.dlpColDownload}`,
-                )}
+                <span className="dlp-badge dlp-badge-off">{m.dlpActionBadgeAudit}</span>
               </td>
               <td>
-                {renderActionBadge(
-                  currentMatrix.access_level?.paste,
-                  () => cycleAction("access_level", "paste"),
-                  `${m.dlpRowAccessLevel} ${m.dlpColPaste}`,
-                )}
+                <span className="dlp-badge dlp-badge-off">{m.dlpActionBadgeAudit}</span>
               </td>
               <td>
-                {renderActionBadge(
-                  currentMatrix.access_level?.print,
-                  () => cycleAction("access_level", "print"),
-                  `${m.dlpRowAccessLevel} ${m.dlpColPrint}`,
-                )}
+                <span className="dlp-badge dlp-badge-off">{m.dlpActionBadgeAudit}</span>
               </td>
               <td className="cell-na">—</td>
               <td>
-                <span className="dlp-scope-pill byod fixed">{m.dlpScopeByodOnly}</span>
+                <span className="dlp-scope-pill byod fixed">{m.dlpActionBadgeAudit}</span>
               </td>
             </tr>
 
@@ -411,21 +363,17 @@ export function DlpMatrixTable({
               <td className="cell-na">—</td>
               <td>
                 <button
-                  className={currentMatrix.watermark?.watermark ? "dlp-badge dlp-badge-audit" : "dlp-badge dlp-badge-off"}
+                  className={currentMatrix.watermark?.watermark ? "dlp-badge dlp-badge-warn" : "dlp-badge dlp-badge-off"}
                   onClick={() => toggleWatermark("watermark")}
                   type="button"
                 >
-                  {currentMatrix.watermark?.watermark ? "有効" : "オフ"}
+                  {currentMatrix.watermark?.watermark
+                    ? `${m.dlpActionBadgeWarn} + ${m.dlpColWatermark}`
+                    : m.dlpActionBadgeOff}
                 </button>
               </td>
               <td>
-                <button
-                  className={`dlp-scope-pill ${currentMatrix.watermark?.byodOnly ? "byod" : "all"}`}
-                  onClick={() => toggleByodOnly("watermark")}
-                  type="button"
-                >
-                  {currentMatrix.watermark?.byodOnly ? m.dlpScopeByodOnly : m.dlpScopeAll}
-                </button>
+                <span className="dlp-scope-pill all fixed">{m.dlpScopeAll}</span>
               </td>
             </tr>
 
@@ -453,13 +401,7 @@ export function DlpMatrixTable({
               <td className="cell-na">—</td>
               <td className="cell-na">—</td>
               <td>
-                <button
-                  className={`dlp-scope-pill ${currentMatrix.genai_block?.byodOnly ? "byod" : "all"}`}
-                  onClick={() => toggleByodOnly("genai_block")}
-                  type="button"
-                >
-                  {currentMatrix.genai_block?.byodOnly ? m.dlpScopeByodOnly : m.dlpScopeAll}
-                </button>
+                <span className="dlp-scope-pill all fixed">{m.dlpScopeAll}</span>
               </td>
             </tr>
           </tbody>

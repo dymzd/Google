@@ -99,12 +99,29 @@ export function contextPrimitive(number: number, contents: Uint8Array): Uint8Arr
   return tlv(0x80 | number, contents);
 }
 
+export const booleanValue = (val: boolean): Uint8Array => tlv(0x01, Uint8Array.of(val ? 0xff : 0x00));
+
+export function utcTime(date: Date): Uint8Array {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const str = `${pad(date.getUTCFullYear() % 100)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+  return tlv(0x17, encoder.encode(str));
+}
+
+export function bitStringWithUnusedBits(contents: Uint8Array, unused = 0): Uint8Array {
+  return tlv(0x03, Uint8Array.of(unused), contents);
+}
+
 export const OID = {
   commonName: "2.5.4.3",
+  organizationName: "2.5.4.10",
   rsaEncryption: "1.2.840.113549.1.1.1",
   sha256WithRsaEncryption: "1.2.840.113549.1.1.11",
   extensionRequest: "1.2.840.113549.1.9.14",
   subjectAltName: "2.5.29.17",
+  basicConstraints: "2.5.29.19",
+  keyUsage: "2.5.29.15",
+  authorityKeyIdentifier: "2.5.29.35",
+  subjectKeyIdentifier: "2.5.29.14",
 } as const;
 
 /** PEM wrapper: base64 in 64-character lines with the usual armour. */

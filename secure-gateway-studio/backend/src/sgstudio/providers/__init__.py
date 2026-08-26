@@ -20,6 +20,7 @@ from sgstudio.providers.discovery import (
     create_google_discovery_provider,
 )
 from sgstudio.providers.gcloud_bootstrap import (
+    BootstrapOwnershipError,
     DeployerBootstrapper,
     DeployerBootstrapResult,
     GcloudDeployerBootstrapper,
@@ -36,6 +37,7 @@ from sgstudio.providers.observability import (
 
 __all__ = [
     "AcceptanceFinding",
+    "BootstrapOwnershipError",
     "CertificateBundle",
     "CertificateIssuer",
     "ConnectionValidator",

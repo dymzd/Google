@@ -1,5 +1,6 @@
 import type { Messages } from "../../i18n/messages";
 import { CheckIcon, CodeIcon, InfoIcon, LockIcon, NetworkIcon, ShieldIcon } from "../../components/Icons";
+import { runtimeCapabilities } from "../../lib/api";
 
 interface GuidePageProps {
   messages: Messages;
@@ -7,6 +8,9 @@ interface GuidePageProps {
 
 export function GuidePage({ messages }: GuidePageProps) {
   const guide = messages.guide;
+  const architectures = runtimeCapabilities.internalHttpsLbArchitecture
+    ? guide.architectures
+    : guide.architectures.filter((_architecture, index) => index !== 1);
 
   return (
     <main className="guide-page">
@@ -27,12 +31,25 @@ export function GuidePage({ messages }: GuidePageProps) {
       {/* TOP SECTION: Quick Overview & Architecture Decisions */}
       <section className="architecture-section" aria-labelledby="architecture-title">
         <header className="architecture-heading">
-          <p className="eyebrow">Quick Overview & Architecture Selection</p>
-          <h2 id="architecture-title">{guide.architectureTitle}</h2>
-          <p>{guide.architectureIntro}</p>
+          <p className="eyebrow">{guide.quickOverviewTitle}</p>
+          <h2 id="architecture-title">
+            {runtimeCapabilities.internalHttpsLbArchitecture
+              ? guide.architectureTitle
+              : guide.extensionArchitectureTitle}
+          </h2>
+          <p>
+            {runtimeCapabilities.internalHttpsLbArchitecture
+              ? guide.architectureIntro
+              : guide.extensionArchitectureIntro}
+          </p>
+          {!runtimeCapabilities.internalHttpsLbArchitecture ? (
+            <p>{guide.extensionArchitectureNote}</p>
+          ) : null}
+          <h3>{guide.costOverviewTitle}</h3>
+          <p>{guide.costOverviewIntro}</p>
         </header>
         <div className="architecture-grid">
-          {guide.architectures.map((architecture) => (
+          {architectures.map((architecture) => (
             <article className="architecture-card" key={architecture.title}>
               <div className="architecture-card-heading">
                 <span>{architecture.eyebrow}</span>
@@ -43,15 +60,15 @@ export function GuidePage({ messages }: GuidePageProps) {
               <div className="architecture-cost-box">
                 <div className="architecture-cost-header">
                   <strong>💰 {architecture.estimatedCost}</strong>
-                  <span className="cost-tag">GCP Infrastructure (Excl. CEP)</span>
+                  <span className="cost-tag">{guide.costTag}</span>
                 </div>
                 <div className="architecture-cost-details">
                   <div className="cost-detail-row">
-                    <span className="cost-type-fixed">Fixed</span>
+                    <span className="cost-type-fixed">{guide.fixedCostLabel}</span>
                     <span>{architecture.costFixed}</span>
                   </div>
                   <div className="cost-detail-row">
-                    <span className="cost-type-variable">Variable</span>
+                    <span className="cost-type-variable">{guide.variableCostLabel}</span>
                     <span>{architecture.costVariable}</span>
                   </div>
                 </div>
@@ -94,7 +111,7 @@ export function GuidePage({ messages }: GuidePageProps) {
       {/* TOP SECTION: Implementation Inventory */}
       <section className="implementation-section" aria-labelledby="implementation-title">
         <header className="architecture-heading">
-          <p className="eyebrow">Implementation inventory</p>
+          <p className="eyebrow">{guide.implementationEyebrow}</p>
           <h2 id="implementation-title">{guide.implementationTitle}</h2>
           <p>{guide.implementationIntro}</p>
         </header>
@@ -121,7 +138,7 @@ export function GuidePage({ messages }: GuidePageProps) {
       {/* BOTTOM SECTION: Step-by-Step Technical Deep Dive & REST API Reference */}
       <section className="technical-deep-dive-section" aria-labelledby="technical-deep-dive-title">
         <header className="architecture-heading">
-          <p className="eyebrow">Technical Reference & API Calls</p>
+          <p className="eyebrow">{guide.technicalEyebrow}</p>
           <h2 id="technical-deep-dive-title">{guide.technicalDeepDiveTitle}</h2>
           <p>{guide.technicalDeepDiveIntro}</p>
         </header>
@@ -143,7 +160,7 @@ export function GuidePage({ messages }: GuidePageProps) {
                 <div className="step-section-block">
                   <h4 className="step-subheading">
                     <CheckIcon size={16} />
-                    <span>Checklist & Actions</span>
+                    <span>{guide.checklistLabel}</span>
                   </h4>
                   <ul className="step-actions-list">
                     {step.actions.map((action) => (
@@ -213,7 +230,7 @@ export function GuidePage({ messages }: GuidePageProps) {
       {guide.faqs && guide.faqs.length > 0 && (
         <section className="faq-section" aria-labelledby="faq-title">
           <header className="architecture-heading">
-            <p className="eyebrow">Troubleshooting & Best Practices</p>
+            <p className="eyebrow">{guide.faqEyebrow}</p>
             <h2 id="faq-title">{guide.faqTitle}</h2>
             <p>{guide.faqIntro}</p>
           </header>
@@ -231,7 +248,7 @@ export function GuidePage({ messages }: GuidePageProps) {
                     <div className="faq-checklist-box">
                       <div className="faq-checklist-title">
                         <CheckIcon size={16} />
-                        <span>確認チェックリスト・解決手順</span>
+                        <span>{guide.faqChecklistLabel}</span>
                       </div>
                       <ul className="faq-checklist">
                         {faq.checklist.map((item, idx) => (

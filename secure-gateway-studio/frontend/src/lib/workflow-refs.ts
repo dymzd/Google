@@ -6,23 +6,26 @@ export interface WorkflowRefs {
 
 const WORKFLOW_KEY = "sgs.workflow.v1";
 
+export const emptyWorkflowRefs: WorkflowRefs = { planId: "", approvalId: "", runId: "" };
+
+export function restoreWorkflowRefs(value: unknown): WorkflowRefs {
+  if (!value || typeof value !== "object") return emptyWorkflowRefs;
+  const candidate = value as Partial<WorkflowRefs>;
+  return {
+    planId: typeof candidate.planId === "string" ? candidate.planId : "",
+    approvalId: typeof candidate.approvalId === "string" ? candidate.approvalId : "",
+    runId: typeof candidate.runId === "string" ? candidate.runId : "",
+  };
+}
+
 export function loadWorkflowRefs(): WorkflowRefs {
   try {
     const value: unknown = JSON.parse(
       window.localStorage.getItem(WORKFLOW_KEY) ?? "{}",
     );
-    if (!value || typeof value !== "object") {
-      return { planId: "", approvalId: "", runId: "" };
-    }
-    const candidate = value as Partial<WorkflowRefs>;
-    return {
-      planId: typeof candidate.planId === "string" ? candidate.planId : "",
-      approvalId:
-        typeof candidate.approvalId === "string" ? candidate.approvalId : "",
-      runId: typeof candidate.runId === "string" ? candidate.runId : "",
-    };
+    return restoreWorkflowRefs(value);
   } catch {
-    return { planId: "", approvalId: "", runId: "" };
+    return emptyWorkflowRefs;
   }
 }
 

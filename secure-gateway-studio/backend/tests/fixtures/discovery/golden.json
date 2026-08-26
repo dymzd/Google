@@ -7,6 +7,12 @@
         {
           "body": null,
           "method": "GET",
+          "params": null,
+          "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+        },
+        {
+          "body": null,
+          "method": "GET",
           "params": {
             "filter": "state:ENABLED",
             "pageSize": 200
@@ -21,12 +27,13 @@
               "beyondcorp.securityGateways.delete",
               "beyondcorp.securityGateways.get",
               "beyondcorp.securityGateways.getIamPolicy",
+              "beyondcorp.securityGateways.list",
               "beyondcorp.securityGateways.setIamPolicy",
-              "beyondcorp.securityGateways.update",
               "beyondcorp.sgApplications.create",
               "beyondcorp.sgApplications.delete",
               "beyondcorp.sgApplications.get",
               "beyondcorp.sgApplications.getIamPolicy",
+              "beyondcorp.sgApplications.list",
               "beyondcorp.sgApplications.setIamPolicy",
               "compute.forwardingRules.list",
               "compute.networks.get",
@@ -79,7 +86,9 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
         },
         {
@@ -91,11 +100,14 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -110,6 +122,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -124,6 +137,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.SimpleProxySettings",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -135,6 +149,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -178,6 +193,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.ChromeRootStoreEnabled",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -191,7 +207,8 @@
           "body": null,
           "method": "GET",
           "params": {
-            "maxResults": 500
+            "maxResults": 500,
+            "returnPartialSuccess": "true"
           },
           "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/aggregated/forwardingRules"
         }
@@ -203,12 +220,13 @@
         "beyondcorp.securityGateways.delete",
         "beyondcorp.securityGateways.get",
         "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.list",
         "beyondcorp.securityGateways.setIamPolicy",
-        "beyondcorp.securityGateways.update",
         "beyondcorp.sgApplications.create",
         "beyondcorp.sgApplications.delete",
         "beyondcorp.sgApplications.get",
         "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.list",
         "beyondcorp.sgApplications.setIamPolicy",
         "compute.forwardingRules.list",
         "compute.networks.get",
@@ -226,9 +244,11 @@
       "snapshot": {
         "application_forwarding_rule": "app-ilb-fr",
         "application_global_access": true,
+        "application_global_access_discovery_complete": true,
         "billing_enabled": true,
         "chrome_enterprise_premium_license_count": 0,
         "chrome_extension_group_conflicts": [],
+        "chrome_group_policy_discovery_complete": true,
         "chrome_root_store_config_count": null,
         "chrome_root_store_config_names": [],
         "chrome_root_store_enabled": null,
@@ -263,12 +283,13 @@
           "beyondcorp.securityGateways.delete",
           "beyondcorp.securityGateways.get",
           "beyondcorp.securityGateways.getIamPolicy",
+          "beyondcorp.securityGateways.list",
           "beyondcorp.securityGateways.setIamPolicy",
-          "beyondcorp.securityGateways.update",
           "beyondcorp.sgApplications.create",
           "beyondcorp.sgApplications.delete",
           "beyondcorp.sgApplications.get",
           "beyondcorp.sgApplications.getIamPolicy",
+          "beyondcorp.sgApplications.list",
           "beyondcorp.sgApplications.setIamPolicy",
           "compute.forwardingRules.list",
           "compute.networks.get",
@@ -287,8 +308,10 @@
         "managed_chrome_profile_count": 0,
         "private_egress_available": null,
         "profile_only_count": 0,
+        "public_certificate_binding": null,
         "secure_enterprise_browser_installed": false,
         "secure_enterprise_browser_version": null,
+        "source_image_binding": null,
         "workspace_identity": null
       },
       "spec": {
@@ -325,6 +348,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -344,6 +368,12 @@
         {
           "body": null,
           "method": "GET",
+          "params": null,
+          "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+        },
+        {
+          "body": null,
+          "method": "GET",
           "params": {
             "filter": "state:ENABLED",
             "pageSize": 200
@@ -358,12 +388,13 @@
               "beyondcorp.securityGateways.delete",
               "beyondcorp.securityGateways.get",
               "beyondcorp.securityGateways.getIamPolicy",
+              "beyondcorp.securityGateways.list",
               "beyondcorp.securityGateways.setIamPolicy",
-              "beyondcorp.securityGateways.update",
               "beyondcorp.sgApplications.create",
               "beyondcorp.sgApplications.delete",
               "beyondcorp.sgApplications.get",
               "beyondcorp.sgApplications.getIamPolicy",
+              "beyondcorp.sgApplications.list",
               "beyondcorp.sgApplications.setIamPolicy",
               "compute.forwardingRules.list",
               "compute.networks.get",
@@ -416,7 +447,9 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
         },
         {
@@ -428,11 +461,14 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -447,6 +483,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -461,6 +498,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.SimpleProxySettings",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -472,6 +510,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -515,6 +554,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.ChromeRootStoreEnabled",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -528,7 +568,8 @@
           "body": null,
           "method": "GET",
           "params": {
-            "maxResults": 500
+            "maxResults": 500,
+            "returnPartialSuccess": "true"
           },
           "url": "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/aggregated/forwardingRules"
         }
@@ -540,12 +581,13 @@
         "beyondcorp.securityGateways.delete",
         "beyondcorp.securityGateways.get",
         "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.list",
         "beyondcorp.securityGateways.setIamPolicy",
-        "beyondcorp.securityGateways.update",
         "beyondcorp.sgApplications.create",
         "beyondcorp.sgApplications.delete",
         "beyondcorp.sgApplications.get",
         "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.list",
         "beyondcorp.sgApplications.setIamPolicy",
         "compute.forwardingRules.list",
         "compute.networks.get",
@@ -563,9 +605,11 @@
       "snapshot": {
         "application_forwarding_rule": "app-ilb-fr",
         "application_global_access": false,
+        "application_global_access_discovery_complete": true,
         "billing_enabled": true,
         "chrome_enterprise_premium_license_count": 0,
         "chrome_extension_group_conflicts": [],
+        "chrome_group_policy_discovery_complete": true,
         "chrome_root_store_config_count": null,
         "chrome_root_store_config_names": [],
         "chrome_root_store_enabled": null,
@@ -600,12 +644,13 @@
           "beyondcorp.securityGateways.delete",
           "beyondcorp.securityGateways.get",
           "beyondcorp.securityGateways.getIamPolicy",
+          "beyondcorp.securityGateways.list",
           "beyondcorp.securityGateways.setIamPolicy",
-          "beyondcorp.securityGateways.update",
           "beyondcorp.sgApplications.create",
           "beyondcorp.sgApplications.delete",
           "beyondcorp.sgApplications.get",
           "beyondcorp.sgApplications.getIamPolicy",
+          "beyondcorp.sgApplications.list",
           "beyondcorp.sgApplications.setIamPolicy",
           "compute.forwardingRules.list",
           "compute.networks.get",
@@ -624,8 +669,10 @@
         "managed_chrome_profile_count": 0,
         "private_egress_available": null,
         "profile_only_count": 0,
+        "public_certificate_binding": null,
         "secure_enterprise_browser_installed": false,
         "secure_enterprise_browser_version": null,
+        "source_image_binding": null,
         "workspace_identity": null
       },
       "spec": {
@@ -662,6 +709,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -681,6 +729,12 @@
         {
           "body": null,
           "method": "GET",
+          "params": null,
+          "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+        },
+        {
+          "body": null,
+          "method": "GET",
           "params": {
             "filter": "state:ENABLED",
             "pageSize": 200
@@ -695,12 +749,13 @@
               "beyondcorp.securityGateways.delete",
               "beyondcorp.securityGateways.get",
               "beyondcorp.securityGateways.getIamPolicy",
+              "beyondcorp.securityGateways.list",
               "beyondcorp.securityGateways.setIamPolicy",
-              "beyondcorp.securityGateways.update",
               "beyondcorp.sgApplications.create",
               "beyondcorp.sgApplications.delete",
               "beyondcorp.sgApplications.get",
               "beyondcorp.sgApplications.getIamPolicy",
+              "beyondcorp.sgApplications.list",
               "beyondcorp.sgApplications.setIamPolicy",
               "compute.forwardingRules.list",
               "compute.networks.get",
@@ -753,7 +808,9 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
         },
         {
@@ -765,11 +822,14 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -784,6 +844,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -798,6 +859,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.SimpleProxySettings",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -809,6 +871,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -852,6 +915,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.ChromeRootStoreEnabled",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -869,12 +933,13 @@
         "beyondcorp.securityGateways.delete",
         "beyondcorp.securityGateways.get",
         "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.list",
         "beyondcorp.securityGateways.setIamPolicy",
-        "beyondcorp.securityGateways.update",
         "beyondcorp.sgApplications.create",
         "beyondcorp.sgApplications.delete",
         "beyondcorp.sgApplications.get",
         "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.list",
         "beyondcorp.sgApplications.setIamPolicy",
         "compute.forwardingRules.list",
         "compute.networks.get",
@@ -892,9 +957,11 @@
       "snapshot": {
         "application_forwarding_rule": null,
         "application_global_access": null,
+        "application_global_access_discovery_complete": true,
         "billing_enabled": true,
         "chrome_enterprise_premium_license_count": 0,
         "chrome_extension_group_conflicts": [],
+        "chrome_group_policy_discovery_complete": true,
         "chrome_root_store_config_count": null,
         "chrome_root_store_config_names": [],
         "chrome_root_store_enabled": null,
@@ -929,12 +996,13 @@
           "beyondcorp.securityGateways.delete",
           "beyondcorp.securityGateways.get",
           "beyondcorp.securityGateways.getIamPolicy",
+          "beyondcorp.securityGateways.list",
           "beyondcorp.securityGateways.setIamPolicy",
-          "beyondcorp.securityGateways.update",
           "beyondcorp.sgApplications.create",
           "beyondcorp.sgApplications.delete",
           "beyondcorp.sgApplications.get",
           "beyondcorp.sgApplications.getIamPolicy",
+          "beyondcorp.sgApplications.list",
           "beyondcorp.sgApplications.setIamPolicy",
           "compute.forwardingRules.list",
           "compute.networks.get",
@@ -953,8 +1021,10 @@
         "managed_chrome_profile_count": 0,
         "private_egress_available": null,
         "profile_only_count": 0,
+        "public_certificate_binding": null,
         "secure_enterprise_browser_installed": false,
         "secure_enterprise_browser_version": null,
+        "source_image_binding": null,
         "workspace_identity": null
       },
       "spec": {
@@ -991,6 +1061,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,
@@ -1010,6 +1081,12 @@
         {
           "body": null,
           "method": "GET",
+          "params": null,
+          "url": "https://admin.googleapis.com/admin/directory/v1/customer/my_customer/orgunits/id%3A03-test-ou"
+        },
+        {
+          "body": null,
+          "method": "GET",
           "params": {
             "filter": "state:ENABLED",
             "pageSize": 200
@@ -1024,12 +1101,13 @@
               "beyondcorp.securityGateways.delete",
               "beyondcorp.securityGateways.get",
               "beyondcorp.securityGateways.getIamPolicy",
+              "beyondcorp.securityGateways.list",
               "beyondcorp.securityGateways.setIamPolicy",
-              "beyondcorp.securityGateways.update",
               "beyondcorp.sgApplications.create",
               "beyondcorp.sgApplications.delete",
               "beyondcorp.sgApplications.get",
               "beyondcorp.sgApplications.getIamPolicy",
+              "beyondcorp.sgApplications.list",
               "beyondcorp.sgApplications.setIamPolicy",
               "compute.forwardingRules.list",
               "compute.networks.get",
@@ -1048,6 +1126,20 @@
           "method": "POST",
           "params": null,
           "url": "https://cloudresourcemanager.googleapis.com/v1/projects/enterprise-secgw-01:testIamPermissions"
+        },
+        {
+          "body": {
+            "permissions": [
+              "compute.networks.get",
+              "compute.networks.use",
+              "resourcemanager.projects.get",
+              "resourcemanager.projects.getIamPolicy",
+              "resourcemanager.projects.setIamPolicy"
+            ]
+          },
+          "method": "POST",
+          "params": null,
+          "url": "https://cloudresourcemanager.googleapis.com/v1/projects/shared-network-prj:testIamPermissions"
         },
         {
           "body": null,
@@ -1082,7 +1174,9 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default:getIamPolicy"
         },
         {
@@ -1094,11 +1188,14 @@
         {
           "body": null,
           "method": "GET",
-          "params": null,
+          "params": {
+            "options.requestedPolicyVersion": 3
+          },
           "url": "https://beyondcorp.googleapis.com/v1/projects/enterprise-secgw-01/locations/global/securityGateways/default/applications/secure-gateway-http-offload-app:getIamPolicy"
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -1113,6 +1210,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.InstallType",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -1127,6 +1225,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.SimpleProxySettings",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -1138,6 +1237,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.apps.ManagedConfiguration",
             "policyTargetKey": {
               "additionalTargetKeys": {
@@ -1181,6 +1281,7 @@
         },
         {
           "body": {
+            "pageSize": 1000,
             "policySchemaFilter": "chrome.users.ChromeRootStoreEnabled",
             "policyTargetKey": {
               "targetResource": "orgunits/03-test-ou"
@@ -1194,7 +1295,8 @@
           "body": null,
           "method": "GET",
           "params": {
-            "maxResults": 500
+            "maxResults": 500,
+            "returnPartialSuccess": "true"
           },
           "url": "https://compute.googleapis.com/compute/v1/projects/shared-network-prj/aggregated/forwardingRules"
         }
@@ -1206,12 +1308,13 @@
         "beyondcorp.securityGateways.delete",
         "beyondcorp.securityGateways.get",
         "beyondcorp.securityGateways.getIamPolicy",
+        "beyondcorp.securityGateways.list",
         "beyondcorp.securityGateways.setIamPolicy",
-        "beyondcorp.securityGateways.update",
         "beyondcorp.sgApplications.create",
         "beyondcorp.sgApplications.delete",
         "beyondcorp.sgApplications.get",
         "beyondcorp.sgApplications.getIamPolicy",
+        "beyondcorp.sgApplications.list",
         "beyondcorp.sgApplications.setIamPolicy",
         "compute.forwardingRules.list",
         "compute.networks.get",
@@ -1229,9 +1332,11 @@
       "snapshot": {
         "application_forwarding_rule": "app-ilb-fr",
         "application_global_access": true,
+        "application_global_access_discovery_complete": true,
         "billing_enabled": true,
         "chrome_enterprise_premium_license_count": 0,
         "chrome_extension_group_conflicts": [],
+        "chrome_group_policy_discovery_complete": true,
         "chrome_root_store_config_count": null,
         "chrome_root_store_config_names": [],
         "chrome_root_store_enabled": null,
@@ -1266,12 +1371,13 @@
           "beyondcorp.securityGateways.delete",
           "beyondcorp.securityGateways.get",
           "beyondcorp.securityGateways.getIamPolicy",
+          "beyondcorp.securityGateways.list",
           "beyondcorp.securityGateways.setIamPolicy",
-          "beyondcorp.securityGateways.update",
           "beyondcorp.sgApplications.create",
           "beyondcorp.sgApplications.delete",
           "beyondcorp.sgApplications.get",
           "beyondcorp.sgApplications.getIamPolicy",
+          "beyondcorp.sgApplications.list",
           "beyondcorp.sgApplications.setIamPolicy",
           "compute.forwardingRules.list",
           "compute.networks.get",
@@ -1290,8 +1396,10 @@
         "managed_chrome_profile_count": 0,
         "private_egress_available": null,
         "profile_only_count": 0,
+        "public_certificate_binding": null,
         "secure_enterprise_browser_installed": false,
         "secure_enterprise_browser_version": null,
+        "source_image_binding": null,
         "workspace_identity": null
       },
       "spec": {
@@ -1328,6 +1436,7 @@
         ],
         "private_hostname": "demo-server-http.internal",
         "project_id": "enterprise-secgw-01",
+        "proxy_subnet_cidr": "10.42.1.0/24",
         "region": "asia-east1",
         "require_cloud_nat": true,
         "require_human_approval": true,

@@ -105,6 +105,8 @@ const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const SOURCE_IMAGE =
   /^projects\/[a-z][a-z0-9-]{4,61}[a-z0-9]\/global\/images\/[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ACCESS_LEVEL = /^accessPolicies\/[0-9]+\/accessLevels\/[A-Za-z][A-Za-z0-9_]{0,49}$/;
+const CA_POOL_SUFFIX = /^locations\/[a-z0-9-]+\/caPools\/[A-Za-z0-9_-]+$/;
+const CA_AUTHORITY_ID = /^[A-Za-z0-9_-]+$/;
 const UNSAFE_PROXY_CHARS = /[\s{};#]/;
 const FORBIDDEN_HOSTS = new Set(["localhost", "metadata", "metadata.google.internal"]);
 
@@ -367,6 +369,12 @@ function enforceEnterpriseInvariants(spec: DeploymentSpec): void {
   }
 
   if (spec.mode === "production") {
+    if (spec.backend_kind === "internal_https_lb") {
+      fail(
+        "Production internal HTTPS load balancing is unavailable in 0.2.1; " +
+          "use direct HTTPS or PoC ILB",
+      );
+    }
     if (spec.certificate_strategy === "local_poc") {
       fail("Production mode cannot use a local PoC CA");
     }
@@ -398,9 +406,41 @@ function enforceEnterpriseInvariants(spec: DeploymentSpec): void {
     if (!spec.endpoint_verification_confirmed) {
       fail("Production mode requires Endpoint Verification confirmation");
     }
-    if (spec.backend_kind !== "direct_https" && !spec.source_image) {
-      fail("Production mode requires an immutable hardened source image");
+  }
+
+  if (
+    spec.backend_kind !== "direct_https" &&
+    spec.certificate_strategy === "public_trusted"
+  ) {
+    const labels = spec.private_hostname.split(".");
+    const reservedSuffixes = new Set([
+      "alt",
+      "arpa",
+      "corp",
+      "example",
+      "home",
+      "internal",
+      "invalid",
+      "lan",
+      "local",
+      "localdomain",
+      "localhost",
+      "onion",
+      "test",
+    ]);
+    if (
+      labels.length < 2 || !/^[a-z]{2,63}$/.test(labels.at(-1) ?? "") ||
+      reservedSuffixes.has(labels.at(-1) ?? "") ||
+      ["example.com", "example.net", "example.org"].some(
+        (name) => spec.private_hostname === name || spec.private_hostname.endsWith(`.${name}`),
+      )
+    ) {
+      fail("Public-trusted TLS requires a registrable public DNS hostname");
     }
+  }
+
+  if (spec.backend_kind !== "direct_https" && !spec.source_image) {
+    fail("Managed VM paths require an immutable source image; Production requires a hardened image");
   }
 
   if (spec.source_image && !SOURCE_IMAGE.test(spec.source_image)) {
@@ -409,7 +449,6 @@ function enforceEnterpriseInvariants(spec: DeploymentSpec): void {
 
   if (
     spec.managed_chrome_access_level &&
-    !spec.managed_chrome_access_level.startsWith("AUTO_CREATE_") &&
     spec.managed_chrome_access_level !== "NONE" &&
     !ACCESS_LEVEL.test(spec.managed_chrome_access_level)
   ) {
@@ -444,6 +483,27 @@ function enforceEnterpriseInvariants(spec: DeploymentSpec): void {
     (!spec.ca_pool || !spec.ca_name)
   ) {
     fail("Enterprise CA strategy requires ca_pool and ca_name");
+  }
+  if (
+    spec.backend_kind !== "direct_https" &&
+    spec.certificate_strategy === "enterprise_ca" &&
+    spec.ca_pool &&
+    spec.ca_name
+  ) {
+    const projectPrefix = `projects/${spec.project_id}/`;
+    if (
+      !spec.ca_pool.startsWith(projectPrefix) ||
+      !CA_POOL_SUFFIX.test(spec.ca_pool.slice(projectPrefix.length))
+    ) {
+      fail("ca_pool must be a full CA pool name in the deployment project");
+    }
+    const authorityPrefix = `${spec.ca_pool}/certificateAuthorities/`;
+    const authorityId = spec.ca_name.startsWith(authorityPrefix)
+      ? spec.ca_name.slice(authorityPrefix.length)
+      : "";
+    if (!CA_AUTHORITY_ID.test(authorityId)) {
+      fail("ca_name must identify an authority in ca_pool");
+    }
   }
   if (
     spec.backend_kind !== "direct_https" &&

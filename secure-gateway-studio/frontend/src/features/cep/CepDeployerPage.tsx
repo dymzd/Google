@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import type { Messages } from "../../i18n/messages";
 import type {
   CepDataBoundaryMode,
-  CepDlpAction,
   CepDlpMatrixState,
-  CepDlpRuleId,
   CepLicenseAssignResult,
   CepProvisionConfig,
   CepProvisionResult,
@@ -12,7 +10,6 @@ import type {
 } from "../../lib/api";
 import {
   assignCepLicenses,
-  createCepCustomRoles,
   generateCepScript,
   listAccessLevelOptions,
   listOrganizationalUnitOptions,
@@ -40,7 +37,6 @@ interface ModuleState {
   dlpDetectors: boolean;
   dlpRules: boolean;
   dlpRegion: string;
-  dlpRuleActions: Record<CepDlpRuleId, CepDlpAction>;
   dataBoundaryMode: CepDataBoundaryMode;
 }
 
@@ -57,17 +53,6 @@ const DLP_REGIONS: Array<{ value: string; label: string }> = [
   { value: "SG", label: "Singapore" },
   { value: "IN", label: "India" },
 ];
-
-/** Audit first: an evaluation that starts by blocking gets switched off. */
-const DEFAULT_RULE_ACTIONS: Record<CepDlpRuleId, CepDlpAction> = {
-  universal_upload: "auditOnly",
-  universal_download: "auditOnly",
-  payment_card: "auditOnly",
-  national_id: "auditOnly",
-  access_level: "auditOnly",
-  watermark: "auditOnly",
-  genai_block: "blockContent",
-};
 
 type PresetName = "full" | "ai" | "endpoint" | "audit";
 
@@ -89,10 +74,9 @@ const PRESETS: Record<PresetName, ModuleState> = {
     forceExtensions: true,
     connectors: true,
     accessLevel: AUTO_CREATE_ANY,
-    dlpDetectors: true,
+    dlpDetectors: false,
     dlpRules: true,
     dlpRegion: "JP",
-    dlpRuleActions: DEFAULT_RULE_ACTIONS,
     dataBoundaryMode: "copy_paste",
   },
   ai: {
@@ -100,10 +84,9 @@ const PRESETS: Record<PresetName, ModuleState> = {
     forceExtensions: false,
     connectors: true,
     accessLevel: ACCESS_LEVEL_NONE,
-    dlpDetectors: true,
+    dlpDetectors: false,
     dlpRules: true,
     dlpRegion: "JP",
-    dlpRuleActions: DEFAULT_RULE_ACTIONS,
     dataBoundaryMode: "block_non_corp",
   },
   endpoint: {
@@ -114,7 +97,6 @@ const PRESETS: Record<PresetName, ModuleState> = {
     dlpDetectors: false,
     dlpRules: false,
     dlpRegion: "JP",
-    dlpRuleActions: DEFAULT_RULE_ACTIONS,
     dataBoundaryMode: "none",
   },
   audit: {
@@ -122,11 +104,37 @@ const PRESETS: Record<PresetName, ModuleState> = {
     forceExtensions: false,
     connectors: true,
     accessLevel: ACCESS_LEVEL_NONE,
-    dlpDetectors: true,
+    dlpDetectors: false,
     dlpRules: true,
     dlpRegion: "JP",
-    dlpRuleActions: DEFAULT_RULE_ACTIONS,
     dataBoundaryMode: "none",
+  },
+};
+
+const PRESET_MATRICES: Record<PresetName, CepDlpMatrixState> = {
+  full: DEFAULT_DLP_MATRIX,
+  ai: {
+    ...DEFAULT_DLP_MATRIX,
+    genai_block: { ...DEFAULT_DLP_MATRIX.genai_block, paste: "blockContent", upload: "blockContent" },
+    national_id: { ...DEFAULT_DLP_MATRIX.national_id, paste: "warnUser" },
+  },
+  endpoint: {
+    universal_upload: { upload: "off" },
+    universal_download: { download: "off" },
+    payment_card: { upload: "off", paste: "off" },
+    national_id: { upload: "off", paste: "off" },
+    access_level: { upload: "off" },
+    watermark: { watermark: false },
+    genai_block: { paste: "off", upload: "off" },
+  },
+  audit: {
+    universal_upload: { upload: "warnUser" },
+    universal_download: { download: "warnUser" },
+    payment_card: { upload: "warnUser", paste: "warnUser" },
+    national_id: { upload: "warnUser", paste: "warnUser" },
+    access_level: { upload: "off", download: "off", paste: "off", print: "off", byodOnly: false },
+    watermark: { watermark: false },
+    genai_block: { paste: "warnUser", upload: "warnUser" },
   },
 };
 
@@ -136,11 +144,17 @@ export function CepDeployerPage({
   projectId,
 }: CepDeployerPageProps) {
   const m = messages.cepDeployer;
+  const canonicalCustomerId = /^C[A-Za-z0-9]+$/.test(customerId.trim())
+    ? customerId.trim()
+    : "";
 
   const [organizationalUnits, setOrganizationalUnits] = useState<SetupOption[]>([]);
   const [selectedOu, setSelectedOu] = useState<string>("");
+  const [targetOuConfirmation, setTargetOuConfirmation] = useState<string>("");
   const [ouError, setOuError] = useState<boolean>(false);
-  const [autoSubOus, setAutoSubOus] = useState<boolean>(true);
+  // This write-capable Directory action must be an affirmative administrator
+  // choice; merely opening Easy PoC must not opt the tenant into OU creation.
+  const [autoSubOus, setAutoSubOus] = useState<boolean>(false);
 
   const [modules, setModules] = useState<ModuleState>(PRESETS.full);
   const [dlpMatrix, setDlpMatrix] = useState<CepDlpMatrixState>(DEFAULT_DLP_MATRIX);
@@ -153,10 +167,6 @@ export function CepDeployerPage({
   const [licenseResult, setLicenseResult] = useState<CepLicenseAssignResult | null>(null);
   const [licenseError, setLicenseError] = useState<string>("");
 
-  const [assignUserEmail, setAssignUserEmail] = useState<string>("");
-  const [rolesBusy, setRolesBusy] = useState<boolean>(false);
-  const [rolesMessage, setRolesMessage] = useState<{ ok: boolean; text: string } | null>(null);
-
   const [busy, setBusy] = useState<"deploy" | "rollback" | null>(null);
   const [actionError, setActionError] = useState<string>("");
   const [actionSuccess, setActionSuccess] = useState<string>("");
@@ -167,16 +177,22 @@ export function CepDeployerPage({
   const [loadingOus, setLoadingOus] = useState<boolean>(false);
 
   const handleLoadOus = async () => {
+    // A refresh is a new authorization decision. Never retain or infer a
+    // target from the first (normally root) Directory result.
+    setSelectedOu("");
+    setTargetOuConfirmation("");
+    if (canonicalCustomerId === "") {
+      setOuError(true);
+      setOuLoaded(true);
+      return;
+    }
     setLoadingOus(true);
     setOuError(false);
     try {
-      const options = await listOrganizationalUnitOptions(customerId || "my_customer");
+      const options = await listOrganizationalUnitOptions(canonicalCustomerId);
       setOrganizationalUnits(options);
       setOuError(options.length === 0);
-      if (options.length > 0) {
-        setSelectedOu(options[0].value);
-        setOuLoaded(true);
-      }
+      setOuLoaded(true);
       if (projectId) {
         try {
           const accessOptions = await listAccessLevelOptions(projectId);
@@ -188,11 +204,10 @@ export function CepDeployerPage({
           setAccessLevels(existing);
           setAccessLevelError(false);
         } catch {
-          // ignore access level error on initial load
+          setAccessLevelError(true);
         }
       }
-    } catch (err) {
-      console.error("[CEP Page] Failed to load OUs on verify:", err);
+    } catch {
       setOuError(true);
       setOuLoaded(true);
     } finally {
@@ -201,45 +216,43 @@ export function CepDeployerPage({
   };
 
   const selectedUnit = organizationalUnits.find((unit) => unit.value === selectedOu);
+  const targetOuConfirmed =
+    selectedUnit !== undefined &&
+    selectedUnit.label !== "/" &&
+    targetOuConfirmation === selectedUnit.label;
   const anyModuleSelected =
     modules.corePolicies ||
     modules.forceExtensions ||
     modules.connectors ||
     modules.accessLevel !== ACCESS_LEVEL_NONE ||
-    modules.dlpDetectors ||
     modules.dlpRules ||
     modules.dataBoundaryMode !== "none";
-  const canDeploy = selectedOu !== "" && anyModuleSelected && busy === null;
+  const canDeploy =
+    canonicalCustomerId !== "" &&
+    selectedOu !== "" &&
+    targetOuConfirmed &&
+    anyModuleSelected &&
+    busy === null;
 
   function update<K extends keyof ModuleState>(key: K, value: ModuleState[K]) {
     setModules((current) => ({ ...current, [key]: value }));
   }
 
-  function currentConfig(): CepProvisionConfig {
-    const computedActions: Partial<Record<CepDlpRuleId, CepDlpAction>> = {
-      universal_upload: dlpMatrix.universal_upload?.upload ?? "auditOnly",
-      universal_download: dlpMatrix.universal_download?.download ?? "auditOnly",
-      payment_card: dlpMatrix.payment_card?.upload ?? "auditOnly",
-      national_id: dlpMatrix.national_id?.paste ?? dlpMatrix.national_id?.upload ?? "auditOnly",
-      access_level: dlpMatrix.access_level?.upload ?? "auditOnly",
-      watermark: dlpMatrix.watermark?.watermark ? "auditOnly" : "off",
-      genai_block: dlpMatrix.genai_block?.paste ?? dlpMatrix.genai_block?.upload ?? "blockContent",
-    };
-
+  function currentConfig(confirmation = targetOuConfirmation): CepProvisionConfig {
     return {
-      customer_id: customerId || "my_customer",
+      customer_id: canonicalCustomerId,
       project_id: projectId,
       target_ou_id: selectedOu,
       target_ou_path: selectedUnit?.label,
+      target_ou_confirmation: confirmation,
       create_sub_ous: autoSubOus,
       core_policies: modules.corePolicies,
       force_extensions: modules.forceExtensions,
       connectors: modules.connectors,
       access_level: modules.accessLevel,
-      dlp_detectors: modules.dlpDetectors,
+      dlp_detectors: false,
       dlp_rules: modules.dlpRules,
       dlp_region: modules.dlpRegion,
-      dlp_rule_actions: computedActions,
       dlp_matrix: dlpMatrix,
       data_boundary_mode: modules.dataBoundaryMode,
       internal_urls: internalUrls
@@ -250,15 +263,19 @@ export function CepDeployerPage({
   }
 
   const handleAssignLicenses = async () => {
-    if (!selectedOu) return;
+    if (!selectedOu || canonicalCustomerId === "" || !targetOuConfirmed) return;
+    const confirmation = targetOuConfirmation;
+    setTargetOuConfirmation("");
     setAssigningLicenses(true);
     setLicenseError("");
     setLicenseResult(null);
     try {
       const res = await assignCepLicenses({
-        customer_id: customerId || "my_customer",
+        customer_id: canonicalCustomerId,
+        project_id: projectId,
         target_ou_id: selectedOu,
         target_ou_path: selectedUnit?.label,
+        target_ou_confirmation: confirmation,
       });
       setLicenseResult(res);
       if (!res.success && res.errors.length > 0) {
@@ -284,11 +301,14 @@ export function CepDeployerPage({
   };
 
   const handleDeploy = async () => {
+    if (canonicalCustomerId === "" || !targetOuConfirmed) return;
+    const config = currentConfig(targetOuConfirmation);
+    setTargetOuConfirmation("");
     setBusy("deploy");
     setActionError("");
     setActionSuccess("");
     try {
-      applyResult(await provisionCepPolicies(currentConfig()));
+      applyResult(await provisionCepPolicies(config));
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -297,6 +317,7 @@ export function CepDeployerPage({
   };
 
   const handleRollback = async () => {
+    if (canonicalCustomerId === "") return;
     if (!window.confirm(m.confirmRollback)) return;
     setBusy("rollback");
     setActionError("");
@@ -304,7 +325,7 @@ export function CepDeployerPage({
     try {
       applyResult(
         await rollbackCepPolicies({
-          customer_id: customerId || "my_customer",
+          customer_id: canonicalCustomerId,
           project_id: projectId,
           target_ou_id: selectedOu,
           target_ou_path: selectedUnit?.label,
@@ -318,32 +339,8 @@ export function CepDeployerPage({
     }
   };
 
-  const handleProvisionRoles = async () => {
-    if (!projectId) {
-      setRolesMessage({ ok: false, text: m.rolesProjectRequired });
-      return;
-    }
-    setRolesBusy(true);
-    setRolesMessage(null);
-    try {
-      const result = await createCepCustomRoles({
-        project_id: projectId,
-        customer_id: customerId || "my_customer",
-        role_type: "both",
-        assigned_user_email: assignUserEmail.trim() || undefined,
-      });
-      setRolesMessage({ ok: result.success, text: result.message });
-    } catch (error) {
-      setRolesMessage({
-        ok: false,
-        text: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setRolesBusy(false);
-    }
-  };
-
   const handleDownloadScript = async () => {
+    if (canonicalCustomerId === "") return;
     setActionError("");
     try {
       const result = await generateCepScript(currentConfig());
@@ -404,12 +401,6 @@ export function CepDeployerPage({
     },
     { key: "connectors", label: m.moduleConnectors, description: m.moduleConnectorsDesc },
     {
-      key: "dlpDetectors",
-      label: m.moduleDlpDetectors,
-      description: m.moduleDlpDetectorsDesc,
-      beta: true,
-    },
-    {
       key: "dlpRules",
       label: m.moduleDlpRules,
       description: m.moduleDlpRulesDesc,
@@ -417,28 +408,7 @@ export function CepDeployerPage({
     },
   ];
 
-  const anyDlpSelected = modules.dlpDetectors || modules.dlpRules;
-
-  const dlpRuleRows: Array<{ id: CepDlpRuleId; label: string }> = [
-    { id: "payment_card", label: m.dlpRulePaymentCard },
-    { id: "national_id", label: m.dlpRuleNationalId },
-    { id: "access_level", label: m.dlpRuleAccessLevel },
-    { id: "watermark", label: m.dlpRuleWatermark },
-  ];
-
-  const dlpActions: Array<{ value: CepDlpAction; label: string }> = [
-    { value: "off", label: m.dlpActionOff },
-    { value: "auditOnly", label: m.dlpActionAudit },
-    { value: "warnUser", label: m.dlpActionWarn },
-    { value: "blockContent", label: m.dlpActionBlock },
-  ];
-
-  function setRuleAction(id: CepDlpRuleId, action: CepDlpAction) {
-    setModules((current) => ({
-      ...current,
-      dlpRuleActions: { ...current.dlpRuleActions, [id]: action },
-    }));
-  }
+  const anyDlpSelected = modules.dlpRules;
 
   const boundaryModes: Array<{
     value: CepDataBoundaryMode;
@@ -485,19 +455,24 @@ export function CepDeployerPage({
       <section className="cep-section" aria-labelledby="cep-ou-title">
         <h2 id="cep-ou-title">{m.targetOuCardTitle}</h2>
         <p>{m.targetOuCardSubtitle}</p>
+        {canonicalCustomerId === "" && (
+          <p className="cep-inline-error" role="alert">
+            {m.canonicalCustomerIdRequired}
+          </p>
+        )}
 
         {!ouLoaded ? (
-          <div className="cep-verify-box" style={{ marginBottom: "1rem" }}>
+          <div className="cep-verify-box">
             <button
               className="cep-btn cep-btn-primary"
-              disabled={loadingOus}
+              disabled={canonicalCustomerId === "" || loadingOus}
               onClick={() => void handleLoadOus()}
               type="button"
             >
-              {loadingOus ? "Verifying Google Account & Loading OUs..." : "🔑 Verify Google Account & Load OUs"}
+              {loadingOus ? m.verifyingGoogleAccount : m.verifyGoogleAccount}
             </button>
-            <p style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.5rem" }}>
-              Click above to authenticate with Google OAuth and load your organizational units.
+            <p className="cep-verify-hint">
+              {m.verifyGoogleAccountHint}
             </p>
           </div>
         ) : ouError ? (
@@ -506,40 +481,67 @@ export function CepDeployerPage({
               {m.ouLoadFailed}
             </p>
             <button
-              className="cep-btn cep-btn-secondary"
+              className="cep-btn cep-btn-secondary cep-retry-action"
               disabled={loadingOus}
               onClick={() => void handleLoadOus()}
-              style={{ marginTop: "0.5rem" }}
               type="button"
             >
-              Retry
+              {m.retry}
             </button>
           </div>
         ) : (
           <div className="cep-field">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
+            <div className="cep-field-heading">
               <label htmlFor="cep-target-ou">{m.selectTargetOu}</label>
               <button
-                className="text-action"
+                className="text-action cep-refresh-action"
                 disabled={loadingOus}
                 onClick={() => void handleLoadOus()}
-                style={{ fontSize: "0.75rem" }}
                 type="button"
               >
-                {loadingOus ? "Reloading..." : "↻ Refresh OUs"}
+                {loadingOus ? m.reloading : m.refreshOus}
               </button>
             </div>
             <select
               id="cep-target-ou"
-              onChange={(event) => setSelectedOu(event.target.value)}
+              onChange={(event) => {
+                setSelectedOu(event.target.value);
+                setTargetOuConfirmation("");
+              }}
               value={selectedOu}
             >
+              <option value="">{m.selectTargetOuPlaceholder}</option>
               {organizationalUnits.map((unit) => (
-                <option key={unit.value} value={unit.value}>
-                  {unit.label}
+                <option disabled={unit.label === "/"} key={unit.value} value={unit.value}>
+                  {unit.label === "/" ? `${unit.label} (${m.rootOuUnavailable})` : unit.label}
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {selectedUnit !== undefined && selectedUnit.label !== "/" && (
+          <div className="cep-license-warning-box">
+            <div className="cep-license-warning-header">
+              <ExclamationCircleIcon size={20} />
+              <strong>{m.targetOuImpact}</strong>
+            </div>
+            <div className="cep-field">
+              <label htmlFor="cep-target-ou-confirmation">
+                {m.targetOuConfirmationLabel}
+              </label>
+              <code>{selectedUnit.label}</code>
+              <input
+                autoComplete="off"
+                id="cep-target-ou-confirmation"
+                onChange={(event) => setTargetOuConfirmation(event.target.value)}
+                placeholder={selectedUnit.label}
+                spellCheck={false}
+                type="text"
+                value={targetOuConfirmation}
+              />
+              <small>{m.targetOuConfirmationHint}</small>
+            </div>
           </div>
         )}
 
@@ -559,6 +561,7 @@ export function CepDeployerPage({
       <section className="cep-section cep-license-section" aria-labelledby="cep-license-title">
         <h2 id="cep-license-title">{m.licenseCardTitle}</h2>
         <p>{m.licenseCardSubtitle}</p>
+        <p className="cep-inline-note">{m.licensePilotLimitNotice}</p>
 
         <div className="cep-license-warning-box">
           <div className="cep-license-warning-header">
@@ -583,7 +586,12 @@ export function CepDeployerPage({
         <div className="cep-license-action-row">
           <button
             className="secondary-action cep-license-btn"
-            disabled={selectedOu === "" || assigningLicenses}
+            disabled={
+              canonicalCustomerId === "" ||
+              selectedOu === "" ||
+              !targetOuConfirmed ||
+              assigningLicenses
+            }
             onClick={handleAssignLicenses}
             type="button"
           >
@@ -621,7 +629,10 @@ export function CepDeployerPage({
             <button
               className="cep-preset"
               key={preset.name}
-              onClick={() => setModules(PRESETS[preset.name])}
+              onClick={() => {
+                setModules(PRESETS[preset.name]);
+                setDlpMatrix(PRESET_MATRICES[preset.name]);
+              }}
               type="button"
             >
               <strong>{preset.label}</strong>
@@ -743,34 +754,15 @@ export function CepDeployerPage({
           </article>
         </div>
 
-        <div className="cep-role-form">
-          <div className="cep-field">
-            <label htmlFor="cep-assign-email">{m.assignUserEmailLabel}</label>
-            <input
-              id="cep-assign-email"
-              onChange={(event) => setAssignUserEmail(event.target.value)}
-              placeholder={m.assignUserEmailPlaceholder}
-              type="email"
-              value={assignUserEmail}
-            />
-          </div>
-          <button
-            className="secondary-action cep-role-action"
-            disabled={rolesBusy}
-            onClick={handleProvisionRoles}
-            type="button"
-          >
-            {rolesBusy ? m.provisioningRoles : m.provisionRolesButton}
-          </button>
-        </div>
-        {rolesMessage !== null && (
-          <p
-            className={rolesMessage.ok ? "cep-inline-note" : "cep-inline-error"}
-            role={rolesMessage.ok ? undefined : "alert"}
-          >
-            {rolesMessage.text}
-          </p>
-        )}
+        <a
+          className="secondary-action cep-role-action"
+          href="https://admin.google.com/ac/roles"
+          rel="noreferrer"
+          target="_blank"
+        >
+          {m.rolesAdminConsoleLink}
+        </a>
+        <p className="cep-inline-note">{m.rolesVerificationNote}</p>
       </section>
 
       <section className="cep-section" aria-labelledby="cep-testing-title">
@@ -837,7 +829,7 @@ export function CepDeployerPage({
         </button>
         <button
           className="secondary-action"
-          disabled={selectedOu === "" || busy !== null}
+          disabled={canonicalCustomerId === "" || selectedOu === "" || busy !== null}
           onClick={handleDownloadScript}
           type="button"
         >
@@ -845,7 +837,7 @@ export function CepDeployerPage({
         </button>
         <button
           className="danger-action cep-rollback"
-          disabled={selectedOu === "" || busy !== null}
+          disabled={canonicalCustomerId === "" || selectedOu === "" || busy !== null}
           onClick={handleRollback}
           type="button"
         >

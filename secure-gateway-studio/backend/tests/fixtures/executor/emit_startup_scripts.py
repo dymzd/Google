@@ -36,9 +36,12 @@ from sgstudio.domain.models import (  # noqa: E402
     BackendLocation,
     CertificateStrategy,
     DeploymentSpec,
+    DiscoverySnapshot,
     NetworkStrategy,
     PrincipalType,
+    PublicCertificateBinding,
 )
+from sgstudio.domain.planner import DesiredStatePlanner  # noqa: E402
 from sgstudio.providers.google_executor import GoogleResourceExecutor  # noqa: E402
 
 _TARGET = (
@@ -52,7 +55,7 @@ _TARGET = (
 # Sentinels that cannot occur naturally in the scripts.
 _SENTINELS = {
     "SGSX-BACKEND-URL": "@@BACKEND_URL@@",
-    "sgsx-hostname.invalid": "@@PRIVATE_HOSTNAME@@",
+    "sgsx.secure-gateway-studio.dev": "@@PRIVATE_HOSTNAME@@",
     "projects/sgsx-project/secrets/sgsx-secret/versions/active": "@@SECRET_VERSION@@",
     "0" * 64: "@@CONFIGURATION_HASH@@",
 }
@@ -74,11 +77,11 @@ def _spec(**overrides: Any) -> DeploymentSpec:
         "mode": "poc",
         "target_ou_id": "03-test-ou",
         "test_ou_confirmed": True,
-        "private_hostname": "sgsx-hostname.invalid",
+        "private_hostname": "sgsx.secure-gateway-studio.dev",
         "principals": [
             AccessPrincipal(type=PrincipalType.GROUP, value="secure-access@example.com")
         ],
-        "source_image": None,
+        "source_image": "projects/sgsx-project/global/images/sgsx-nginx-20260824",
         "certificate_strategy": CertificateStrategy.PUBLIC_TRUSTED,
         "public_certificate_secret": "projects/sgsx-project/secrets/sgsx-secret",
     }
@@ -92,10 +95,16 @@ def _templatise(script: str, spec: DeploymentSpec, executor: Any) -> str:
     replacements = {
         canonical_configuration_hash(spec): "@@CONFIGURATION_HASH@@",
         spec.private_hostname: "@@PRIVATE_HOSTNAME@@",
-        f"projects/{spec.project_id}/secrets/sgsx-secret/versions/latest": (
+        f"projects/{spec.project_id}/secrets/sgsx-secret/versions/123456789": (
             "@@SECRET_VERSION@@"
         ),
         "http://SGSX-BACKEND-ADDRESS": "@@BACKEND_URL@@",
+        (
+            "pin_presented_chain = "
+            f"{spec.certificate_strategy is not CertificateStrategy.PUBLIC_TRUSTED!r}"
+        ): (
+            "pin_presented_chain = @@PIN_PRESENTED_CHAIN@@"
+        ),
     }
     if spec.existing_backend_url:
         replacements[str(spec.existing_backend_url)] = "@@BACKEND_URL@@"
@@ -109,6 +118,19 @@ def build() -> str:
     executor = GoogleResourceExecutor(_NullTransport(), poll_interval_seconds=0)
 
     managed = _spec()
+    executor.bind_plan(
+        DesiredStatePlanner().build_plan(
+            managed,
+            DiscoverySnapshot(
+                public_certificate_binding=PublicCertificateBinding(
+                    secret_version_name=(
+                        "projects/sgsx-project/secrets/sgsx-secret/versions/123456789"
+                    ),
+                    payload_sha256="0" * 64,
+                )
+            ),
+        )
+    )
     offload = _templatise(executor._offload_startup_script(managed), managed, executor)
     backend = _templatise(executor._backend_startup_script(managed), managed, executor)
 
@@ -128,6 +150,9 @@ def build() -> str:
     )
     offload_hardened = _templatise(
         executor._offload_startup_script(hardened), hardened, executor
+    )
+    backend_hardened = _templatise(
+        executor._backend_startup_script(hardened), hardened, executor
     )
 
     direct = _spec(
@@ -165,7 +190,8 @@ def build() -> str:
         f"export const OFFLOAD_MANAGED_SAMPLE = {json.dumps(offload)};\n\n"
         f"export const OFFLOAD_EXISTING_BACKEND = {json.dumps(offload_existing)};\n\n"
         f"export const OFFLOAD_HARDENED = {json.dumps(offload_hardened)};\n\n"
-        f"export const SAMPLE_BACKEND = {json.dumps(backend)};\n"
+        f"export const SAMPLE_BACKEND = {json.dumps(backend)};\n\n"
+        f"export const SAMPLE_BACKEND_HARDENED = {json.dumps(backend_hardened)};\n"
     )
     return header + body
 

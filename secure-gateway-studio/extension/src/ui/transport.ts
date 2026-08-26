@@ -24,6 +24,18 @@ export class ApiError extends Error {
   }
 }
 
+/** Features implemented by this concrete transport. */
+export const runtimeCapabilities = {
+  bootstrapAccessPolicyId: true,
+  cepDeployer: true,
+  internalHttpsLbArchitecture: true,
+  postDeploymentAccessUpdate: true,
+  sessionSignOut: true,
+  recommendedPocSourceImage: true,
+  userDataDisclosure: true,
+  vpcNetworkCatalog: true,
+} as const;
+
 interface ApiRequest {
   kind: "api";
   method: "GET" | "POST";
@@ -36,24 +48,19 @@ type ApiReply =
   | { ok: false; status: number; code: string; message: string };
 
 async function call(request: ApiRequest): Promise<unknown> {
-  console.log("[SGS UI -> Worker]", request.method, request.path, request.body);
   let reply: ApiReply | undefined;
   try {
     reply = (await chrome.runtime.sendMessage(request)) as ApiReply;
   } catch (error) {
-    console.error("[SGS UI Error: Failed to message worker]", error);
     // The worker failed to wake, or the extension was reloaded mid-call.
     throw new ApiError(0, "worker-unavailable", (error as Error).message);
   }
   if (reply === undefined) {
-    console.error("[SGS UI Error: Worker returned undefined]");
     throw new ApiError(0, "worker-silent", "The background worker returned no response.");
   }
   if (!reply.ok) {
-    console.error("[SGS UI Error: Worker replied with error]", reply.status, reply.code, reply.message);
     throw new ApiError(reply.status, reply.code, reply.message);
   }
-  console.log("[SGS UI <- Worker Response]", request.path, reply.value);
   return reply.value;
 }
 

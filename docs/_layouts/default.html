@@ -6,27 +6,10 @@
   <title>{{ page.title | default: site.title }}</title>
   <meta name="description" content="{{ page.description | default: site.description }}">
   <meta name="google-site-verification" content="{{ site.google_site_verification }}">
-  
-  <!-- Fonts: Inter & JetBrains Mono -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  
-  <!-- Tailwind CSS with Typography Plugin -->
-  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          }
-        }
-      }
-    }
-  </script>
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- Generated locally from tailwind.input.css; no runtime CDN or remote font. -->
+  <link rel="stylesheet" href="{{ '/assets/css/tailwind.css' | relative_url }}">
   <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen flex flex-col selection:bg-sky-100 selection:text-sky-900">
@@ -41,8 +24,8 @@
           </svg>
         </div>
         <div>
-          <span class="font-bold text-slate-900 tracking-tight text-base sm:text-lg block leading-tight group-hover:text-sky-600 transition-colors">CEP PoC Deployer</span>
-          <span class="text-xs text-slate-500 hidden sm:block">Google Workspace & Cloud Extension</span>
+          <span class="font-bold text-slate-900 tracking-tight text-base sm:text-lg block leading-tight group-hover:text-sky-600 transition-colors">Secure Gateway Studio</span>
+          <span class="text-xs text-slate-500 hidden sm:block">Administrator deployment console</span>
         </div>
       </a>
 
@@ -70,8 +53,8 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
         <div>
           <div class="flex items-center gap-2 font-bold text-slate-900 mb-2">
-            <div class="w-6 h-6 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs">CEP</div>
-            Chrome Enterprise Premium PoC Deployer
+            <div class="w-6 h-6 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs">SGS</div>
+            Secure Gateway Studio
           </div>
           <p class="text-xs text-slate-500 leading-relaxed">
             Turnkey deployment and evaluation tool for Chrome Enterprise Premium and BeyondCorp Security Gateway.
@@ -82,7 +65,7 @@
           <ul class="space-y-2 text-xs">
             <li><a href="{{ '/' | relative_url }}" class="hover:text-sky-600 transition-colors">Overview & Architecture</a></li>
             <li><a href="{{ '/privacy.html' | relative_url }}" class="hover:text-sky-600 transition-colors">Privacy Policy</a></li>
-            <li><a href="https://github.com/dymzd/Google/issues" target="_blank" class="hover:text-sky-600 transition-colors">Issue Tracker</a></li>
+            <li><a href="https://github.com/dymzd/Google/issues" target="_blank" rel="noopener" class="hover:text-sky-600 transition-colors">Issue Tracker</a></li>
           </ul>
         </div>
         <div>
@@ -93,8 +76,8 @@
         </div>
       </div>
       <div class="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-4">
-        <p>&copy; 2026 Chrome Enterprise Premium PoC Deployer Authors. All rights reserved.</p>
-        <p>Built with GitHub Pages & Tailwind CSS</p>
+        <p>&copy; 2026 Secure Gateway Studio Authors. All rights reserved.</p>
+        <p>Built with GitHub Pages & Tailwind CSS · <a href="{{ '/THIRD_PARTY_NOTICES.txt' | relative_url }}" class="hover:text-sky-600 transition-colors">Third-party notices</a></p>
       </div>
     </div>
   </footer>

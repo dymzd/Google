@@ -43,6 +43,17 @@ export interface ResourceChange {
   dependencies: string[];
 }
 
+export interface PublicCertificateBinding {
+  secret_version_name: string;
+  payload_sha256: string;
+}
+
+export interface SourceImageBinding {
+  name: string;
+  id: string;
+  self_link: string;
+}
+
 export interface DeploymentGate {
   gate_id: string;
   title: string;
@@ -59,6 +70,8 @@ export interface DeploymentPlan {
   gates: DeploymentGate[];
   can_apply: boolean;
   destructive_change_count: number;
+  public_certificate_binding: PublicCertificateBinding | null;
+  source_image_binding: SourceImageBinding | null;
 }
 
 export interface DiscoverySnapshot {
@@ -78,12 +91,18 @@ export interface DiscoverySnapshot {
   endpoint_verification_version?: string | null;
   secure_enterprise_browser_version?: string | null;
   chrome_extension_group_conflicts?: string[];
+  chrome_group_policy_discovery_complete?: boolean;
   chrome_enterprise_premium_license_count?: number | null;
   chrome_root_store_config_count?: number | null;
   chrome_root_store_config_names?: string[];
   chrome_root_store_enabled?: boolean | null;
   application_global_access?: boolean | null;
   application_forwarding_rule?: string | null;
+  application_global_access_discovery_complete?: boolean;
+  /** Immutable numeric SecretVersion plus exact decoded payload digest. */
+  public_certificate_binding?: PublicCertificateBinding | null;
+  /** Immutable Compute image identity approved for every VM-backed path. */
+  source_image_binding?: SourceImageBinding | null;
 }
 
 interface DesiredResource {
@@ -165,11 +184,17 @@ export function requiredPermissions(spec: DeploymentSpec): Set<string> {
       "compute.routers.create",
       "compute.routers.delete",
       "compute.routers.update",
-      "compute.subnetworks.create",
-      "compute.subnetworks.delete",
     ]) {
       permissions.delete(permission);
     }
+    // The ILB path still creates and owns its regional proxy-only subnet in
+    // the selected VPC. Other existing-VPC paths reuse the selected subnet.
+    if (spec.backend_kind !== "internal_https_lb") {
+      permissions.delete("compute.subnetworks.create");
+      permissions.delete("compute.subnetworks.delete");
+    }
+  } else {
+    permissions.delete("compute.routes.list");
   }
   if (spec.certificate_strategy === "public_trusted") {
     // The secret already exists and is owned elsewhere; the deployment only
@@ -185,6 +210,9 @@ export function requiredPermissions(spec: DeploymentSpec): Set<string> {
       "secretmanager.secrets.update",
       "secretmanager.versions.add",
       "secretmanager.versions.disable",
+      "secretmanager.versions.destroy",
+      "secretmanager.versions.get",
+      "secretmanager.versions.list",
     ]) {
       permissions.delete(permission);
     }
@@ -198,39 +226,49 @@ export function requiredPermissions(spec: DeploymentSpec): Set<string> {
       "privateca.certificates.update",
       "privateca.operations.get",
     ]) {
+      if (
+        permission === "secretmanager.versions.access" &&
+        spec.backend_kind === "internal_https_lb"
+      ) continue;
       permissions.delete(permission);
     }
   }
 
   if (spec.mode === "poc") {
-    // PoC deploys a single VM. The managed instance group, autoscaler, and
-    // internal load balancer exist only in Production, and asking for their
-    // permissions would inflate the custom role past what Apply performs.
+    // No PoC path creates the production Nginx template/MIG/autoscaler tier.
     for (const permission of [
       "compute.autoscalers.create",
       "compute.autoscalers.delete",
       "compute.autoscalers.get",
+      "compute.instanceTemplates.create",
+      "compute.instanceTemplates.delete",
+      "compute.instanceTemplates.get",
+      "compute.instanceGroupManagers.create",
+      "compute.instanceGroupManagers.delete",
+      "compute.instanceGroupManagers.get",
+      "compute.instanceGroupManagers.update",
+    ]) {
+      permissions.delete(permission);
+    }
+    // Option B does create its regional internal Application Load Balancer;
+    // the single-VM Nginx PoC paths do not.
+    if (spec.backend_kind !== "internal_https_lb") {
+      for (const permission of [
       "compute.forwardingRules.create",
       "compute.forwardingRules.delete",
       "compute.forwardingRules.get",
       "compute.healthChecks.create",
       "compute.healthChecks.delete",
       "compute.healthChecks.get",
-      "compute.instanceTemplates.create",
-      "compute.instanceTemplates.delete",
-      "compute.instanceTemplates.get",
       "compute.regionBackendServices.create",
       "compute.regionBackendServices.delete",
       "compute.regionBackendServices.get",
-      "compute.instanceGroupManagers.create",
-      "compute.instanceGroupManagers.delete",
-      "compute.instanceGroupManagers.get",
-      "compute.instanceGroupManagers.update",
       "compute.instanceGroups.use",
       "compute.regionBackendServices.use",
       "compute.regionHealthChecks.useReadOnly",
-    ]) {
-      permissions.delete(permission);
+      ]) {
+        permissions.delete(permission);
+      }
     }
   } else {
     // Production rolls the group rather than stopping individual instances.
@@ -261,6 +299,10 @@ function classify(resource: DesiredResource, snapshot: DiscoverySnapshot): Resou
     risk = resource.risk;
   }
 
+  const ownsManagedDelta = action === "create" &&
+    (resource.provider === "chromepolicy" ||
+      (resource.provider === "cloudresourcemanager" &&
+        resource.resourceType === "project_iam"));
   return {
     provider: resource.provider,
     resource_type: resource.resourceType,
@@ -268,9 +310,44 @@ function classify(resource: DesiredResource, snapshot: DiscoverySnapshot): Resou
     action,
     risk,
     summary: resource.summary,
-    owned_after_apply: !resource.shared && action !== "conflict",
+    // Ownership is acquired only by a mutation performed by this run.  A
+    // semantically compatible pre-existing object is useful for planning, but
+    // NO_CHANGE/REUSE must never put that administrator-owned object into this
+    // run's teardown inventory.
+    owned_after_apply:
+      action === "create" && (!resource.shared || ownsManagedDelta),
     dependencies: resource.dependencies ?? [],
   };
+}
+
+export function requiresPublicCertificateBinding(spec: DeploymentSpec): boolean {
+  return spec.backend_kind !== "direct_https" &&
+    spec.certificate_strategy === "public_trusted";
+}
+
+export function publicCertificateBindingMatchesSpec(
+  spec: DeploymentSpec,
+  binding: PublicCertificateBinding | null | undefined,
+): binding is PublicCertificateBinding {
+  if (binding === null || binding === undefined || !spec.public_certificate_secret) {
+    return false;
+  }
+  const secretName = spec.public_certificate_secret.split("/").pop();
+  if (!secretName) return false;
+  const expected =
+    `projects/${spec.project_id}/secrets/${secretName}/versions/`;
+  return binding.secret_version_name.startsWith(expected) &&
+    /^[1-9][0-9]*$/.test(binding.secret_version_name.slice(expected.length)) &&
+    /^[0-9a-f]{64}$/.test(binding.payload_sha256);
+}
+
+export function sourceImageBindingMatchesSpec(
+  spec: DeploymentSpec,
+  binding: SourceImageBinding | null | undefined,
+): binding is SourceImageBinding {
+  if (spec.backend_kind === "direct_https" || !spec.source_image || !binding) return false;
+  return binding.name === spec.source_image && /^[1-9][0-9]*$/.test(binding.id) &&
+    binding.self_link === `https://www.googleapis.com/compute/v1/${spec.source_image}`;
 }
 
 function desiredResources(
@@ -279,7 +356,9 @@ function desiredResources(
 ): DesiredResource[] {
   return spec.backend_kind === "direct_https"
     ? pathBResources(spec, snapshot)
-    : pathAResources(spec, snapshot);
+    : spec.backend_kind === "internal_https_lb"
+      ? pathIlbResources(spec, snapshot)
+      : pathAResources(spec, snapshot);
 }
 
 /** Shared prologue: the API allowlist, then the network the path needs. */
@@ -341,7 +420,7 @@ function networkResources(spec: DeploymentSpec): DesiredResource[] {
       risk: "low",
       summary: "Existing administrator-managed VPC",
       shared: true,
-      mustExist: spec.vpc_name !== "secgw-test-vpc",
+      mustExist: true,
     });
     if (spec.backend_kind !== "direct_https") {
       resources.push({
@@ -355,6 +434,19 @@ function networkResources(spec: DeploymentSpec): DesiredResource[] {
         mustExist: spec.subnet_name !== "secgw-test-subnet",
       });
     }
+  }
+  if (spec.backend_kind === "internal_https_lb") {
+    const networkName = spec.network_strategy === "dedicated"
+      ? `${prefix}-vpc`
+      : String(spec.vpc_name);
+    resources.push({
+      provider: "compute",
+      resourceType: "subnetwork",
+      name: `${prefix}-proxy-subnet`,
+      risk: "high",
+      summary: "Regional managed proxy-only subnet for the internal HTTPS load balancer",
+      dependencies: [`compute:network:${networkName}`],
+    });
   }
   return resources;
 }
@@ -556,13 +648,28 @@ function pathAResources(
   );
 
   if (spec.certificate_strategy !== "public_trusted") {
+    const certificateDependency = `privateca:certificate:${prefix}-certificate`;
+    if (spec.certificate_strategy === "enterprise_ca") {
+      resources.push({
+        provider: "privateca",
+        resourceType: "certificate",
+        name: `${prefix}-certificate`,
+        risk: "high",
+        summary: "Run-scoped TLS certificate issued by Certificate Authority Service",
+      });
+    }
     resources.push({
       provider: "secretmanager",
       resourceType: "secret_version",
       name: tlsSecret,
       risk: "high",
       summary: "Validated certificate chain and private key payload",
-      dependencies: [`secretmanager:secret:${tlsSecret}`],
+      dependencies: [
+        `secretmanager:secret:${tlsSecret}`,
+        ...(spec.certificate_strategy === "enterprise_ca"
+          ? [certificateDependency]
+          : []),
+      ],
     });
   }
   if (spec.certificate_strategy === "local_poc") {
@@ -885,6 +992,7 @@ function chromePolicyResources(spec: DeploymentSpec): DesiredResource[] {
 function globalAccessStatus(spec: DeploymentSpec, snapshot: DiscoverySnapshot): GateStatus {
   if (spec.backend_kind !== "direct_https") return "pass";
   if (spec.application_egress_region !== null) return "pass";
+  if (snapshot.application_global_access_discovery_complete === false) return "blocked";
   if (snapshot.application_global_access === true) return "pass";
   if (snapshot.application_global_access === false) return "blocked";
   return "pending";
@@ -898,6 +1006,12 @@ function globalAccessDetail(spec: DeploymentSpec, snapshot: DiscoverySnapshot): 
     return (
       "An explicit egress region pins Secure Gateway traffic to " +
       `${spec.application_egress_region}, so Global Access is not required.`
+    );
+  }
+  if (snapshot.application_global_access_discovery_complete === false) {
+    return (
+      "Forwarding-rule discovery did not reach a complete terminal page. " +
+      "Apply is blocked because a partial list cannot prove Global Access safety."
     );
   }
   const rule = snapshot.application_forwarding_rule || "the matcher forwarding rule";
@@ -938,18 +1052,28 @@ function gates(
   const production = spec.mode === "production";
   const directHttps = spec.backend_kind === "direct_https";
   const licenseCount = snapshot.chrome_enterprise_premium_license_count ?? 0;
+  const publicBindingRequired = requiresPublicCertificateBinding(spec);
+  const publicBindingValid = publicCertificateBindingMatchesSpec(
+    spec,
+    snapshot.public_certificate_binding,
+  );
+  const sourceImageBindingRequired = !directHttps;
+  const sourceImageBindingValid = sourceImageBindingMatchesSpec(
+    spec,
+    snapshot.source_image_binding,
+  );
 
   return [
     {
       gate_id: "immutable-image",
       title: "Immutable hardened image",
-      status: directHttps || spec.source_image ? "pass" : production ? "blocked" : "pending",
-      blocking: production,
+      status: !sourceImageBindingRequired || sourceImageBindingValid ? "pass" : "blocked",
+      blocking: sourceImageBindingRequired,
       detail: directHttps
         ? "Direct HTTPS creates no Nginx VM, so no source image is required."
-        : spec.source_image
-          ? "Production VM boot disks use an explicitly versioned image."
-          : "PoC uses the current Debian 12 image family.",
+        : sourceImageBindingValid
+          ? "The approved plan is bound to the immutable Compute image ID."
+          : "Discovery must bind the exact image name, selfLink, and numeric ID before approval.",
     },
     {
       gate_id: "billing-enabled",
@@ -1070,7 +1194,6 @@ function gates(
       title: "Private package egress",
       status:
         directHttps ||
-        spec.backend_kind === "internal_https_lb" ||
         spec.network_strategy === "dedicated" ||
         snapshot.private_egress_available === true
           ? "pass"
@@ -1079,11 +1202,9 @@ function gates(
       detail:
         directHttps
           ? "Direct HTTPS creates no VM and requires no package egress path."
-          : spec.backend_kind === "internal_https_lb"
-            ? "Internal HTTPS Load Balancer creates no Nginx VM and requires no package egress path."
-            : spec.network_strategy === "dedicated"
-              ? "Cloud NAT is included in the desired state."
-              : "The existing VPC must provide a verified private egress path.",
+          : spec.network_strategy === "dedicated"
+            ? "Cloud NAT is included in the desired state."
+            : "The existing VPC must provide a verified private egress path.",
     },
     {
       gate_id: "backend-connectivity",
@@ -1123,14 +1244,15 @@ function gates(
       blocking:
         directHttps &&
         spec.application_egress_region === null &&
-        snapshot.application_global_access === false,
+        (snapshot.application_global_access === false ||
+          snapshot.application_global_access_discovery_complete === false),
       detail: globalAccessDetail(spec, snapshot),
     },
     {
       gate_id: "test-ou",
       title: "Dedicated test OU",
       status: spec.test_ou_confirmed ? "pass" : "blocked",
-      blocking: production,
+      blocking: true,
       detail: "Chrome policy changes require prior validation in a test OU.",
     },
     {
@@ -1187,6 +1309,30 @@ function gates(
           : `${missingPermissions.length} required permissions are missing.`,
     },
     {
+      gate_id: "group-policy-discovery",
+      title: "Group policy discovery",
+      status:
+        snapshot.chrome_group_policy_discovery_complete !== false
+          ? "pass"
+          : "blocked",
+      blocking: true,
+      detail:
+        snapshot.chrome_group_policy_discovery_complete !== false
+          ? "Higher-priority Chrome group policies were inspected."
+          : "Apply is blocked because higher-priority Chrome group policies could not be inspected completely.",
+    },
+    {
+      gate_id: "public-certificate-binding",
+      title: "Public certificate immutable version",
+      status: !publicBindingRequired || publicBindingValid ? "pass" : "blocked",
+      blocking: publicBindingRequired,
+      detail: !publicBindingRequired
+        ? "The selected topology does not consume an operator-owned TLS secret."
+        : publicBindingValid
+          ? "The approved plan is bound to the validated numeric SecretVersion."
+          : "Discovery must validate and bind the exact numeric public TLS SecretVersion before approval.",
+    },
+    {
       gate_id: "resource-conflicts",
       title: "Resource conflicts",
       status: conflicts.length === 0 ? "pass" : "blocked",
@@ -1214,6 +1360,17 @@ export function buildPlan(
     classify(resource, snapshot),
   );
   const gateList = gates(spec, snapshot, changes);
+  const publicCertificateBinding =
+    requiresPublicCertificateBinding(spec) &&
+      publicCertificateBindingMatchesSpec(spec, snapshot.public_certificate_binding)
+      ? snapshot.public_certificate_binding
+      : null;
+  const sourceImageBinding = sourceImageBindingMatchesSpec(
+      spec,
+      snapshot.source_image_binding,
+    )
+    ? snapshot.source_image_binding
+    : null;
   return {
     plan_version: 1,
     configuration_hash: configurationHash(spec),
@@ -1222,5 +1379,83 @@ export function buildPlan(
     gates: gateList,
     can_apply: gateList.every((gate) => !gate.blocking || gate.status === "pass"),
     destructive_change_count: 0,
+    public_certificate_binding: publicCertificateBinding,
+    source_image_binding: sourceImageBinding,
   };
+}
+
+/** Option B: regional Internal Application Load Balancer TLS offload. */
+function pathIlbResources(
+  spec: DeploymentSpec,
+  snapshot: DiscoverySnapshot,
+): DesiredResource[] {
+  const prefix = spec.name;
+  const backendAccount = serviceAccountId(prefix, "backend");
+  const tlsSecret =
+    spec.certificate_strategy === "public_trusted" && spec.public_certificate_secret
+      ? (spec.public_certificate_secret.split("/").pop() as string)
+      : `${prefix}-tls`;
+  const resources = networkResources(spec);
+
+  if (spec.source_image) {
+    resources.push({
+      provider: "compute", resourceType: "source_image", name: spec.source_image,
+      risk: "high", summary: "Existing immutable hardened image with Python",
+      shared: true, mustExist: true,
+    });
+  }
+  if (spec.managed_chrome_access_level) {
+    resources.push({
+      provider: "accesscontextmanager", resourceType: "access_level",
+      name: spec.managed_chrome_access_level, risk: "high",
+      summary: "Existing access level requiring a managed Chrome profile or browser",
+      shared: true, mustExist: true,
+    });
+  }
+
+  resources.push(
+    { provider: "iam", resourceType: "service_account", name: backendAccount, risk: "low", summary: "Dedicated identity for the HTTP backend VM" },
+    { provider: "compute", resourceType: "internal_address", name: `${prefix}-backend-ip`, risk: "medium", summary: "Stable private address for the sample HTTP backend" },
+    { provider: "compute", resourceType: "instance", name: `${prefix}-backend`, risk: "medium", summary: "Private HTTP sample backend with no external IP", dependencies: [`iam:service_account:${backendAccount}`, `compute:internal_address:${prefix}-backend-ip`] },
+    { provider: "compute", resourceType: "instance_group", name: `${prefix}-backend-ig`, risk: "medium", summary: "Zonal instance group exposing the sample backend on HTTP port 80", dependencies: [`compute:instance:${prefix}-backend`] },
+    { provider: "compute", resourceType: "health_check", name: `${prefix}-ilb-hc`, risk: "medium", summary: "Regional HTTP health check for the ILB backend", dependencies: [`compute:instance_group:${prefix}-backend-ig`] },
+    { provider: "compute", resourceType: "firewall_rule", name: `${prefix}-ilb-proxy-ingress`, risk: "high", summary: "Allow the proxy-only subnet to reach backend TCP 80", dependencies: [`compute:subnetwork:${prefix}-proxy-subnet`, `compute:instance:${prefix}-backend`] },
+    { provider: "compute", resourceType: "firewall_rule", name: `${prefix}-ilb-health-ingress`, risk: "high", summary: "Allow Google health checks to backend TCP 80", dependencies: [`compute:health_check:${prefix}-ilb-hc`, `compute:instance:${prefix}-backend`] },
+    { provider: "compute", resourceType: "backend_service", name: `${prefix}-ilb-bs`, risk: "high", summary: "Regional INTERNAL_MANAGED HTTP backend service", dependencies: [`compute:health_check:${prefix}-ilb-hc`, `compute:instance_group:${prefix}-backend-ig`] },
+    { provider: "compute", resourceType: "internal_address", name: `${prefix}-offload-ip`, risk: "medium", summary: "Stable private frontend address for the internal HTTPS load balancer" },
+    { provider: "secretmanager", resourceType: "secret", name: tlsSecret, risk: "high", summary: "TLS material for the internal HTTPS load balancer", shared: spec.certificate_strategy === "public_trusted", mustExist: spec.certificate_strategy === "public_trusted" },
+  );
+  if (spec.certificate_strategy !== "public_trusted") {
+    const certificateDependencies: string[] = [];
+    if (spec.certificate_strategy === "enterprise_ca") {
+      resources.push({ provider: "privateca", resourceType: "certificate", name: `${prefix}-certificate`, risk: "high", summary: "Run-scoped TLS certificate issued by Certificate Authority Service" });
+      certificateDependencies.push(`privateca:certificate:${prefix}-certificate`);
+    }
+    resources.push({ provider: "secretmanager", resourceType: "secret_version", name: tlsSecret, risk: "high", summary: "Validated ILB certificate chain and private key payload", dependencies: [`secretmanager:secret:${tlsSecret}`, ...certificateDependencies] });
+  }
+  if (spec.certificate_strategy === "local_poc") {
+    resources.push({ provider: "local", resourceType: "root_certificate_artifact", name: `${prefix}-poc-root`, risk: "high", summary: "Public root CA for manual Chrome Root Store distribution", dependencies: [`secretmanager:secret_version:${tlsSecret}`] });
+  }
+  const certificateDependency = spec.certificate_strategy === "public_trusted"
+    ? `secretmanager:secret:${tlsSecret}`
+    : `secretmanager:secret_version:${tlsSecret}`;
+  const gatewayKey = `beyondcorp:security_gateway:${spec.gateway_id}`;
+  resources.push(
+    { provider: "compute", resourceType: "ssl_certificate", name: `${prefix}-ilb-cert`, risk: "high", summary: "Regional server certificate presented by the internal HTTPS load balancer", dependencies: [certificateDependency] },
+    { provider: "compute", resourceType: "url_map", name: `${prefix}-ilb-map`, risk: "high", summary: "Regional URL map forwarding requests to the HTTP backend service", dependencies: [`compute:backend_service:${prefix}-ilb-bs`] },
+    { provider: "compute", resourceType: "target_https_proxy", name: `${prefix}-ilb-proxy`, risk: "high", summary: "Regional HTTPS proxy terminating TLS with the ILB certificate", dependencies: [`compute:url_map:${prefix}-ilb-map`, `compute:ssl_certificate:${prefix}-ilb-cert`] },
+    { provider: "compute", resourceType: "forwarding_rule", name: `${prefix}-ilb-fr`, risk: "high", summary: "Regional internal Application Load Balancer HTTPS frontend", dependencies: [`compute:target_https_proxy:${prefix}-ilb-proxy`, `compute:internal_address:${prefix}-offload-ip`, `compute:subnetwork:${prefix}-proxy-subnet`] },
+    { provider: "dns", resourceType: "private_zone", name: `${prefix}-zone`, risk: "medium", summary: `Private DNS authority for ${spec.private_hostname}` },
+    { provider: "dns", resourceType: "record_set", name: spec.private_hostname, risk: "medium", summary: "Private A record pointing to the internal HTTPS load balancer", dependencies: [`dns:private_zone:${prefix}-zone`, `compute:internal_address:${prefix}-offload-ip`] },
+    { provider: "beyondcorp", resourceType: "security_gateway", name: spec.gateway_id, risk: "high", summary: "Service Discovery-enabled Secure Gateway", shared: spec.gateway_id === "default" },
+    { provider: "beyondcorp", resourceType: "gateway_iam", name: `${spec.gateway_id}-service-discovery-users`, risk: "high", summary: "Grant Service Discovery use to the approved principal set", dependencies: [gatewayKey] },
+    { provider: "cloudresourcemanager", resourceType: "project_iam", name: `${prefix}-upstream-access`, risk: "high", summary: "Grant roles/beyondcorp.upstreamAccess to the gateway delegating account", dependencies: [gatewayKey], shared: true },
+    { provider: "beyondcorp", resourceType: "application", name: `${prefix}-app`, risk: "high", summary: `HTTPS application matcher ${spec.private_hostname}:443`, dependencies: [gatewayKey, `compute:forwarding_rule:${prefix}-ilb-fr`, `cloudresourcemanager:project_iam:${prefix}-upstream-access`] },
+    { provider: "beyondcorp", resourceType: "application_iam", name: `${prefix}-app-access`, risk: "high", summary: "Grant application access to the approved principal set", dependencies: [`beyondcorp:application:${prefix}-app`, ...(spec.managed_chrome_access_level ? [`accesscontextmanager:access_level:${spec.managed_chrome_access_level}`] : [])] },
+    ...chromePolicyResources(spec),
+  );
+  for (const groupEmail of snapshot.chrome_extension_group_conflicts ?? []) {
+    resources.push({ provider: "chromepolicy", resourceType: "group_extension_configuration", name: groupEmail, risk: "blocking", summary: "A group policy overrides the target OU Secure Gateway configuration", shared: true });
+  }
+  return resources;
 }

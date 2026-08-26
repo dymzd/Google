@@ -1,7 +1,7 @@
 # Jekyll served the repository name as the site title, so the homepage rendered
 # an <h1> reading "Google" above the real one. On a page whose whole job is to
 # prove this app is not Google's, that was the worst possible default.
-title: Chrome Enterprise Premium PoC Deployer
+title: Secure Gateway Studio
 # Short on purpose: jekyll-seo-tag builds <title> as "title | description".
 description: Fast-track deployment and evaluation tool for Chrome Enterprise Premium and BeyondCorp Security Gateway
 
@@ -17,3 +17,5 @@ plugins:
 exclude:
   - CHROME_EXTENSION_IMPLEMENTATION_PLAN.md
   - CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md
+  - assets/css/tailwind.input.css
+  - tailwind.config.cjs

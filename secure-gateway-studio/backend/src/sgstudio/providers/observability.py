@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,8 +15,22 @@ from sgstudio.domain.models import (
 )
 from sgstudio.providers.google_rest import GoogleAuthorizedTransport, JsonTransport
 
-SENSITIVE_KEY = re.compile(
-    r"(?i)(authorization|cookie|credential|password|private.?key|refresh.?token|access.?token)"
+LOG_FIELDS = (
+    "entries(insertId,timestamp,severity,protoPayload(methodName,status),"
+    "jsonPayload(request_id,requestId,role,method,status,outcome,decision,"
+    "request_time,tls_protocol,upstream_status,upstream_time)),nextPageToken"
+)
+MAX_LOG_PAGES = 100
+OPERATIONAL_PAYLOAD_KEYS = (
+    "role",
+    "method",
+    "status",
+    "outcome",
+    "decision",
+    "request_time",
+    "tls_protocol",
+    "upstream_status",
+    "upstream_time",
 )
 
 
@@ -40,6 +53,7 @@ class GoogleGatewayObservability:
         filters = [f'timestamp>="{since.isoformat()}"']
         setup_notice: str | None = None
         data_access_notice = False
+        logging_enabled: bool | None = None
 
         if category is GatewayLogCategory.ACCESS:
             filters.extend(
@@ -51,6 +65,7 @@ class GoogleGatewayObservability:
             )
             data_access_notice = True
         elif category is GatewayLogCategory.CONNECTION:
+            logging_enabled = self._gateway_logging_enabled(spec)
             filters.append('resource.type="beyondcorp.googleapis.com/SecurityGateway"')
         elif category is GatewayLogCategory.ADMIN:
             filters.extend(
@@ -66,7 +81,7 @@ class GoogleGatewayObservability:
                     run_id=run_id,
                     category=category,
                     entries=[],
-                    logging_enabled=self.gateway_logging_enabled(spec),
+                    logging_enabled=logging_enabled,
                     setup_notice=(
                         "Nginx logs require an HTTP-offload VM and the Google Cloud "
                         "Ops Agent. This architecture has no Nginx tier."
@@ -87,54 +102,77 @@ class GoogleGatewayObservability:
                 "to collect /var/log/nginx/sgstudio-access.log."
             )
 
-        _, payload = self._transport.request_json(
-            "POST",
-            "https://logging.googleapis.com/v2/entries:list",
-            json_body={
+        raw_entries: list[dict[str, Any]] = []
+        seen_page_tokens: set[str] = set()
+        page_token: str | None = None
+        for page in range(MAX_LOG_PAGES):
+            body: dict[str, Any] = {
                 "resourceNames": [f"projects/{spec.project_id}"],
                 "filter": " AND ".join(filters),
                 "orderBy": "timestamp desc",
-                "pageSize": safe_limit,
-            },
-        )
-        raw_entries = payload.get("entries", [])
+                "pageSize": min(safe_limit - len(raw_entries), 200),
+            }
+            if page_token is not None:
+                body["pageToken"] = page_token
+            _, payload = self._transport.request_json(
+                "POST",
+                "https://logging.googleapis.com/v2/entries:list",
+                params={"fields": LOG_FIELDS},
+                json_body=body,
+            )
+            page_entries = payload.get("entries", [])
+            if not isinstance(page_entries, list) or any(
+                not isinstance(item, dict) for item in page_entries
+            ):
+                raise ValueError("cloud-logging-entries-invalid")
+            raw_entries.extend(page_entries[: safe_limit - len(raw_entries)])
+
+            if "nextPageToken" not in payload or payload["nextPageToken"] == "":
+                break
+            next_page_token = payload["nextPageToken"]
+            if (
+                not isinstance(next_page_token, str)
+                or next_page_token in seen_page_tokens
+            ):
+                raise ValueError("cloud-logging-page-token-invalid")
+            seen_page_tokens.add(next_page_token)
+            if len(raw_entries) >= safe_limit:
+                break
+            if page + 1 >= MAX_LOG_PAGES:
+                raise ValueError("cloud-logging-pagination-incomplete")
+            page_token = next_page_token
+
         entries = [
             self._entry(item, category, index)
             for index, item in enumerate(raw_entries)
-            if isinstance(item, dict)
         ]
         return GatewayLogsResponse(
             run_id=run_id,
             category=category,
             entries=entries,
-            logging_enabled=self.gateway_logging_enabled(spec),
+            logging_enabled=logging_enabled,
             data_access_notice=data_access_notice,
             setup_notice=setup_notice,
         )
 
-    def gateway_logging_enabled(self, spec: DeploymentSpec) -> bool | None:
-        url = (
-            f"https://beyondcorp.googleapis.com/v1/projects/{spec.project_id}/"
-            f"locations/global/securityGateways/{spec.gateway_id}"
+    def _gateway_logging_enabled(self, spec: DeploymentSpec) -> bool:
+        # The empty LoggingConfig message is the connection-logging enable
+        # marker. A field mask keeps this state read from receiving unrelated
+        # Security Gateway provider output.
+        _, payload = self._transport.request_json(
+            "GET",
+            (
+                "https://beyondcorp.googleapis.com/v1/"
+                f"projects/{spec.project_id}/locations/global/"
+                f"securityGateways/{spec.gateway_id}"
+            ),
+            params={"fields": "logging"},
         )
-        status, payload = self._transport.request_json(
-            "GET", url, accepted_statuses=(200, 404)
-        )
-        if status == 404:
-            return None
-        return isinstance(payload.get("logging"), dict)
-
-    def enable_gateway_logging(self, spec: DeploymentSpec) -> bool:
-        url = (
-            f"https://beyondcorp.googleapis.com/v1/projects/{spec.project_id}/"
-            f"locations/global/securityGateways/{spec.gateway_id}"
-        )
-        self._transport.request_json(
-            "PATCH",
-            url,
-            params={"updateMask": "logging"},
-            json_body={"logging": {}},
-        )
+        if "logging" not in payload:
+            return False
+        logging = payload["logging"]
+        if not isinstance(logging, dict) or logging:
+            raise ValueError("security-gateway-logging-state-invalid")
         return True
 
     def _offload_instance_id(self, spec: DeploymentSpec) -> str | None:
@@ -168,45 +206,35 @@ class GoogleGatewayObservability:
         json_payload = (
             item.get("jsonPayload") if isinstance(item.get("jsonPayload"), dict) else {}
         )
-        authentication = (
-            proto.get("authenticationInfo")
-            if isinstance(proto.get("authenticationInfo"), dict)
-            else {}
-        )
-        principal = authentication.get("principalEmail")
         method = proto.get("methodName")
-        resource = proto.get("resourceName")
         request_id = json_payload.get("request_id") or json_payload.get("requestId")
-        summary = cls._summary(item, proto, json_payload)
-        timestamp = item.get("timestamp") or item.get("receiveTimestamp")
+        summary = cls._summary(proto, json_payload)
+        timestamp = item.get("timestamp")
         parsed_timestamp: datetime | None = None
         if isinstance(timestamp, str):
             try:
                 parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             except ValueError:
                 parsed_timestamp = None
-        safe_payload = cls._redact(item)
+        safe_payload = cls._operational_payload(proto, json_payload)
         return GatewayLogEntry(
             insert_id=str(item.get("insertId") or f"entry-{index}"),
             timestamp=parsed_timestamp,
             severity=str(item.get("severity") or "DEFAULT")[:32],
             category=category,
             summary=summary,
-            principal=str(principal)[:320] if isinstance(principal, str) else None,
+            principal=None,
             method=str(method)[:300] if isinstance(method, str) else None,
-            resource=str(resource)[:1000] if isinstance(resource, str) else None,
+            resource=None,
             request_id=str(request_id)[:200] if isinstance(request_id, str) else None,
-            payload=safe_payload if isinstance(safe_payload, dict) else {},
+            payload=safe_payload,
         )
 
     @staticmethod
     def _summary(
-        item: dict[str, Any], proto: dict[str, Any], json_payload: dict[str, Any]
+        proto: dict[str, Any], json_payload: dict[str, Any]
     ) -> str:
-        text = item.get("textPayload")
-        if isinstance(text, str) and text.strip():
-            return text.strip()[:500]
-        for key in ("message", "status", "outcome", "decision"):
+        for key in ("status", "outcome", "decision"):
             value = json_payload.get(key)
             if isinstance(value, (str, int, bool)):
                 return str(value)[:500]
@@ -216,31 +244,30 @@ class GoogleGatewayObservability:
         method = proto.get("methodName")
         return str(method)[:500] if method else "Secure Gateway log entry"
 
-    @classmethod
-    def _redact(cls, value: Any, *, depth: int = 0) -> Any:
-        if depth > 7:
-            return "[truncated]"
-        if isinstance(value, dict):
-            return {
-                str(key)[:100]: (
-                    "[redacted]"
-                    if SENSITIVE_KEY.search(str(key))
-                    else cls._redact(item, depth=depth + 1)
-                )
-                for key, item in list(value.items())[:80]
-            }
-        if isinstance(value, list):
-            return [cls._redact(item, depth=depth + 1) for item in value[:80]]
-        if isinstance(value, str):
-            return value[:2000]
-        if isinstance(value, (int, float, bool)) or value is None:
-            return value
-        return str(value)[:500]
+    @staticmethod
+    def _operational_payload(
+        proto: dict[str, Any], json_payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        status = proto.get("status")
+        if isinstance(status, dict) and isinstance(status.get("code"), int):
+            payload["api_status_code"] = status["code"]
+        for key in OPERATIONAL_PAYLOAD_KEYS:
+            value = json_payload.get(key)
+            if isinstance(value, str):
+                payload[key] = value[:200]
+            elif isinstance(value, (int, float, bool)):
+                payload[key] = value
+        return payload
 
 
-def create_google_gateway_observability() -> GoogleGatewayObservability:
+def create_google_gateway_observability(
+    *, require_impersonation: bool = False
+) -> GoogleGatewayObservability:
     try:
-        transport = GoogleAuthorizedTransport.from_adc()
+        transport = GoogleAuthorizedTransport.from_adc(
+            require_impersonation=require_impersonation
+        )
     except (DefaultCredentialsError, RefreshError) as error:
         raise RuntimeError("Application Default Credentials are unavailable for logs.") from error
     return GoogleGatewayObservability(transport)

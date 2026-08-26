@@ -2,14 +2,14 @@
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
   "version": 1,
-  "serialNumber": "urn:uuid:f4da4511-a13e-4636-9cbd-209d6d6b75b5",
+  "serialNumber": "urn:uuid:559a44d8-898d-4cd9-8fb7-5fecf794d3bb",
   "metadata": {
-    "timestamp": "2026-07-30T04:05:08.246204000Z",
+    "timestamp": "2026-08-24T09:27:15.646409800Z",
     "tools": [
       {
         "vendor": "Astral Software Inc.",
         "name": "uv",
-        "version": "0.12.0"
+        "version": "0.12.1"
       }
     ],
     "component": {
@@ -96,10 +96,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "cryptography-10@49.0.0",
+      "bom-ref": "cryptography-10@50.0.0",
       "name": "cryptography",
-      "version": "49.0.0",
-      "purl": "pkg:pypi/cryptography@49.0.0"
+      "version": "50.0.0",
+      "purl": "pkg:pypi/cryptography@50.0.0"
     },
     {
       "type": "library",
@@ -297,7 +297,7 @@
       "ref": "colorama-9@0.4.6"
     },
     {
-      "ref": "cryptography-10@49.0.0",
+      "ref": "cryptography-10@50.0.0",
       "dependsOn": [
         "cffi-6@2.1.0"
       ]
@@ -315,7 +315,7 @@
     {
       "ref": "google-auth-12@2.56.2",
       "dependsOn": [
-        "cryptography-10@49.0.0",
+        "cryptography-10@50.0.0",
         "pyasn1-modules-17@0.4.2"
       ]
     },
@@ -373,7 +373,7 @@
     {
       "ref": "secure-gateway-studio-1@0.1.0",
       "dependsOn": [
-        "cryptography-10@49.0.0",
+        "cryptography-10@50.0.0",
         "fastapi-11@0.141.1",
         "google-auth-12@2.56.2",
         "pydantic-19@2.13.4",

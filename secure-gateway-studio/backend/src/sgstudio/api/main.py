@@ -50,8 +50,9 @@ from sgstudio.domain import (
     deployment_details,
 )
 from sgstudio.domain.execution import DeploymentExecutor
-from sgstudio.domain.models import DeploymentRun
+from sgstudio.domain.models import DeploymentRun, RunStatus
 from sgstudio.providers import (
+    BootstrapOwnershipError,
     ConnectionValidator,
     DeployerBootstrapper,
     DiscoveryProvider,
@@ -66,11 +67,16 @@ from sgstudio.providers import (
     create_google_gateway_observability,
     create_google_setup_catalog_provider,
 )
+from sgstudio.providers.discovery import discovery_ownership_proofs
 from sgstudio.providers.google_executor import (
     GoogleResourceExecutor,
     create_google_resource_executor,
 )
 from sgstudio.providers.local_artifacts import CertificateArtifactStore
+from sgstudio.providers.mutation_identity import (
+    MutationIdentityAuthorizer,
+    create_mutation_identity_authorizer,
+)
 from sgstudio.storage import StateRepository
 
 
@@ -98,12 +104,16 @@ class DeployerBootstrapRequest(CloudConnectionRequest):
     model_config = ConfigDict(extra="forbid")
 
     confirmation: Literal["BOOTSTRAP"]
+    ownership_migration_confirmation: Literal["MIGRATE_EXISTING_DEPLOYER"] | None = (
+        None
+    )
 
 
 class DeployerBootstrapResponse(BaseModel):
     project_id: str
     operator_email: str
     service_account_email: str
+    service_account_unique_id: str
     custom_role: str
     access_policy_id: str | None
     adc_command: str
@@ -120,10 +130,10 @@ class ApplyRequest(BaseModel):
     confirmation: Literal["APPLY"]
 
 
-class EnableGatewayLoggingRequest(BaseModel):
+class ResumeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    confirmation: Literal["ENABLE LOGGING"]
+    confirmation: Literal["RESUME"]
 
 
 class TeardownRequest(BaseModel):
@@ -200,10 +210,9 @@ def repository() -> StateRepository:
         return _repository_instance
 
 
-@lru_cache
 def discovery_provider() -> DiscoveryProvider:
     try:
-        return create_google_discovery_provider()
+        return create_google_discovery_provider(require_impersonation=True)
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -211,7 +220,6 @@ def discovery_provider() -> DiscoveryProvider:
         ) from error
 
 
-@lru_cache
 def connection_validator() -> ConnectionValidator:
     try:
         return create_google_connection_validator()
@@ -222,10 +230,22 @@ def connection_validator() -> ConnectionValidator:
         ) from error
 
 
+def trusted_connection_validator() -> ConnectionValidator:
+    try:
+        return create_google_connection_validator(require_impersonation=True)
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail=_problem("deployer-adc-required", str(error)),
+        ) from error
+
+
 @lru_cache
 def deployer_bootstrapper() -> DeployerBootstrapper:
     try:
-        return GcloudDeployerBootstrapper()
+        return GcloudDeployerBootstrapper(
+            pin_path=_state_path().with_suffix(".bootstrap-pins.json")
+        )
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -233,7 +253,6 @@ def deployer_bootstrapper() -> DeployerBootstrapper:
         ) from error
 
 
-@lru_cache
 def setup_catalog_provider() -> SetupCatalogProvider:
     try:
         return create_google_setup_catalog_provider()
@@ -246,7 +265,10 @@ def setup_catalog_provider() -> SetupCatalogProvider:
 
 def resource_executor() -> GoogleResourceExecutor:
     try:
-        return create_google_resource_executor(artifact_store=_certificate_artifact_store())
+        return create_google_resource_executor(
+            artifact_store=_certificate_artifact_store(),
+            pin_path=_state_path().with_suffix(".bootstrap-pins.json"),
+        )
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -254,10 +276,9 @@ def resource_executor() -> GoogleResourceExecutor:
         ) from error
 
 
-@lru_cache
 def gateway_observability() -> GoogleGatewayObservability:
     try:
-        return create_google_gateway_observability()
+        return create_google_gateway_observability(require_impersonation=True)
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -265,10 +286,9 @@ def gateway_observability() -> GoogleGatewayObservability:
         ) from error
 
 
-@lru_cache
 def acceptance_verifier() -> GoogleAcceptanceVerifier:
     try:
-        return create_google_acceptance_verifier()
+        return create_google_acceptance_verifier(require_impersonation=True)
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -393,7 +413,18 @@ def bootstrap_google_cloud_deployer(
     bootstrapper: Annotated[DeployerBootstrapper, Depends(deployer_bootstrapper)],
 ) -> DeployerBootstrapResponse:
     try:
-        result = bootstrapper.bootstrap(request.project_id)
+        result = bootstrapper.bootstrap(
+            request.project_id,
+            allow_ownership_migration=(
+                request.ownership_migration_confirmation
+                == "MIGRATE_EXISTING_DEPLOYER"
+            ),
+        )
+    except BootstrapOwnershipError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_problem(error.code, str(error)),
+        ) from error
     except RuntimeError as error:
         raise HTTPException(
             status_code=status.HTTP_424_FAILED_DEPENDENCY,
@@ -403,10 +434,23 @@ def bootstrap_google_cloud_deployer(
         project_id=result.project_id,
         operator_email=result.operator_email,
         service_account_email=result.service_account_email,
+        service_account_unique_id=result.service_account_unique_id,
         custom_role=result.custom_role,
         access_policy_id=result.access_policy_id,
         adc_command=result.adc_command,
     )
+
+
+def mutation_authorizer() -> MutationIdentityAuthorizer:
+    try:
+        return create_mutation_identity_authorizer(
+            pin_path=_state_path().with_suffix(".bootstrap-pins.json")
+        )
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail=_problem("mutation-identity-unavailable", str(error)),
+        ) from error
 
 
 @app.post(
@@ -525,7 +569,12 @@ def create_plan(
     validator: Annotated[ConnectionValidator, Depends(connection_validator)],
     state_repository: Annotated[StateRepository, Depends(repository)],
 ) -> PreparedPlan:
-    preflight = _trusted_preflight(request.specification, provider, validator)
+    preflight = _trusted_preflight(
+        request.specification,
+        provider,
+        validator,
+        state_repository,
+    )
     plan = DesiredStatePlanner().build_plan(request.specification, preflight.snapshot)
     return state_repository.store_prepared_plan(request.specification, preflight, plan)
 
@@ -538,9 +587,17 @@ def create_plan(
 def run_preflight(
     specification: DeploymentSpec,
     provider: Annotated[DiscoveryProvider, Depends(discovery_provider)],
-    validator: Annotated[ConnectionValidator, Depends(connection_validator)],
+    validator: Annotated[
+        ConnectionValidator, Depends(trusted_connection_validator)
+    ],
+    state_repository: Annotated[StateRepository, Depends(repository)],
 ) -> PreflightResult:
-    return _trusted_preflight(specification, provider, validator)
+    return _trusted_preflight(
+        specification,
+        provider,
+        validator,
+        state_repository,
+    )
 
 
 @app.post(
@@ -551,13 +608,21 @@ def run_preflight(
 def approve_plan(
     request: ApprovalRequest,
     state_repository: Annotated[StateRepository, Depends(repository)],
+    authorizer: Annotated[
+        MutationIdentityAuthorizer, Depends(mutation_authorizer)
+    ],
 ) -> ApprovedPlan:
     try:
+        prepared = state_repository.get_prepared_plan(request.plan_id)
+        if prepared is None:
+            raise ValueError("Prepared plan was not found")
+        identity = authorizer.resolve(prepared.specification.project_id)
         return state_repository.approve_prepared_plan(
             request.plan_id,
             ttl_minutes=request.ttl_minutes,
+            mutation_identity=identity,
         )
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
 
@@ -574,21 +639,68 @@ def apply_approved_plan(
     executor: Annotated[GoogleResourceExecutor, Depends(resource_executor)],
 ) -> DeploymentRun:
     try:
+        pending = state_repository.get_approval(request.approval_id)
+        if pending is None:
+            raise ValueError(
+                "Approval is invalid, expired, consumed, or configuration changed"
+            )
+        identity = executor.authorize_mutation(pending.specification.project_id)
         approval, run = state_repository.consume_approval_and_create_run(
             request.approval_id,
+            current_identity=identity,
         )
         background_tasks.add_task(
             DeploymentExecutor(executor, state_repository).execute,
             approval,
             approval.specification,
-            actor=approval.approved_by,
+            actor=identity.operator_email,
             existing_run=run,
         )
         return run
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_problem("approval-invalid", str(error)),
+        ) from error
+
+
+@app.post(
+    "/api/v1/runs/{run_id}/resume",
+    response_model=DeploymentRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_local_session)],
+)
+def resume_deployment_run(
+    run_id: str,
+    _request: ResumeRequest,
+    background_tasks: BackgroundTasks,
+    state_repository: Annotated[StateRepository, Depends(repository)],
+    executor: Annotated[GoogleResourceExecutor, Depends(resource_executor)],
+) -> DeploymentRun:
+    try:
+        run = state_repository.get_run(run_id)
+        if run is None or run.status is not RunStatus.INTERRUPTED:
+            raise ValueError("Deployment run is not resumable")
+        approval = state_repository.get_approval(run.approval_id)
+        if approval is None or approval.consumed_at is None:
+            raise ValueError("Consumed deployment approval was not found")
+        identity = executor.authorize_mutation(approval.specification.project_id)
+        resumed = state_repository.resume_run(
+            run_id,
+            current_identity=identity,
+        )
+        background_tasks.add_task(
+            DeploymentExecutor(executor, state_repository).execute,
+            approval,
+            approval.specification,
+            actor=identity.operator_email,
+            existing_run=resumed,
+        )
+        return resumed
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_problem("run-resume-invalid", str(error)),
         ) from error
 
 
@@ -621,7 +733,7 @@ def download_local_poc_root_certificate(deployment_name: str) -> Response:
                 "The local PoC root certificate is available after a successful Apply.",
             ),
         ) from error
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=_problem("invalid-deployment-name", str(error)),
@@ -656,7 +768,7 @@ def get_deployment_details(
 ) -> DeploymentDetails:
     try:
         return deployment_details(state_repository, run_id)
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=_problem("deployment-details-not-found", str(error)),
@@ -672,6 +784,9 @@ def get_gateway_logs(
     run_id: str,
     observability: Annotated[GoogleGatewayObservability, Depends(gateway_observability)],
     state_repository: Annotated[StateRepository, Depends(repository)],
+    authorizer: Annotated[
+        MutationIdentityAuthorizer, Depends(mutation_authorizer)
+    ],
     category: GatewayLogCategory = GatewayLogCategory.ACCESS,
     hours: int = 24,
     limit: int = 100,
@@ -683,6 +798,21 @@ def get_gateway_logs(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=_problem("deployment-logs-not-found", "Deployment run was not found"),
         )
+    try:
+        identity = authorizer.resolve(approval.specification.project_id)
+        if (
+            run.mutation_identity != identity
+            or approval.mutation_identity != identity
+        ):
+            raise RuntimeError(
+                "The signed-in operator or immutable deployer differs from the "
+                "identity bound to this run"
+            )
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_problem("deployment-log-identity-mismatch", str(error)),
+        ) from error
     try:
         return observability.list_logs(
             approval.specification,
@@ -699,45 +829,11 @@ def get_gateway_logs(
                 f"Cloud Logging request failed with status {error.status_code}",
             ),
         ) from error
-
-
-@app.post(
-    "/api/v1/runs/{run_id}/logs/enable",
-    dependencies=[Depends(require_local_session)],
-)
-def enable_gateway_logs(
-    run_id: str,
-    request: EnableGatewayLoggingRequest,
-    observability: Annotated[GoogleGatewayObservability, Depends(gateway_observability)],
-    state_repository: Annotated[StateRepository, Depends(repository)],
-) -> dict[str, bool]:
-    run = state_repository.get_run(run_id)
-    approval = state_repository.get_approval(run.approval_id) if run else None
-    if run is None or approval is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=_problem("deployment-logs-not-found", "Deployment run was not found"),
-        )
-    try:
-        enabled = observability.enable_gateway_logging(approval.specification)
-    except GoogleApiError as error:
+    except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=_problem(
-                "gateway-logging-enable-failed",
-                f"Secure Gateway logging update failed with status {error.status_code}",
-            ),
+            detail=_problem("cloud-logging-state-invalid", str(error)),
         ) from error
-    state_repository.record_audit_event(
-        event_type="gateway.logging_enabled",
-        actor=approval.approved_by,
-        payload={
-            "run_id": run_id,
-            "project_id": approval.specification.project_id,
-            "gateway_id": approval.specification.gateway_id,
-        },
-    )
-    return {"enabled": enabled}
 
 
 @app.get(
@@ -781,23 +877,43 @@ def start_teardown(
         approval = state_repository.get_approval(run.approval_id) if run else None
         if approval is None:
             raise ValueError("Deployment approval was not found")
+        identity = executor.authorize_mutation(approval.specification.project_id)
         teardown = state_repository.create_teardown_run(
             source_run_id=plan.run_id,
             plan_hash=plan.plan_hash,
-            resource_keys=[resource.resource_key for resource in plan.resources],
-            actor=approval.approved_by,
+            resources=plan.resources,
+            actor=identity.operator_email,
+            current_identity=identity,
         )
         background_tasks.add_task(
             TeardownExecutor(executor, state_repository).execute,
             teardown,
-            actor=approval.approved_by,
+            actor=identity.operator_email,
         )
         return teardown
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_problem("teardown-invalid", str(error)),
         ) from error
+
+
+@app.get(
+    "/api/v1/runs/{run_id}/teardowns/latest",
+    response_model=TeardownRun,
+    dependencies=[Depends(require_local_session)],
+)
+def get_latest_teardown(
+    run_id: str,
+    state_repository: Annotated[StateRepository, Depends(repository)],
+) -> TeardownRun:
+    teardown = state_repository.get_latest_teardown_for_run(run_id)
+    if teardown is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_problem("teardown-not-found", "No teardown exists for this run"),
+        )
+    return teardown
 
 
 @app.get(
@@ -818,6 +934,45 @@ def get_teardown(
     return teardown
 
 
+@app.post(
+    "/api/v1/teardowns/{teardown_id}/resume",
+    response_model=TeardownRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_local_session)],
+)
+def resume_teardown(
+    teardown_id: str,
+    _request: ResumeRequest,
+    background_tasks: BackgroundTasks,
+    state_repository: Annotated[StateRepository, Depends(repository)],
+    executor: Annotated[GoogleResourceExecutor, Depends(resource_executor)],
+) -> TeardownRun:
+    try:
+        teardown = state_repository.get_teardown_run(teardown_id)
+        if teardown is None or teardown.status != "interrupted":
+            raise ValueError("Teardown run is not resumable")
+        source = state_repository.get_run(teardown.source_run_id)
+        approval = state_repository.get_approval(source.approval_id) if source else None
+        if approval is None:
+            raise ValueError("Deployment approval was not found")
+        identity = executor.authorize_mutation(approval.specification.project_id)
+        resumed = state_repository.resume_teardown_run(
+            teardown_id,
+            current_identity=identity,
+        )
+        background_tasks.add_task(
+            TeardownExecutor(executor, state_repository).execute,
+            resumed,
+            actor=identity.operator_email,
+        )
+        return resumed
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_problem("teardown-resume-invalid", str(error)),
+        ) from error
+
+
 @app.get(
     "/api/v1/runs/{run_id}/acceptance",
     response_model=AcceptanceReadiness,
@@ -828,7 +983,7 @@ def get_acceptance_readiness(
 ) -> AcceptanceReadiness:
     try:
         return state_repository.acceptance_readiness(run_id)
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=_problem("acceptance-run-not-found", str(error)),
@@ -844,6 +999,9 @@ def verify_system_acceptance(
     run_id: str,
     verifier: Annotated[GoogleAcceptanceVerifier, Depends(acceptance_verifier)],
     state_repository: Annotated[StateRepository, Depends(repository)],
+    authorizer: Annotated[
+        MutationIdentityAuthorizer, Depends(mutation_authorizer)
+    ],
 ) -> AcceptanceReadiness:
     run = state_repository.get_run(run_id)
     if run is None:
@@ -861,6 +1019,7 @@ def verify_system_acceptance(
             ),
         )
     try:
+        identity = authorizer.resolve(approval.specification.project_id)
         findings = verifier.verify(approval.specification)
         for finding in findings:
             state_repository.record_acceptance_result(
@@ -871,9 +1030,10 @@ def verify_system_acceptance(
                 summary=finding.summary,
                 evidence=finding.evidence,
                 actor="system:google-api-verifier",
+                current_identity=identity,
             )
         return state_repository.acceptance_readiness(run_id)
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_problem("acceptance-verification-invalid", str(error)),
@@ -890,6 +1050,9 @@ def record_operator_acceptance(
     run_id: str,
     request: OperatorAcceptanceRequest,
     state_repository: Annotated[StateRepository, Depends(repository)],
+    authorizer: Annotated[
+        MutationIdentityAuthorizer, Depends(mutation_authorizer)
+    ],
 ) -> AcceptanceResult:
     try:
         run = state_repository.get_run(run_id)
@@ -898,6 +1061,7 @@ def record_operator_acceptance(
         approval = state_repository.get_approval(run.approval_id)
         if approval is None:
             raise ValueError("Deployment approval was not found")
+        identity = authorizer.resolve(approval.specification.project_id)
         readiness = state_repository.acceptance_readiness(run_id)
         allowed_cases = {
             (requirement.test_id, requirement.case_key)
@@ -915,9 +1079,10 @@ def record_operator_acceptance(
             source="operator",
             summary=request.summary,
             evidence=request.evidence,
-            actor=approval.approved_by,
+            actor=identity.operator_email,
+            current_identity=identity,
         )
-    except ValueError as error:
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_problem("acceptance-result-invalid", str(error)),
@@ -956,6 +1121,7 @@ def _trusted_preflight(
     specification: DeploymentSpec,
     provider: DiscoveryProvider,
     validator: ConnectionValidator,
+    state_repository: StateRepository,
 ) -> PreflightResult:
     """Produce an entirely server-attested snapshot; client identity flags are ignored."""
     try:
@@ -964,7 +1130,13 @@ def _trusted_preflight(
             specification.customer_id,
             specification.target_ou_id,
         )
-        result = provider.preflight(specification)
+        ownership_proofs = discovery_ownership_proofs(
+            state_repository.active_discovery_ownership_metadata(specification)
+        )
+        result = provider.preflight(
+            specification,
+            ownership_proofs=ownership_proofs,
+        )
     except (GoogleApiError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_424_FAILED_DEPENDENCY,
