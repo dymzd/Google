@@ -268,6 +268,12 @@ export async function restoreIamPolicyWithFreshEtag(
         payload: restored.payload,
       });
     }
+    // Every other read-modify-write race in this file backs off before
+    // re-reading. Without it three attempts are spent in milliseconds and a
+    // rollback that only needed a moment reports as unrecoverable.
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25 * (2 ** attempt)));
+    }
   }
   throw new ProviderExecutionError("iam-restore-conflict");
 }

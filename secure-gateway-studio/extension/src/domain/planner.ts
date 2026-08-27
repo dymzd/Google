@@ -159,6 +159,7 @@ export function requiredPermissions(spec: DeploymentSpec): Set<string> {
       "compute.instanceGroups.delete",
       "compute.instanceGroups.get",
       "compute.instanceGroups.update",
+      "compute.instances.use",
       "compute.regionSslCertificates.create",
       "compute.regionSslCertificates.delete",
       "compute.regionSslCertificates.get",

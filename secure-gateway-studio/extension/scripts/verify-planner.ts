@@ -27,6 +27,7 @@ import {
   type DiscoverySnapshot,
 } from "../src/domain/planner.ts";
 import { parseDeploymentSpec } from "../src/domain/spec.ts";
+import { POC_DEPLOYER_ROLE, REQUIRED_PERMISSIONS } from "../src/domain/constants.generated.ts";
 
 /**
  * Compare by canonical form.
@@ -245,6 +246,48 @@ for (const testCase of golden.cases) {
       if (permissions.has(excessive)) {
         failures.push(`Option B planner: excessive permission ${excessive}`);
       }
+    }
+  }
+}
+
+// The YAML under infrastructure/iam is what an administrator hands to gcloud,
+// and the constants are what Apply plans against. Nothing reconciled the two,
+// so a permission added to one could sit in the other's blind spot -- which is
+// how `compute.instances.use` reached a live role while the planner still did
+// not know Apply needed it.
+{
+  const iam = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../infrastructure/iam",
+  );
+  const yamlPermissions = (file: string): string[] =>
+    readFileSync(resolve(iam, file), "utf8")
+      .split(/\r?\n/)
+      .map((line) => /^\s*-\s+([a-z]+\.[A-Za-z]+\.[A-Za-z]+)\s*$/.exec(line)?.[1])
+      .filter((value): value is string => value !== undefined)
+      .sort();
+  const only = (a: readonly string[], b: readonly string[]): string =>
+    a.filter((value) => !b.includes(value)).join(", ") || "-";
+  for (
+    const [file, constant, label] of [
+      [
+        "secure-gateway-poc-deployer-role.yaml",
+        [...POC_DEPLOYER_ROLE.includedPermissions].sort(),
+        "POC_DEPLOYER_ROLE",
+      ],
+      [
+        "secure-gateway-deployer-role.yaml",
+        [...REQUIRED_PERMISSIONS].sort(),
+        "REQUIRED_PERMISSIONS",
+      ],
+    ] as const
+  ) {
+    const actual = yamlPermissions(file);
+    if (canonicalJson(actual) !== canonicalJson(constant)) {
+      failures.push(
+        `${file} and ${label} disagree; only in YAML: ${only(actual, constant)}; ` +
+          `only in ${label}: ${only(constant, actual)}`,
+      );
     }
   }
 }
