@@ -11,12 +11,14 @@ import {
 
 assert.equal(extensionCapabilities.cepDeployer, true);
 assert.equal(extensionCapabilities.internalHttpsLbArchitecture, true);
+assert.equal(extensionCapabilities.sessionSignIn, true);
 assert.equal(extensionCapabilities.sessionSignOut, true);
 assert.equal(extensionCapabilities.recommendedPocSourceImage, true);
 assert.equal(extensionCapabilities.userDataDisclosure, true);
 assert.equal(extensionCapabilities.vpcNetworkCatalog, true);
 assert.equal(localCapabilities.cepDeployer, false);
 assert.equal(localCapabilities.internalHttpsLbArchitecture, true);
+assert.equal(localCapabilities.sessionSignIn, false);
 assert.equal(localCapabilities.sessionSignOut, false);
 assert.equal(localCapabilities.recommendedPocSourceImage, false);
 assert.equal(localCapabilities.userDataDisclosure, false);
@@ -241,5 +243,32 @@ const manifest = JSON.parse(
 const extensionCsp = manifest.content_security_policy?.extension_pages ?? "";
 assert.match(extensionCsp, /(?:^|;)\s*style-src 'self'(?:;|$)/);
 assert.doesNotMatch(extensionCsp, /style-src[^;]*'unsafe-inline'/);
+
+// Interactive Google consent has exactly one implementation and it is silent
+// unless a person asks for it. That makes every link in the chain from a click
+// to chrome.identity load-bearing: 0.2.24 dropped the client method alone and
+// left a handler nothing could call, so a Chrome profile that had never
+// consented could not be recovered from inside the product. Assert the whole
+// path, not just its ends.
+{
+  const read = async (path: string) =>
+    await readFile(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+  const api = await read("../../frontend/src/lib/api.ts");
+  const router = await read("../src/background/router.ts");
+  const worker = await read("../src/background/service-worker.ts");
+  const cep = await read("../../frontend/src/features/cep/CepDeployerPage.tsx");
+
+  assert.match(api, /export async function signInSession\(/);
+  assert.match(api, /runtimeCapabilities\.sessionSignIn/);
+  assert.match(api, /"\/api\/v1\/auth\/sign-in"/);
+  assert.match(router, /"POST \/api\/v1\/auth\/sign-in"/);
+  assert.match(router, /await context\.signIn\(\)/);
+  assert.match(worker, /signIn: establishAdministratorSession/);
+  // The wizard is where a new operator lands; the CEP button promises the
+  // same thing in its label.
+  assert.match(setupSource, /signInSession\(\)/);
+  assert.match(setupSource, /onClick=\{\(\) => void handleSignIn\(\)\}/);
+  assert.match(cep, /signInSession\(\)/);
+}
 
 console.log("UI capability, CSP, guide-boundary, and user-data disclosure checks passed");

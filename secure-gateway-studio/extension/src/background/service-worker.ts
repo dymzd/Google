@@ -1187,6 +1187,63 @@ async function driveDurableRun(runId: string, plan?: DeploymentPlan): Promise<vo
   });
 }
 
+/**
+ * Establish the administrator session behind an explicit user action.
+ *
+ * The only place in the extension allowed to prompt. Every background
+ * transport stays silent so nothing can open a consent window on its own; a
+ * UI click reaches this through the sign-in message or the route wrapping it.
+ */
+async function establishAdministratorSession(): Promise<{
+  authenticated: true;
+  operator: string;
+}> {
+  // Establishes the administrator session. Impersonation starts later, once
+  // bootstrap has created the deployer; until then this token is what the
+  // setup calls use.
+  // This explicit UI action is the only place allowed to prompt. Always
+  // refresh administrator consent first even when deployer metadata
+  // survived sign-out; the impersonation mint below remains silent and
+  // consumes only the token Chrome just cached.
+  await chromeIdentity.getAuthToken(true);
+  const operator = await operatorIdentity();
+  const boundOperator = await persistentGet([
+    "deployerOperatorEmail",
+    "deployerOperatorSubject",
+  ]);
+  const hasBoundOperator =
+    typeof boundOperator.deployerOperatorEmail === "string" ||
+    typeof boundOperator.deployerOperatorSubject === "string";
+  if (hasBoundOperator && (
+    boundOperator.deployerOperatorEmail !== operator.email ||
+    boundOperator.deployerOperatorSubject !== operator.subject
+  )) {
+    throw new AuthenticationError(
+      "operator-identity-changed",
+      "The signed-in Google account differs from the immutable operator bound to this deployer.",
+    );
+  }
+  const stored = await persistentGet([
+    "deployerServiceAccount",
+    "deployerServiceAccountUniqueId",
+    "deployerProjectId",
+  ]);
+  const deployer = stored.deployerServiceAccount;
+  const projectId = stored.deployerProjectId;
+  const uniqueId = stored.deployerServiceAccountUniqueId;
+  if (
+    typeof projectId === "string" &&
+    isSupportedDeployerServiceAccountEmail(deployer, projectId) &&
+    typeof uniqueId === "string" && /^\d+$/.test(uniqueId)
+  ) {
+    credentials = new DeployerCredentials({ serviceAccountEmail: deployer });
+    await credentials.accessToken();
+  } else {
+    credentials = null;
+  }
+  return { authenticated: true, operator: operator.email };
+}
+
 async function handle(request: Request): Promise<Response<unknown>> {
   await requireUserDataConsent();
   await ensureColdStartReconciled();
@@ -1198,52 +1255,8 @@ async function handle(request: Request): Promise<Response<unknown>> {
         authenticated: await hasAdministratorSession(),
       });
 
-    case "signIn": {
-      // Establishes the administrator session. Impersonation starts later, once
-      // bootstrap has created the deployer; until then this token is what the
-      // setup calls use.
-      // This explicit UI action is the only place allowed to prompt. Always
-      // refresh administrator consent first even when deployer metadata
-      // survived sign-out; the impersonation mint below remains silent and
-      // consumes only the token Chrome just cached.
-      await chromeIdentity.getAuthToken(true);
-      const operator = await operatorIdentity();
-      const boundOperator = await persistentGet([
-        "deployerOperatorEmail",
-        "deployerOperatorSubject",
-      ]);
-      const hasBoundOperator =
-        typeof boundOperator.deployerOperatorEmail === "string" ||
-        typeof boundOperator.deployerOperatorSubject === "string";
-      if (hasBoundOperator && (
-        boundOperator.deployerOperatorEmail !== operator.email ||
-        boundOperator.deployerOperatorSubject !== operator.subject
-      )) {
-        throw new AuthenticationError(
-          "operator-identity-changed",
-          "The signed-in Google account differs from the immutable operator bound to this deployer.",
-        );
-      }
-      const stored = await persistentGet([
-        "deployerServiceAccount",
-        "deployerServiceAccountUniqueId",
-        "deployerProjectId",
-      ]);
-      const deployer = stored.deployerServiceAccount;
-      const projectId = stored.deployerProjectId;
-      const uniqueId = stored.deployerServiceAccountUniqueId;
-      if (
-        typeof projectId === "string" &&
-        isSupportedDeployerServiceAccountEmail(deployer, projectId) &&
-        typeof uniqueId === "string" && /^\d+$/.test(uniqueId)
-      ) {
-        credentials = new DeployerCredentials({ serviceAccountEmail: deployer });
-        await credentials.accessToken();
-      } else {
-        credentials = null;
-      }
-      return ok({ authenticated: true, operator: operator.email });
-    }
+    case "signIn":
+      return ok(await establishAdministratorSession());
 
     case "signOut": {
       await signOutSafely();
@@ -1521,6 +1534,7 @@ const routeContext = {
     await new StateRepository(await openDatabase()).renewCepMutationLease(lease),
   releaseCepMutationLease: async (lease: Parameters<StateRepository["releaseCepMutationLease"]>[0]) =>
     await new StateRepository(await openDatabase()).releaseCepMutationLease(lease),
+  signIn: establishAdministratorSession,
   signOut: async () => {
     await signOutSafely();
   },

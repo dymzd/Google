@@ -32,6 +32,11 @@ export interface WorkflowMessages {
   bootstrapComplete: string;
   bootstrapNext: string;
   bootstrapFailed: string;
+  signInGoogle: string;
+  signingInGoogle: string;
+  signInGoogleHint: string;
+  signInRequired: string;
+  signInOperatorChanged: string;
   progressTitle: string;
   progressCount: (completed: number, total: number) => string;
   currentOperation: string;
@@ -821,6 +826,14 @@ const en: Messages = {
     bootstrapNext:
       "The deployer service account, all-supported-path project role, and Access Policy Editor binding were configured in Google Cloud. Subsequent calls use the active keyless authentication path.",
     bootstrapFailed: "Automatic deployer setup failed",
+    signInGoogle: "Sign in with Google",
+    signingInGoogle: "Waiting for Google…",
+    signInGoogleHint:
+      "Opens Google's consent window. Required once per Chrome profile before the deployer can be set up.",
+    signInRequired:
+      "This Chrome profile has not authorized Secure Gateway Studio yet. Sign in with Google to grant access, then retry.",
+    signInOperatorChanged:
+      "The signed-in Google account differs from the operator this deployer is bound to. Sign in with the original account, or create a replacement deployer.",
     progressTitle: "Deployment progress",
     progressCount: (completed: number, total: number) =>
       `${completed} of ${total} operations complete`,
@@ -2309,6 +2322,14 @@ const ja: Messages = {
     bootstrapNext:
       "デプロイヤー用サービスアカウント、全対応パス用のプロジェクトカスタムロール、Access Policy EditorをGoogle Cloud上に構成しました。以後の呼び出しは現在のキーレス認証経路を使用します。",
     bootstrapFailed: "デプロイヤーの自動準備に失敗しました",
+    signInGoogle: "Google でサインイン",
+    signingInGoogle: "Google の応答を待っています…",
+    signInGoogleHint:
+      "Google の同意画面を開きます。デプロイヤーを準備する前に、Chrome プロファイルごとに一度だけ必要です。",
+    signInRequired:
+      "この Chrome プロファイルはまだ Secure Gateway Studio を承認していません。Google でサインインして権限を付与してから、もう一度実行してください。",
+    signInOperatorChanged:
+      "サインイン中の Google アカウントが、このデプロイヤーに紐づく運用者と異なります。元のアカウントでサインインするか、置き換え用のデプロイヤーを作成してください。",
     progressTitle: "デプロイ進捗",
     progressCount: (completed: number, total: number) =>
       `${total}件中${completed}件を完了`,

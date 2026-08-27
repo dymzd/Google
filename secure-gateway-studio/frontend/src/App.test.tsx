@@ -43,6 +43,7 @@ import {
   type DeploymentSpec,
   type PreparedPlan,
 } from "./lib/api";
+import * as api from "./lib/api";
 
 function restoredPlan(specification: DeploymentSpec, configurationHash: string): PreparedPlan {
   return {
@@ -247,6 +248,47 @@ describe("Secure Gateway Studio mode screen", () => {
     expect(
       screen.getByRole("button", { name: /^Production/ }),
     ).toBeDisabled();
+  });
+
+  it("offers Google sign-in in the wizard and names a profile that never consented", async () => {
+    const mutableCapabilities = runtimeCapabilities as unknown as {
+      sessionSignIn: boolean;
+    };
+    const previous = mutableCapabilities.sessionSignIn;
+    mutableCapabilities.sessionSignIn = true;
+    const signIn = vi.spyOn(api, "signInSession").mockResolvedValue({
+      authenticated: true,
+    });
+    const copy = getMessages("ja").workflow;
+    try {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      render(
+        <IdentitiesStep
+          messages={getMessages("ja")}
+          onBootstrapCloud={vi.fn().mockRejectedValue(
+            new ApiError(
+              401,
+              "consent-required",
+              "Google authorization is unavailable or was revoked. OAuth2 not granted or revoked.",
+            ),
+          )}
+          onPatch={vi.fn()}
+          onValidateCloud={vi.fn()}
+          onValidateWorkspace={vi.fn()}
+          state={{ ...defaultSetupState, projectId: "montreal-436802" }}
+        />,
+      );
+
+      // Bootstrap cannot recover on its own; the operator has to be told which
+      // of the two authentication faults this is.
+      fireEvent.click(screen.getByRole("button", { name: copy.bootstrapDeployer }));
+      await screen.findByText(copy.signInRequired);
+
+      fireEvent.click(screen.getByRole("button", { name: copy.signInGoogle }));
+      await waitFor(() => expect(signIn).toHaveBeenCalled());
+    } finally {
+      mutableCapabilities.sessionSignIn = previous;
+    }
   });
 
   it("shows the actionable gcloud bootstrap failure returned by the API", async () => {

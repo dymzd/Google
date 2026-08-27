@@ -14,6 +14,7 @@ import {
   listAccessLevelOptions,
   listOrganizationalUnitOptions,
   provisionCepPolicies,
+  signInSession,
   rollbackCepPolicies,
 } from "../../lib/api";
 import {
@@ -189,6 +190,10 @@ export function CepDeployerPage({
     setLoadingOus(true);
     setOuError(false);
     try {
+      // The button promises to verify the Google account. Ask for consent
+      // first so a profile that never granted it is not told, silently and
+      // wrongly, that it has no organizational units.
+      await signInSession();
       const options = await listOrganizationalUnitOptions(canonicalCustomerId);
       setOrganizationalUnits(options);
       setOuError(options.length === 0);
