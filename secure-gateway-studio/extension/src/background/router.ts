@@ -153,6 +153,7 @@ export interface RouteContext {
   /** Re-schedule this exact durable run; never consume/create another one. */
   resumeApply: (runId: string) => Promise<unknown>;
   runState: (runId: string) => Promise<unknown>;
+  signIn?: () => Promise<{ authenticated: true; operator: string }>;
   signOut?: () => Promise<void>;
 }
 
@@ -610,6 +611,7 @@ const PORTED = new Set([
   "POST /api/v1/privacy/consent/finalize",
   "GET /api/v1/client-state",
   "POST /api/v1/client-state",
+  "POST /api/v1/auth/sign-in",
   "POST /api/v1/auth/sign-out",
   "POST /api/v1/connections/google-cloud/validate",
   "POST /api/v1/connections/workspace/validate",
@@ -765,6 +767,16 @@ export async function route(
 
   if (key === "GET /api/v1/health") {
     return { status: "ok", version: chrome.runtime.getManifest().version };
+  }
+
+  if (key === "POST /api/v1/auth/sign-in") {
+    if (!context.signIn) {
+      throw new RouteError(501, "sign-in-unavailable", "This build cannot sign in.");
+    }
+    // Reaching a consent prompt requires an explicit operator click. The route
+    // exists so the shared React layer can ask for one without knowing that
+    // the extension answers it with chrome.identity.
+    return await context.signIn();
   }
 
   if (key === "POST /api/v1/auth/sign-out") {

@@ -784,6 +784,23 @@ export function generateCepScript(
   );
 }
 
+/**
+ * Ask the runtime for an administrator session, prompting for consent.
+ *
+ * Every other call path acquires tokens silently so nothing can open a consent
+ * window on its own. Call this only from an explicit operator action; a build
+ * without the capability has nothing to prompt and reports the session as-is.
+ */
+export async function signInSession(): Promise<
+  { authenticated: boolean; operator?: string }
+> {
+  if (!runtimeCapabilities.sessionSignIn) return { authenticated: true };
+  return await postJson<{ authenticated: boolean; operator?: string }>(
+    "/api/v1/auth/sign-in",
+    {},
+  );
+}
+
 export async function signOutSession(): Promise<void> {
   if (!runtimeCapabilities.sessionSignOut) return;
   await postJson<{ success: boolean }>("/api/v1/auth/sign-out", {});

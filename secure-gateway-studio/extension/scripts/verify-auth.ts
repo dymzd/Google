@@ -449,8 +449,8 @@ async function main(): Promise<void> {
       /case "apply": \{([\s\S]*?)\n    case "runState":/,
     )?.[1] ?? "";
     const signIn = worker.match(
-      /case "signIn": \{([\s\S]*?)\n    case "signOut":/,
-    )?.[1] ?? "";
+      /async function establishAdministratorSession\(\)[\s\S]*?\r?\n\}\r?\n/,
+    )?.[0] ?? "";
     const engine = worker.match(
       /async function engineFor\([\s\S]*?\n\}/,
     )?.[0] ?? "";

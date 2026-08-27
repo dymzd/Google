@@ -28,6 +28,7 @@ export const runtimeCapabilities = {
   cepDeployer: false,
   internalHttpsLbArchitecture: true,
   postDeploymentAccessUpdate: false,
+  sessionSignIn: false,
   sessionSignOut: false,
   recommendedPocSourceImage: false,
   userDataDisclosure: false,

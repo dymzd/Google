@@ -70,6 +70,25 @@ describe("CepDeployerPage", () => {
     vi.spyOn(api, "listAccessLevelOptions").mockResolvedValue(ACCESS_LEVELS);
   });
 
+  it("asks Google for consent before it reports the organizational units", async () => {
+    const order: string[] = [];
+    const signIn = vi.spyOn(api, "signInSession").mockImplementation(async () => {
+      order.push("signIn");
+      return { authenticated: true };
+    });
+    vi.spyOn(api, "listOrganizationalUnitOptions").mockImplementation(async () => {
+      order.push("listOus");
+      return OU_OPTIONS;
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(signIn).toHaveBeenCalled());
+    // A profile that never granted consent would otherwise be told it simply
+    // has no organizational units.
+    expect(order).toEqual(["signIn", "listOus"]);
+  });
+
   it("renders the modules and presets it can actually apply", async () => {
     renderPage();
 

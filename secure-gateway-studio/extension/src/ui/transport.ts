@@ -30,6 +30,7 @@ export const runtimeCapabilities = {
   cepDeployer: true,
   internalHttpsLbArchitecture: true,
   postDeploymentAccessUpdate: true,
+  sessionSignIn: true,
   sessionSignOut: true,
   recommendedPocSourceImage: true,
   userDataDisclosure: true,

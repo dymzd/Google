@@ -91,7 +91,8 @@ check(
 
 check(
   "sign-in does not require a deployer",
-  /case "signIn"[\s\S]{0,1400}?chromeIdentity\.getAuthToken\(true\)/.test(worker),
+  /async function establishAdministratorSession\(\)[\s\S]{0,1400}?chromeIdentity\.getAuthToken\(true\)/
+    .test(worker),
   "signIn should establish an administrator session when no deployer is stored",
 );
 

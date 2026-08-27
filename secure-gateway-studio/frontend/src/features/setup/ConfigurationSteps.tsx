@@ -27,6 +27,7 @@ import {
   listOrganizationalUnitOptions,
   listVpcNetworkOptions,
   runtimeCapabilities,
+  signInSession,
 } from "../../lib/api";
 import {
   isPublicTrustedHostnameCandidate,
@@ -233,6 +234,7 @@ export function IdentitiesStep({
   const copy = messages.workflow;
   const [bootstrapBusy, setBootstrapBusy] = useState(false);
   const [bootstrapError, setBootstrapError] = useState("");
+  const [signInBusy, setSignInBusy] = useState(false);
   const [bootstrapResult, setBootstrapResult] =
     useState<DeployerBootstrapResult | null>(null);
 
@@ -287,13 +289,42 @@ export function IdentitiesStep({
       // validation path; manual validation remains single-shot.
       await onValidateCloud(true);
     } catch (error) {
+      // A profile that never granted consent, and an account that is not the
+      // one this deployer is bound to, are both recoverable by the operator.
+      // Say which it is instead of relaying the transport's wording.
+      if (error instanceof ApiError && error.code === "consent-required") {
+        setBootstrapError(copy.signInRequired);
+      } else if (
+        error instanceof ApiError && error.code === "operator-identity-changed"
+      ) {
+        setBootstrapError(copy.signInOperatorChanged);
+      } else {
+        setBootstrapError(
+          error instanceof ApiError || error instanceof Error
+            ? `${copy.bootstrapFailed}: ${error.message}`
+            : copy.bootstrapFailed,
+        );
+      }
+    } finally {
+      setBootstrapBusy(false);
+    }
+  }
+
+  async function handleSignIn() {
+    setSignInBusy(true);
+    setBootstrapError("");
+    try {
+      await signInSession();
+    } catch (error) {
       setBootstrapError(
-        error instanceof ApiError || error instanceof Error
+        error instanceof ApiError && error.code === "operator-identity-changed"
+          ? copy.signInOperatorChanged
+          : error instanceof Error
           ? `${copy.bootstrapFailed}: ${error.message}`
           : copy.bootstrapFailed,
       );
     } finally {
-      setBootstrapBusy(false);
+      setSignInBusy(false);
     }
   }
 
@@ -332,9 +363,25 @@ export function IdentitiesStep({
             placeholder="enterprise-secgw-01"
             value={state.projectId}
           />
+          {runtimeCapabilities.sessionSignIn && (
+            <>
+              <button
+                className="connection-action secondary"
+                disabled={signInBusy || bootstrapBusy}
+                onClick={() => void handleSignIn()}
+                type="button"
+              >
+                <ShieldIcon size={18} />
+                {signInBusy ? copy.signingInGoogle : copy.signInGoogle}
+              </button>
+              <small className="connection-help-hint">
+                {copy.signInGoogleHint}
+              </small>
+            </>
+          )}
           <button
             className="connection-action secondary"
-            disabled={!state.projectId.trim() || bootstrapBusy}
+            disabled={!state.projectId.trim() || bootstrapBusy || signInBusy}
             onClick={() => void handleBootstrap()}
             type="button"
           >
