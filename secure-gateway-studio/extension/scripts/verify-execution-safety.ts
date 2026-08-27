@@ -7237,6 +7237,81 @@ for (const resourceType of ["security_gateway", "application"] as const) {
   );
 }
 
+// A Secure Gateway IAM binding is not live the instant setIamPolicy returns.
+// The Chrome managed configuration hands the gateway resource to the browser
+// extension, which fetches Service Discovery routes immediately and answers a
+// 403 with a two-hour backoff, so Apply holds the configuration back until the
+// binding has had time to propagate. A run that wrote no binding waits for
+// nothing.
+{
+  const settleMs = 150;
+  const transport: Transport = {
+    async requestJson(method, url) {
+      if (method === "GET" && url.includes("/policySchemas/")) {
+        return {
+          status: 200,
+          payload: {
+            definition: { messageType: [{ field: [{ name: "managedConfiguration" }] }] },
+          },
+        };
+      }
+      if (method === "GET" && url.includes("/orgunits/id%3A")) {
+        return {
+          status: 200,
+          payload: { orgUnitId: `id:${SPEC.target_ou_id}`, orgUnitPath: "/Pilot" },
+        };
+      }
+      if (method === "GET" && url.endsWith(":getIamPolicy")) {
+        return { status: 200, payload: { version: 3, etag: "before", bindings: [] } };
+      }
+      return { status: 200, payload: {} };
+    },
+  };
+  const configurationChange = change(
+    "chromepolicy",
+    "extension_configuration",
+    "ekajlcmdfcigmdbphhifahdfjbkciflj",
+  );
+  const applyOptions = (runId: string) => ({
+    runId,
+    stepIndex: 0,
+    requestId: crypto.randomUUID(),
+    checkpointBeforeImage: async () => {},
+  });
+
+  const settling = new GoogleResourceExecutor(transport, {
+    workspaceTransport: transport,
+    iamSettleMs: settleMs,
+  });
+  await settling.apply(
+    change("beyondcorp", "gateway_iam", "default-service-discovery-users"),
+    SPEC,
+    applyOptions("run-iam-settle"),
+  );
+  const startedAfterIam = Date.now();
+  await settling.apply(configurationChange, SPEC, applyOptions("run-iam-settle"));
+  const elapsedAfterIam = Date.now() - startedAfterIam;
+
+  const untouched = new GoogleResourceExecutor(transport, {
+    workspaceTransport: transport,
+    iamSettleMs: 10_000,
+  });
+  const startedWithoutIam = Date.now();
+  await untouched.apply(configurationChange, SPEC, applyOptions("run-iam-settle-skip"));
+  const elapsedWithoutIam = Date.now() - startedWithoutIam;
+
+  check(
+    "the Chrome managed configuration waits out Secure Gateway IAM propagation",
+    elapsedAfterIam >= settleMs,
+    `elapsed ${elapsedAfterIam}ms < ${settleMs}ms`,
+  );
+  check(
+    "a run that wrote no Secure Gateway IAM binding does not wait",
+    elapsedWithoutIam < 1_000,
+    `elapsed ${elapsedWithoutIam}ms`,
+  );
+}
+
 if (failures.length > 0) {
   console.error(`FAIL ${failures.length} of ${failures.length + passed} checks\n`);
   for (const failure of failures) console.error(`  ${failure}`);

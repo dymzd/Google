@@ -64,6 +64,7 @@ includedPermissions:
   - compute.instances.setTags
   - compute.instances.start
   - compute.instances.stop
+  - compute.instances.use
   - compute.networks.create
   - compute.networks.delete
   - compute.networks.get

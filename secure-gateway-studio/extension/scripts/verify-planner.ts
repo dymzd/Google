@@ -220,6 +220,7 @@ for (const testCase of golden.cases) {
       `compute:url_map:${spec.name}-ilb-map`,
       `compute:target_https_proxy:${spec.name}-ilb-proxy`,
       `compute:forwarding_rule:${spec.name}-ilb-fr`,
+      `compute:firewall_rule:${spec.name}-gateway-ingress`,
     ]) {
       if (!keys.has(required)) failures.push(`Option B planner: missing ${required}`);
     }

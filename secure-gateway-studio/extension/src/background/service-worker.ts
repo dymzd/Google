@@ -1170,7 +1170,11 @@ async function driveDurableRun(runId: string, plan?: DeploymentPlan): Promise<vo
       let current: RunRecord | null = initial;
       while (current !== null && isActive(current.state)) {
         const currentEngine = await engineFor(runId, spec);
-        current = await currentEngine.tick(runId, spec);
+        const next = await currentEngine.tick(runId, spec);
+        if (next.state === "running" && next.steps.some((s) => s.status === "pending")) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+        current = next;
       }
       if (current !== null) await finalizeRun(current, spec, plan);
     } catch (error) {

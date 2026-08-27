@@ -88,16 +88,19 @@ export function canonicalSecretVersionUrl(
   ) {
     throw new ProviderExecutionError("secret-version-expected-resource-invalid");
   }
-  const relativePrefix =
-    `projects/${expectedProjectId}/secrets/${expectedSecretName}/versions/`;
   const relative = value.startsWith(`${SECRET_MANAGER_API}/`)
     ? value.slice(SECRET_MANAGER_API.length + 1)
     : value;
-  if (!relative.startsWith(relativePrefix)) {
+  const match = relative.match(/^projects\/([^/]+)\/secrets\/([^/]+)\/versions\/([1-9][0-9]*)$/);
+  if (!match) {
     throw new ProviderExecutionError("secret-version-name-invalid");
   }
-  const version = relative.slice(relativePrefix.length);
-  if (!/^[1-9][0-9]*$/.test(version)) {
+  const project = match[1]!;
+  const secret = match[2]!;
+  if (secret !== expectedSecretName) {
+    throw new ProviderExecutionError("secret-version-name-invalid");
+  }
+  if (project !== expectedProjectId && !/^[0-9]+$/.test(project)) {
     throw new ProviderExecutionError("secret-version-name-invalid");
   }
   return `${SECRET_MANAGER_API}/${relative}`;
@@ -928,6 +931,16 @@ export class GoogleResourceExecutor {
   private readonly exportArtifact: (filename: string, contents: string) => Promise<void>;
   private readonly operationPollIntervalMs: number;
   private readonly maxOperationPolls: number;
+  /**
+   * How long a Secure Gateway / application IAM write needs before the Service
+   * Discovery control plane serves it. The Chrome managed configuration hands
+   * the gateway resource to the browser extension, which fetches routes at
+   * once; publishing it before the binding is live earns a 403 that the
+   * extension answers with a two-hour backoff, so Apply waits this out first.
+   */
+  private readonly iamSettleMs: number;
+  /** Wall clock of the last gateway or application IAM write in this run. */
+  private iamMutatedAt: number | undefined;
   private readonly accessPolicyId: string | undefined;
   private readonly publicCertificateBinding: PublicCertificateBinding | null;
   private readonly sourceImageBinding: SourceImageBinding | null;
@@ -956,6 +969,7 @@ export class GoogleResourceExecutor {
       certificate?: CertificateBundle;
       operationPollIntervalMs?: number;
       maxOperationPolls?: number;
+      iamSettleMs?: number;
       workspaceTransport?: Transport;
       accessPolicyId?: string;
       publicCertificateBinding?: PublicCertificateBinding | null;
@@ -973,6 +987,7 @@ export class GoogleResourceExecutor {
   ) {
     this.operationPollIntervalMs = options.operationPollIntervalMs ?? 2_000;
     this.maxOperationPolls = options.maxOperationPolls ?? 150;
+    this.iamSettleMs = options.iamSettleMs ?? 45_000;
     // Every handler, including Path A/Production modules, receives the checked
     // view. Raw non-2xx responses therefore cannot be mistaken for payloads,
     // and mutations do not return until any Google operation has completed.
@@ -1161,6 +1176,9 @@ export class GoogleResourceExecutor {
       exportArtifact: this.exportArtifact,
       captureBefore: (change: ResourceChange, beforeImage: unknown) =>
         this.captureBefore(change, beforeImage),
+      maxOperationPolls: this.maxOperationPolls,
+      operationPollIntervalMs: this.operationPollIntervalMs,
+      iamSettleMs: this.iamSettleMs,
     };
   }
 
@@ -2359,7 +2377,9 @@ export class GoogleResourceExecutor {
           pageSize: 100,
           ...(pageToken === undefined ? {} : { pageToken }),
         },
+        acceptedStatuses: [404],
       });
+      if (response.status === 404) return null;
       const versions = response.payload.versions;
       if (versions !== undefined && !Array.isArray(versions)) {
         throw new ProviderExecutionError("secret-version-list-invalid");
@@ -2435,6 +2455,7 @@ export class GoogleResourceExecutor {
         projectId,
         secretName,
       );
+      if (versionName === null) return;
     }
     if (typeof versionName !== "string" || versionName === "") {
       throw new ProviderExecutionError("secret-version-name-missing-for-rollback");
@@ -3107,6 +3128,7 @@ export class GoogleResourceExecutor {
       role: "roles/beyondcorp.serviceDiscoveryUser",
       members: this.principalMembers(spec),
     });
+    this.iamMutatedAt = Date.now();
   }
 
   private async setUpstreamAccess(
@@ -3170,6 +3192,7 @@ export class GoogleResourceExecutor {
       members: this.principalMembers(spec),
       condition,
     });
+    this.iamMutatedAt = Date.now();
   }
 
   private async applicationIamCondition(
@@ -3520,10 +3543,25 @@ export class GoogleResourceExecutor {
     });
   }
 
-  private setChromeConfiguration(
+  /**
+   * Hold until `iamSettleMs` has passed since the last Secure Gateway or
+   * application IAM write. Nothing to wait for when this run wrote no
+   * binding, and time already spent counts, so a long Apply pays nothing
+   * extra.
+   */
+  private async settleIamPropagation(): Promise<void> {
+    if (this.iamMutatedAt === undefined) return;
+    const remaining = this.iamMutatedAt + this.iamSettleMs - Date.now();
+    if (remaining <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, remaining));
+  }
+
+  private async setChromeConfiguration(
     change: ResourceChange,
     spec: DeploymentSpec,
   ): Promise<void> {
+    // Publishing the gateway resource is what makes the extension fetch routes.
+    await this.settleIamPropagation();
     const configuration = canonicalJson({
       securityGateway: {
         Value: {

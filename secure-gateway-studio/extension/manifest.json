@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Secure Gateway Studio",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwuM+Q9hex8XvkaBJ+SpB/vzk2CruscHVb8+GTsmK7npkhBRJRSat7Wi63FXvecqLszKLfH12Jqmp+cTjixkTpNiFz7WrvkxoLODwFjv51JGa/bYgwzB/e+fWmL6bEUwHX8l3tYo4nwHkB1TMueeJxQBvSVuOj/9H5W8Gjugu6V0DfRNhoPFXSxuiqSM6MlrHFd1HIa2tiKXPDwmp9UdsSR8/BXCO8un5MlnHDejRzKaXtBYQ5Pk/IXgQymN6PQXilri847qBwhCoZnuZeBSb4G+2oLwdH5/Q4qau+mbD8RsWZNehjBRwbUowSVW5UnmYQNYYpA7GqVdvVuw7KMYiYwIDAQAB",
   "description": "Administrator deployment console for Chrome Enterprise Premium and Secure Gateway environments.",
   "minimum_chrome_version": "142",

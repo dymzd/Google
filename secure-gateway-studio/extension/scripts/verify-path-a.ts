@@ -10,6 +10,7 @@ import {
   type PathAContext,
 } from "../src/providers/executor-path-a.ts";
 import { GoogleResourceExecutor, type Transport } from "../src/providers/executor.ts";
+import { compatibleFirewall } from "../src/providers/discovery.ts";
 import { sampleBackendStartupScript } from "../src/providers/startup-scripts.ts";
 import {
   planRun,
@@ -294,6 +295,87 @@ function evidencePayload(
   }
 }
 
+// Option B terminates TLS on Envoy proxies that carry no service account, so
+// the gateway ingress rule applies to the whole VPC instead of the offload
+// identity. Path A must keep targeting that identity.
+{
+  const transport = new RecordingTransport();
+  await applyPathA(
+    context(transport),
+    change("firewall_rule", `${ILB_SPEC.name}-gateway-ingress`),
+    ILB_SPEC,
+  );
+  const call = transport.calls[0];
+  check(
+    "Option B gateway ingress opens TCP 443 to the VPC with no target identity",
+    transport.calls.length === 1 && call?.method === "POST" &&
+      call.url.endsWith("/global/firewalls") &&
+      canonicalJson(call.body) === canonicalJson({
+        allowed: [{ IPProtocol: "tcp", ports: ["443"] }],
+        direction: "INGRESS",
+        logConfig: { enable: true, metadata: "INCLUDE_ALL_METADATA" },
+        name: `${ILB_SPEC.name}-gateway-ingress`,
+        network:
+          "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+          `global/networks/${ILB_SPEC.name}-vpc`,
+        priority: 1000,
+        sourceRanges: ["136.124.16.0/20"],
+      }),
+    canonicalJson(call ?? null),
+  );
+}
+
+
+// Discovery must accept the shape Apply actually writes. When the two disagree
+// the rule reads as drift and Preflight blocks the run on a phantom conflict.
+{
+  const gatewayIngress = (
+    spec: DeploymentSpec,
+    targetServiceAccounts: string[] | undefined,
+  ): Record<string, unknown> => ({
+    name: `${spec.name}-gateway-ingress`,
+    direction: "INGRESS",
+    priority: 1000,
+    disabled: false,
+    network:
+      "https://compute.googleapis.com/compute/v1/projects/enterprise-secgw-01/" +
+      `global/networks/${spec.name}-vpc`,
+    logConfig: { enable: true, metadata: "INCLUDE_ALL_METADATA" },
+    allowed: [{ IPProtocol: "tcp", ports: ["443"] }],
+    sourceRanges: ["136.124.16.0/20"],
+    ...(targetServiceAccounts === undefined ? {} : { targetServiceAccounts }),
+  });
+  const offload = (spec: DeploymentSpec) => [
+    serviceAccountEmail(spec.name, spec.project_id, "offload"),
+  ];
+  check(
+    "discovery accepts the Option B gateway ingress rule and its Path A counterpart",
+    compatibleFirewall(
+      `${ILB_SPEC.name}-gateway-ingress`,
+      gatewayIngress(ILB_SPEC, undefined),
+      ILB_SPEC,
+    ) &&
+      compatibleFirewall(
+        `${MANAGED_SPEC.name}-gateway-ingress`,
+        gatewayIngress(MANAGED_SPEC, offload(MANAGED_SPEC)),
+        MANAGED_SPEC,
+      ),
+  );
+  check(
+    "discovery rejects a gateway ingress rule whose target identity is wrong for the path",
+    !compatibleFirewall(
+      `${ILB_SPEC.name}-gateway-ingress`,
+      gatewayIngress(ILB_SPEC, offload(ILB_SPEC)),
+      ILB_SPEC,
+    ) &&
+      !compatibleFirewall(
+        `${MANAGED_SPEC.name}-gateway-ingress`,
+        gatewayIngress(MANAGED_SPEC, undefined),
+        MANAGED_SPEC,
+      ),
+  );
+}
+
 // The readiness predicate rejects every shape that previously let a Compute
 // insert be reported as a successful application without usable Nginx/TLS.
 {
@@ -529,7 +611,11 @@ class NullScheduler implements Scheduler {
   }
   const terminal = await new RunEngine(
     store,
-    new GoogleResourceExecutor(transport, { sourceImageBinding: SOURCE_IMAGE_BINDING }),
+    new GoogleResourceExecutor(transport, {
+      sourceImageBinding: SOURCE_IMAGE_BINDING,
+      operationPollIntervalMs: 0,
+      maxOperationPolls: 1,
+    }),
     scheduler,
   ).tick(initial.runId, EXISTING_SPEC);
 
@@ -662,7 +748,7 @@ class NullScheduler implements Scheduler {
     "Option B emits proxy-only subnet semantics",
     bodies.some((body) => body.purpose === "REGIONAL_MANAGED_PROXY" &&
       body.role === "ACTIVE" && body.ipCidrRange === "10.42.1.0/24" &&
-      body.privateIpGoogleAccess === false),
+      body.privateIpGoogleAccess === undefined),
     canonicalJson(transport.calls),
   );
   check(

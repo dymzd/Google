@@ -7,6 +7,7 @@ import { POC_DEPLOYER_ROLE } from "./constants.generated.ts";
  * while the custom-role update was still propagating.
  */
 export const EXTENSION_DEPLOYER_READINESS_PERMISSIONS = [
+  "compute.instances.use",
   "compute.regionHealthChecks.create",
   "compute.regionHealthChecks.delete",
   "compute.regionHealthChecks.get",
