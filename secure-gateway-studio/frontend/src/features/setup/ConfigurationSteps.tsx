@@ -769,6 +769,8 @@ export function EnvironmentStep({ messages, onPatch, state }: StepProps) {
               networkStrategy: "existing",
               privateHostname: "secgw-backend.internal",
               region: state.region || "asia-northeast1",
+              applicationEgressRegion:
+                state.applicationEgressRegion || state.region || "asia-northeast1",
               deploymentName:
                 state.deploymentName === "secure-gateway-http-offload" ||
                 state.deploymentName === "secure-gateway-ilb-https-offload"
@@ -1722,9 +1724,8 @@ export function ReviewStep({
         snapshot.endpoint_verification_installed === true,
       );
     }
-    if (gate.gate_id === "apply-permissions") {
-      const match = gate.detail.match(/^(\d+) required permissions are missing/);
-      if (match) return copy.missingPermissions(Number(match[1]));
+    if (gate.status !== "pass" && gate.detail) {
+      return gate.detail;
     }
     return copy.gateDescriptions[gate.gate_id] ?? gate.detail;
   }
@@ -2113,11 +2114,7 @@ export function ApplyStep({
           {run.status === "succeeded" ? <CheckIcon size={18} /> : <InfoIcon size={18} />}
           <span>
             <strong>{runMessage}</strong>
-            <small>
-              {runFinalized
-                ? `${copy.runFinalized} · ${copy.noActiveOperation}`
-                : copy.operationCount(operations.length)}
-            </small>
+            <small>{copy.operationCount(operations.length)}</small>
           </span>
         </p>
       )}
@@ -2156,7 +2153,7 @@ export function ApplyStep({
                 </>
               ) : (
                 <>
-                  {runFinished && failedOperations.length > 0 ? (
+                  {failedOperations.length > 0 ? (
                     <>
                       <small>{copy.failedOperations}</small>
                       <ul className="apply-failure-list">
@@ -2239,6 +2236,18 @@ export function ApplyStep({
               {downloadError}
             </p>
           )}
+        </article>
+      )}
+      {run?.status === "succeeded" && (
+        <article className="ca-handoff">
+          <h3>{copy.connectionHandoffTitle}</h3>
+          <p>
+            <strong>{copy.testUrlLabel}: </strong>
+            <a href={`https://${state.privateHostname}`} rel="noreferrer" target="_blank">
+              https://{state.privateHostname}
+            </a>
+          </p>
+          <p>{copy.sebTroubleshootingHint}</p>
         </article>
       )}
       {error && <p className="connection-error" role="alert">{error}</p>}

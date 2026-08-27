@@ -879,7 +879,7 @@ export async function applyProduction(
         },
         { requestId: context.requestId(change) },
       );
-      await waitForStableGroup(transport, spec);
+      await waitForStableGroup(transport, spec, context);
       await assertProductionManagedInstanceBootDisks(
         transport,
         spec,
@@ -951,21 +951,22 @@ export async function applyProduction(
             ? {
               target: `${regional(spec, "targetHttpsProxies")}/${spec.name}-ilb-proxy`,
               networkTier: "PREMIUM",
+              portRange: "443",
             }
             : {
               backendService:
                 `${regional(spec, "backendServices")}/${spec.name}-offload-bs`,
+              ports: ["443"],
             }),
           loadBalancingScheme:
             spec.backend_kind === "internal_https_lb" ? "INTERNAL_MANAGED" : "INTERNAL",
           name: change.resource_name,
           network: `${base(spec)}/global/networks/${networkName(spec)}`,
-          ports: ["443"],
           subnetwork: `${regional(spec, "subnetworks")}/${subnetName(spec)}`,
         },
         { requestId: context.requestId(change) },
       );
-      await waitForHealthyBackend(transport, spec);
+      await waitForHealthyBackend(transport, spec, context);
       return true;
     }
 
@@ -1287,45 +1288,60 @@ async function sampleBackendAddress(
  * Pointing the load balancer at a group that has not finished creating
  * instances produces a deployment that looks applied and serves nothing.
  */
-async function waitForStableGroup(transport: Transport, spec: DeploymentSpec): Promise<void> {
-  const response = await transport.requestJson(
-    "GET",
-    `${regional(spec, "instanceGroupManagers")}/${spec.name}-offload-mig`,
-  );
-  const status = response.payload.status as
-    | { isStable?: unknown; currentInstanceStatuses?: { running?: unknown } }
-    | undefined;
-  const running = Number(status?.currentInstanceStatuses?.running ?? 0);
-  if (status?.isStable !== true || running < spec.offload_min_replicas) {
-    // The caller reschedules; under Manifest V3 waiting is an alarm, not a loop.
-    throw new ProviderExecutionError("managed-instance-group-not-stable");
+async function waitForStableGroup(
+  transport: Transport,
+  spec: DeploymentSpec,
+  context?: PathAContext,
+): Promise<void> {
+  const maxPolls = context?.maxOperationPolls ?? 40;
+  const interval = context?.operationPollIntervalMs ?? 3000;
+  for (let poll = 0; poll < maxPolls; poll += 1) {
+    const response = await transport.requestJson(
+      "GET",
+      `${regional(spec, "instanceGroupManagers")}/${spec.name}-offload-mig`,
+    );
+    const status = response.payload.status as
+      | { isStable?: unknown; currentInstanceStatuses?: { running?: unknown } }
+      | undefined;
+    const running = Number(status?.currentInstanceStatuses?.running ?? 0);
+    if (status?.isStable === true && running >= spec.offload_min_replicas) return;
+    if (poll < maxPolls - 1 && interval > 0) {
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
   }
+  throw new ProviderExecutionError("managed-instance-group-not-stable");
 }
 
 async function waitForHealthyBackend(
   transport: Transport,
   spec: DeploymentSpec,
+  context?: PathAContext,
 ): Promise<void> {
-  const response = await transport.requestJson(
-    "POST",
-    `${regional(spec, "backendServices")}/${spec.name}-${spec.backend_kind === "internal_https_lb" ? "ilb" : "offload"}-bs/getHealth`,
-    {
-      jsonBody: {
-        group: spec.backend_kind === "internal_https_lb"
-          ? `${COMPUTE_RESOURCE}/projects/${spec.project_id}/zones/${spec.zone}/instanceGroups/${spec.name}-backend-ig`
-          : `${COMPUTE_RESOURCE}/projects/${spec.project_id}/regions/${spec.region}/instanceGroups/${spec.name}-offload-mig`,
-      },
-    },
-  );
-  const states = response.payload.healthStatus;
-  const healthy = Array.isArray(states)
-    ? states.filter((entry) => (entry as { healthState?: unknown }).healthState === "HEALTHY")
-        .length
-    : 0;
+  const group = spec.backend_kind === "internal_https_lb"
+    ? `${COMPUTE_RESOURCE}/projects/${spec.project_id}/zones/${spec.zone}/instanceGroups/${spec.name}-backend-ig`
+    : `${COMPUTE_RESOURCE}/projects/${spec.project_id}/regions/${spec.region}/instanceGroups/${spec.name}-offload-mig`;
+  const url = `${regional(spec, "backendServices")}/${spec.name}-${spec.backend_kind === "internal_https_lb" ? "ilb" : "offload"}-bs/getHealth`;
   const required = spec.backend_kind === "internal_https_lb" ? 1 : spec.offload_min_replicas;
-  if (healthy < required) {
-    throw new ProviderExecutionError("offload-backend-not-healthy");
+  const maxPolls = context?.maxOperationPolls ?? 40;
+  const interval = context?.operationPollIntervalMs ?? 3000;
+
+  for (let poll = 0; poll < maxPolls; poll += 1) {
+    const response = await transport.requestJson(
+      "POST",
+      url,
+      { jsonBody: { group } },
+    );
+    const states = response.payload.healthStatus;
+    const healthy = Array.isArray(states)
+      ? states.filter((entry) => (entry as { healthState?: unknown }).healthState === "HEALTHY")
+          .length
+      : 0;
+    if (healthy >= required) return;
+    if (poll < maxPolls - 1 && interval > 0) {
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
   }
+  throw new ProviderExecutionError("offload-backend-not-healthy");
 }
 
 /** UTF-8 aware base64, since btoa alone mangles non-ASCII. */

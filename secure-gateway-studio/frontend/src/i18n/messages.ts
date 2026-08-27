@@ -223,6 +223,9 @@ export interface WorkflowMessages {
   downloadingRootCa: string;
   openAdminConsoleGuide: string;
   caDownloadFailed: string;
+  connectionHandoffTitle: string;
+  testUrlLabel: string;
+  sebTroubleshootingHint: string;
   previous: string;
   next: string;
 }
@@ -874,7 +877,7 @@ const en: Messages = {
     internalHttpsLb:
       "Option B — HTTPS offload with Internal Application Load Balancer",
     internalHttpsLbDescription:
-      "Terminate HTTPS on a regional internal Application Load Balancer, then forward HTTP to a private sample backend. No Nginx offload tier is deployed.",
+      "Terminate HTTPS on a regional internal Application Load Balancer in a dedicated VPC, then forward HTTP to a private sample VM backend. Dedicated VPC, subnet, ILB, and sample VM are created automatically.",
     configureSampleVm: "Create a private sample VM during approved Apply",
     configureSampleVmDescription:
       "Selects the owned Option B PoC defaults. The VM is created only by the final approved Apply, is private-only, and is recorded for teardown.",
@@ -894,7 +897,7 @@ const en: Messages = {
     directHttpsUrl: "Private HTTPS endpoint (https://host[:port])",
     applicationEgressRegion: "Egress region (optional)",
     applicationEgressRegionHint:
-      "Leave empty for cross-region-capable targets. Set the app or static-route region for a regional target.",
+      "Specifies the Google Cloud region for Gateway VPC egress. Defaults to the deployment region; set the target app's region for cross-region backends, or leave empty if the VPC uses Global dynamic routing.",
     backendLocation: "Backend hosting location",
     backendLocationGcp: "Google Cloud",
     backendLocationAws: "AWS",
@@ -1135,6 +1138,10 @@ const en: Messages = {
     openAdminConsoleGuide: "Open Google's CA setup guide",
     caDownloadFailed:
       "The root CA could not be downloaded. Confirm that Apply succeeded and retry.",
+    connectionHandoffTitle: "Connection verification & troubleshooting",
+    testUrlLabel: "Private Web App URL",
+    sebTroubleshootingHint:
+      "If Chrome displays NXDOMAIN or fails to connect, the Secure Enterprise Browser (SEB) extension may be in its 2-hour backoff state after an initial sync race. Sign out of your managed Chrome profile and sign back in (or reload the SEB extension at chrome://extensions) to trigger an immediate route refresh.",
     previous: "Back",
     next: "Continue",
   },
@@ -1207,7 +1214,7 @@ const en: Messages = {
     hours168: "Last 7 days",
     refreshLogs: "Refresh logs",
     refreshingLogs: "Querying Cloud Logging…",
-    noLogs: "No matching log entries were returned for this time range.",
+    noLogs: "No matching log entries were found yet for this time range. Access the application from a managed Chrome browser to produce logs.",
     logQueryFailed:
       "Cloud Logging or the current Secure Gateway logging state could not be verified. Confirm the deployer can read the gateway and list log entries, then retry. No log query is sent when the gateway state is malformed.",
     dataAccessNotice:
@@ -2358,7 +2365,7 @@ const ja: Messages = {
     internalHttpsLb:
       "Option B — Internal Application Load BalancerでHTTPSオフロード",
     internalHttpsLbDescription:
-      "Regional Internal Application Load BalancerでHTTPSを終端し、プライベートサンプルへHTTP転送します。Nginxオフロード層は作成しません。",
+      "専用VPC内でRegional Internal Application Load BalancerがHTTPSを終端し、プライベートサンプルVMへHTTP転送します。専用VPC・サブネット・ILB・サンプルVMが自動作成されます。",
     configureSampleVm: "承認済みApplyでプライベートサンプルVMを作成",
     configureSampleVmDescription:
       "Option Bの安全なPoC既定値を設定します。VMは最終Applyの明示承認後だけ作成され、外部IPを持たず、削除対象としてrunに記録されます。",
@@ -2378,7 +2385,7 @@ const ja: Messages = {
     directHttpsUrl: "プライベートHTTPSエンドポイント（https://host[:port]）",
     applicationEgressRegion: "下り（外向き）リージョン（任意）",
     applicationEgressRegionHint:
-      "クロスリージョン対応ターゲットでは空欄にします。リージョンターゲットまたは静的ルートではアプリのリージョンを指定します。",
+      "Secure GatewayがVPCへ下りるGoogle Cloudリージョンを指定します。既定値はデプロイリージョンです。クロスリージョンの場合はターゲットVMのあるリージョンを指定してください。VPCがGlobal動的ルーティングの場合は空欄でも動作します。",
     backendLocation: "バックエンドのホスティング先",
     backendLocationGcp: "Google Cloud",
     backendLocationAws: "AWS",
@@ -2615,6 +2622,10 @@ const ja: Messages = {
     openAdminConsoleGuide: "GoogleのCA設定ガイドを開く",
     caDownloadFailed:
       "ルートCAをダウンロードできませんでした。適用が成功していることを確認して再試行してください。",
+    connectionHandoffTitle: "接続確認とトラブルシューティング",
+    testUrlLabel: "プライベート Web アプリ URL",
+    sebTroubleshootingHint:
+      "Chrome で NXDOMAIN が表示される、または接続できない場合、初期同期のタイミングによって Secure Enterprise Browser（SEB）拡張機能が 2 時間の更新待機（バックオフ）に入っている可能性があります。管理対象 Chrome プロファイルから一度サインアウトして再サインインする（または chrome://extensions で SEB 拡張機能を再読み込みする）ことで、即座に最新ルートを取得できます。",
     previous: "戻る",
     next: "続行",
   },
@@ -2687,7 +2698,7 @@ const ja: Messages = {
     hours168: "過去7日間",
     refreshLogs: "ログを更新",
     refreshingLogs: "Cloud Loggingを照会中…",
-    noLogs: "指定期間に一致するログは返されませんでした。",
+    noLogs: "指定期間に一致するログはまだ記録されていません。管理対象Chromeブラウザからアクセスすると順次表示されます。",
     logQueryFailed:
       "Cloud Logging または現在の Secure Gateway ログ設定を検証できません。デプロイヤーが Gateway の読み取りとログ一覧取得を行えることを確認して再試行してください。Gateway の状態が不正な場合、ログ照会は送信しません。",
     dataAccessNotice:

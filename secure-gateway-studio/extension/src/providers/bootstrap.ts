@@ -1151,10 +1151,15 @@ export async function bootstrapDeployer(
     }
     const observedEtag = roleEtag(existingRole.payload, roleName);
     if (observedEtag !== ownershipPin.custom_role_etag) {
-      throw new BootstrapError(
-        "role-version-changed",
-        "The pinned deployer custom role was changed outside this bootstrap. Review it before migrating the ownership record.",
-      );
+      if (isCurrentManagedRole(existingRole.payload, roleName)) {
+        ownershipPin = { ...ownershipPin, custom_role_etag: observedEtag };
+        await options.checkpointOwnershipPin(structuredClone(ownershipPin));
+      } else {
+        throw new BootstrapError(
+          "role-version-changed",
+          "The pinned deployer custom role was changed outside this bootstrap. Review it before migrating the ownership record.",
+        );
+      }
     }
     if (!isCurrentManagedRole(existingRole.payload, roleName)) {
       ownershipPin = {

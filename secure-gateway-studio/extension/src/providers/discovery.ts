@@ -622,10 +622,32 @@ export class GoogleDiscoveryProvider {
 
     for (const probe of this.resourceProbes(spec)) {
       try {
+        const isServiceAccount = probe.key.startsWith("iam:service_account:");
         const response = await this.transport.requestJson("GET", probe.url, {
-          acceptedStatuses: [404],
+          acceptedStatuses: isServiceAccount ? [404, 403] : [404],
         });
         if (response.status === 404) continue;
+        if (response.status === 403 && isServiceAccount) {
+          const listResponse = await this.transport.requestJson(
+            "GET",
+            `https://iam.googleapis.com/v1/projects/${spec.project_id}/serviceAccounts`,
+            { acceptedStatuses: [403, 404] },
+          );
+          const accounts = Array.isArray((listResponse.payload as { accounts?: unknown[] })?.accounts)
+            ? (listResponse.payload as { accounts: Array<{ email?: unknown }> }).accounts
+            : [];
+          const targetEmail = decodeURIComponent(probe.url.split("/").pop() ?? "").toLowerCase();
+          const exists = accounts.some(
+            (acc) => typeof acc.email === "string" && acc.email.toLowerCase() === targetEmail,
+          );
+          if (!exists) continue;
+          throw new GoogleApiError({
+            status: 403,
+            method: "GET",
+            url: probe.url,
+            payload: response.payload,
+          });
+        }
         if (response.status === 200) {
           if (await this.compatible(probe.key, response.payload, spec)) {
             if (probe.key === publicSecretKey) {
@@ -2350,7 +2372,7 @@ export class GoogleDiscoveryProvider {
     }
 
     const firewallSuffixes = spec.backend_kind === "internal_https_lb"
-      ? ["ilb-proxy-ingress", "ilb-health-ingress"]
+      ? ["ilb-proxy-ingress", "ilb-health-ingress", "gateway-ingress"]
       : ["gateway-ingress"];
     if (spec.mode === "production") firewallSuffixes.push("health-check-ingress");
     if (spec.backend_kind === "managed_sample") firewallSuffixes.push("backend-ingress");
@@ -3080,7 +3102,7 @@ function compatibleSslHealthCheck(value: unknown): boolean {
     (detail.response === undefined || detail.response === "");
 }
 
-function compatibleFirewall(
+export function compatibleFirewall(
   resourceName: string,
   payload: Record<string, unknown>,
   spec: DeploymentSpec,
@@ -3115,12 +3137,13 @@ function compatibleFirewall(
   const targetAccounts = strictStrings(payload.targetServiceAccounts);
   if (sourceRanges === null || sourceAccounts === null || targetAccounts === null) return false;
   if (resourceName.endsWith("-gateway-ingress")) {
+    const expectedTargets = spec.backend_kind === "internal_https_lb"
+      ? []
+      : [serviceAccountEmail(spec.name, spec.project_id, "offload")];
     return canonicalJson(ports) === canonicalJson(["443"]) &&
       canonicalJson(sourceRanges) === canonicalJson([SECURE_GATEWAY_SOURCE_RANGE]) &&
       sourceAccounts.length === 0 &&
-      canonicalJson(targetAccounts) === canonicalJson([
-        serviceAccountEmail(spec.name, spec.project_id, "offload"),
-      ]);
+      canonicalJson(targetAccounts) === canonicalJson(expectedTargets);
   }
   if (resourceName.endsWith("-health-check-ingress")) {
     return canonicalJson(ports) === canonicalJson(["443"]) &&

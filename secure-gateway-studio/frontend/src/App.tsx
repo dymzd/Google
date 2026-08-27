@@ -296,13 +296,12 @@ export function App() {
       if (planResult.status === "fulfilled") setPreparedPlan(planResult.value);
       if (approvalResult.status === "fulfilled") setApproval(approvalResult.value);
       const restoredRun = runResult.status === "fulfilled" ? runResult.value : null;
-      const recoverableRun = restoredRun !== null &&
-          RECOVERABLE_RUN_STATUSES.has(restoredRun.status)
-        ? restoredRun
-        : runsResult.status === "fulfilled"
-          ? findRecoverableDeploymentRun(runsResult.value)
-          : null;
-      if (recoverableRun !== null) {
+      const recoverableRun = Boolean(refs.runId)
+        ? ((restoredRun !== null && RECOVERABLE_RUN_STATUSES.has(restoredRun.status))
+            ? restoredRun
+            : (extensionPersistentState ? findRecoverableDeploymentRun(await listDeploymentRuns()) : null))
+        : null;
+      if (recoverableRun !== null && setup.currentStep === 6) {
         setRun(recoverableRun);
         setSetup((current) => ({
           ...current,
@@ -310,7 +309,7 @@ export function App() {
           currentStep: 6,
           updatedAt: new Date().toISOString(),
         }));
-      } else if (restoredRun !== null) {
+      } else if (restoredRun !== null && Boolean(refs.runId)) {
         setRun(restoredRun);
       }
       setWorkflowRestored(true);
@@ -517,22 +516,12 @@ export function App() {
     setWorkflowBusy(true);
     setWorkflowError("");
     try {
-      if (extensionPersistentState) {
-        const recoverableRun = findRecoverableDeploymentRun(await listDeploymentRuns());
-        if (recoverableRun !== null) {
-          setPreparedPlan(null);
-          setApproval(null);
-          setRun(recoverableRun);
-          updateSetup((current) => ({
-            ...current,
-            approvalConfirmed: false,
-            currentStep: 6,
-          }));
-          return;
-        }
-      }
       setApproval(null);
       setRun(null);
+      setPersistedWorkflow(emptyWorkflowRefs);
+      if (extensionPersistentState) {
+        void saveExtensionClientState({ workflow: emptyWorkflowRefs });
+      }
       updateSetup((current) => ({ ...current, approvalConfirmed: false }));
       let setupForPlan = setup;
       if (

@@ -303,6 +303,8 @@ export interface PathAContext {
   exportArtifact: (filename: string, contents: string) => Promise<void>;
   /** Persist a compensation image with the run step before mutating shared state. */
   captureBefore?: (change: ResourceChange, beforeImage: unknown) => Promise<void>;
+  maxOperationPolls?: number;
+  operationPollIntervalMs?: number;
 }
 
 export type NamedResourceMutationPhase = "prepared" | "sending" | "rejected" | "applied";
@@ -505,13 +507,18 @@ export function isCompatibleCloudNat(value: unknown, expected: CloudNatConfig): 
   ) return false;
   const nat = value as Partial<CloudNatConfig>;
   const subnetworks = nat.subnetworks;
+  const actualSubnet = subnetworks?.[0]?.name;
+  const expectedSubnet = expected.subnetworks[0]?.name;
+  const subnetsMatch = typeof actualSubnet === "string" && typeof expectedSubnet === "string" &&
+    (actualSubnet === expectedSubnet || actualSubnet.split("/").pop() === expectedSubnet.split("/").pop());
+
   return nat.name === expected.name &&
     nat.natIpAllocateOption === expected.natIpAllocateOption &&
     nat.sourceSubnetworkIpRangesToNat === expected.sourceSubnetworkIpRangesToNat &&
     nat.logConfig?.enable === true &&
     nat.logConfig.filter === expected.logConfig.filter &&
     Array.isArray(subnetworks) && subnetworks.length === 1 &&
-    subnetworks[0]?.name === expected.subnetworks[0]?.name &&
+    subnetsMatch &&
     Array.isArray(subnetworks[0]?.sourceIpRangesToNat) &&
     subnetworks[0]?.sourceIpRangesToNat.length === 1 &&
     subnetworks[0]?.sourceIpRangesToNat[0] === "ALL_IP_RANGES";
@@ -656,9 +663,11 @@ function firewallRuleBody(
     ];
   } else if (change.resource_name.endsWith("-gateway-ingress")) {
     body.sourceRanges = [SECURE_GATEWAY_SOURCE_RANGE];
-    body.targetServiceAccounts = [
-      serviceAccountEmail(spec.name, spec.project_id, "offload"),
-    ];
+    if (spec.backend_kind !== "internal_https_lb") {
+      body.targetServiceAccounts = [
+        serviceAccountEmail(spec.name, spec.project_id, "offload"),
+      ];
+    }
   } else if (change.resource_name.endsWith("-ilb-proxy-ingress")) {
     body.allowed = [{ IPProtocol: "tcp", ports: ["80"] }];
     body.sourceRanges = [spec.proxy_subnet_cidr];
@@ -729,12 +738,13 @@ export async function applyPathA(
       {
         const proxyOnly = change.resource_name.endsWith("-proxy-subnet");
         await post(`${COMPUTE}/projects/${project}/regions/${spec.region}/subnetworks`, {
-        ipCidrRange: proxyOnly ? spec.proxy_subnet_cidr : spec.subnet_cidr,
-        name: change.resource_name,
-        network: networkUrl(spec, networkName(spec)),
-        privateIpGoogleAccess: !proxyOnly,
-        stackType: "IPV4_ONLY",
-        ...(proxyOnly ? { purpose: "REGIONAL_MANAGED_PROXY", role: "ACTIVE" } : {}),
+          ipCidrRange: proxyOnly ? spec.proxy_subnet_cidr : spec.subnet_cidr,
+          name: change.resource_name,
+          network: networkUrl(spec, networkName(spec)),
+          stackType: "IPV4_ONLY",
+          ...(proxyOnly
+            ? { purpose: "REGIONAL_MANAGED_PROXY", role: "ACTIVE" }
+            : { privateIpGoogleAccess: true }),
         });
       }
       return;
@@ -1374,20 +1384,23 @@ export async function applyPathA(
         tags: { items: [change.resource_name] },
       });
 
-      // One readiness poll per durable RunEngine attempt keeps an MV3 worker
-      // invocation short. If evidence is absent or incomplete, throwing leaves
-      // the step pending; the engine persists attempts and reuses the same
-      // Compute requestId on resume. MAX_ATTEMPTS bounds the polling lifecycle.
-      const readiness = await transport.requestJson(
-        "GET",
-        `${COMPUTE}/projects/${project}/zones/${spec.zone}/instances/` +
-          `${change.resource_name}/getGuestAttributes`,
-        { params: { queryPath: "sgstudio/" }, acceptedStatuses: [400, 404] },
-      );
-      if (readiness.status !== 200 || !isInstanceRuntimeReady(readiness.payload, spec, role)) {
-        throw new ProviderExecutionError("instance-readiness-pending");
+      const maxPolls = context.maxOperationPolls ?? 40;
+      const interval = context.operationPollIntervalMs ?? 3000;
+      for (let poll = 0; poll < maxPolls; poll += 1) {
+        const readiness = await transport.requestJson(
+          "GET",
+          `${COMPUTE}/projects/${project}/zones/${spec.zone}/instances/` +
+            `${change.resource_name}/getGuestAttributes`,
+          { params: { queryPath: "sgstudio/" }, acceptedStatuses: [400, 404] },
+        );
+        if (readiness.status === 200 && isInstanceRuntimeReady(readiness.payload, spec, role)) {
+          return;
+        }
+        if (poll < maxPolls - 1 && interval > 0) {
+          await new Promise((resolve) => setTimeout(resolve, interval));
+        }
       }
-      return;
+      throw new ProviderExecutionError("instance-readiness-pending");
     }
 
     default:
