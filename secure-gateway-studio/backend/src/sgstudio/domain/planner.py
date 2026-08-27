@@ -105,6 +105,7 @@ REQUIRED_PERMISSIONS = {
     "compute.instances.setTags",
     "compute.instances.start",
     "compute.instances.stop",
+    "compute.instances.use",
     "compute.instanceGroupManagers.create",
     "compute.instanceGroupManagers.delete",
     "compute.instanceGroupManagers.get",
@@ -376,6 +377,9 @@ def required_permissions(spec: DeploymentSpec) -> set[str]:
             "compute.instanceGroups.delete",
             "compute.instanceGroups.get",
             "compute.instanceGroups.update",
+            # Registering the sample backend in its instance group is an
+            # `instances.use` on that VM. Only the load balancer tier does it.
+            "compute.instances.use",
             "compute.regionSslCertificates.create",
             "compute.regionSslCertificates.delete",
             "compute.regionSslCertificates.get",

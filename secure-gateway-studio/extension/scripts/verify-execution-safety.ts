@@ -9,6 +9,7 @@ import {
   canonicalSecretVersionUrl,
   GoogleApiError,
   GoogleResourceExecutor,
+  restoreIamPolicyWithFreshEtag,
   type Transport,
 } from "../src/providers/executor.ts";
 import {
@@ -51,6 +52,7 @@ const POST_020_ROLE_PERMISSIONS = new Set([
   "compute.instanceTemplates.create",
   "compute.instanceTemplates.delete",
   "compute.instanceTemplates.get",
+  "compute.instances.use",
   "compute.routes.list",
   "dns.changes.get",
   "privateca.caPools.use",
@@ -7309,6 +7311,47 @@ for (const resourceType of ["security_gateway", "application"] as const) {
     "a run that wrote no Secure Gateway IAM binding does not wait",
     elapsedWithoutIam < 1_000,
     `elapsed ${elapsedWithoutIam}ms`,
+  );
+}
+
+// Rolling an IAM policy back races whoever else is writing it. Retrying the
+// read-modify-write without pausing spends the whole budget inside a few
+// milliseconds, and a rollback that only needed a moment to settle is reported
+// as unrecoverable -- the one failure an operator cannot act on.
+{
+  let conflicts = 0;
+  const transport: Transport = {
+    async requestJson(method, url) {
+      if (url.endsWith(":getIamPolicy")) {
+        return { status: 200, payload: { version: 3, etag: "fresh", bindings: [] } };
+      }
+      if (url.endsWith(":setIamPolicy")) {
+        if (conflicts < 2) {
+          conflicts += 1;
+          return { status: 409, payload: { error: { status: "ABORTED" } } };
+        }
+        return { status: 200, payload: { version: 3, etag: "after", bindings: [] } };
+      }
+      return { status: 200, payload: {} };
+    },
+  };
+  const started = Date.now();
+  let restoreError: unknown;
+  try {
+    await restoreIamPolicyWithFreshEtag(transport, {
+      getUrl: "https://example.googleapis.com/v1/resource:getIamPolicy",
+      setUrl: "https://example.googleapis.com/v1/resource:setIamPolicy",
+      beforePolicy: { version: 3, etag: "before", bindings: [] },
+      afterPolicy: { version: 3, etag: "after", bindings: [] },
+    });
+  } catch (error) {
+    restoreError = error;
+  }
+  const elapsed = Date.now() - started;
+  check(
+    "an IAM rollback backs off between etag conflicts instead of burning its budget",
+    restoreError === undefined && conflicts === 2 && elapsed >= 25 + 50,
+    `error=${String(restoreError)} conflicts=${conflicts} elapsed=${elapsed}ms`,
   );
 }
 
