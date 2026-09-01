@@ -12,6 +12,17 @@ managed Chrome platforms, and either a dedicated or existing VPC. Production
 remains visible but disabled; the backend implementation is retained for a
 future production-ready release.
 
+## Where to go
+
+| If you want to | Read |
+| --- | --- |
+| Know what is and is not supported today | [Current release posture](#current-release-posture), [Implemented controls](#implemented-controls) |
+| Set up a project and run it | [Prerequisites](#prerequisites), [Install and run](#install-and-run) |
+| Understand the inputs Apply accepts | [Production input contracts](#production-input-contracts) |
+| Reproduce the checks CI runs | [Verification](#verification) |
+| Recover an interrupted deployment | [State and recovery](#state-and-recovery) |
+| Find every other document | [Documentation](#documentation) |
+
 ## Not an official Google product
 
 This is an independent open-source project. It is **not built, endorsed, or

@@ -9,6 +9,19 @@ Verified against `manifest.json` at version 0.2.24.
 
 ---
 
+## Where to go
+
+| If you are | Read |
+| --- | --- |
+| Uploading a build | [1. Before uploading](#1-before-uploading), [6. Distribution](#6-distribution) |
+| Filling the listing | [2. Store listing](#2-store-listing), [5. Screenshots and images](#5-screenshots-and-images) |
+| Answering privacy questions | [3. Privacy practices](#3-privacy-practices) |
+| Doing OAuth verification | [4. OAuth verification](#4-oauth-verification-google-cloud-console-separate-from-the-store), [4b. Branding](#4b-branding-google-auth-platform) |
+| Writing the reviewer note | [7. Review notes](#7-review-notes-the-free-text-box) |
+
+Per-permission rationale lives in [PERMISSIONS.md](PERMISSIONS.md); the build
+provenance a reviewer can reproduce is in [VERIFYING_THE_BUILD.md](VERIFYING_THE_BUILD.md).
+
 ## 1. Before uploading
 
 The store listing is not the blocker. These are.
