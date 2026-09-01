@@ -29,3 +29,9 @@ __pycache__/
 # Local environment overrides
 .env
 .env.local
+.local/
+
+# Scratch and build output. secure-gateway-studio/tmp/pdfs/guide-page-16.png
+# reached the index because nothing ignored tmp/ at any level; it was a page
+# render of the guide PDF, referenced from nowhere, and is no longer tracked.
+tmp/
