@@ -13,9 +13,9 @@ theme: minima
 plugins:
   - jekyll-seo-tag
 
-# The implementation plans are reference material, not part of the site.
+# The implementation plans are reference material, not part of the site. They
+# now live in docs-internal/, outside the Pages source, so they no longer need
+# excluding here. Only the Tailwind build inputs remain.
 exclude:
-  - CHROME_EXTENSION_IMPLEMENTATION_PLAN.md
-  - CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md
   - assets/css/tailwind.input.css
   - tailwind.config.cjs

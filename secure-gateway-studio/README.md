@@ -496,6 +496,6 @@ run; it never discovers deletion targets from a project-wide name prefix.
 
 ## Documentation
 
-- [Implementation plan](../docs/CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md)
+- [Implementation plan](../docs-internal/CHROME_SECURE_GATEWAY_WEB_APP_IMPLEMENTATION_PLAN.md)
 - [Enterprise readiness](docs/ENTERPRISE_READINESS.md)
 - [Test matrix](docs/TEST_MATRIX.md)

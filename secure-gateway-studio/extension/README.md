@@ -2,7 +2,7 @@
 
 The Manifest V3 runtime distributed through the Chrome Web Store. The loopback
 FastAPI runtime remains available and has a different capability boundary. See
-[docs/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md](../../docs/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md)
+[docs-internal/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md](../../docs-internal/CHROME_EXTENSION_IMPLEMENTATION_PLAN.md)
 for the historical migration design. This file describes the current extension
 capability boundary for version 0.2.24.
 
